@@ -1,0 +1,35 @@
+# Dorker Configuration Setup
+
+## Environment Variables Setup
+
+Create a .env file in the project root with the following variables:
+
+# Logger Level (debug, info, warn, error) - controls verbosity
+LOG_LEVEL=info
+
+# ASOCKS Proxy API Key (for proxy generation when CAPTCHA is detected)
+# Get your key from: https://panel.asocks.com/
+ASOCKS_API_KEY=your_asocks_api_key_here
+
+# OpenRouter.ai API Key (for AI-powered image CAPTCHA solving)
+# Get your key from: https://openrouter.ai/
+OPENROUTER_API_KEY=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
+
+# ElevenLabs API Key (for audio CAPTCHA transcription)
+# Get your key from: https://elevenlabs.io/
+ELEVENLABS_API_KEY=your_elevenlabs_api_key_here
+
+## Usage
+
+1. Copy the variables above into a new file called ".env" in the project root
+2. Replace "your_asocks_api_key_here" with your actual ASOCKS API key
+3. The OpenRouter API key is already filled in with the provided key
+4. Run the dorker with: npm start or node index.js
+
+## Features
+
+- ✅ Automatic proxy switching when blocked
+- ✅ AI-powered image CAPTCHA solving 
+- ✅ Audio CAPTCHA solving (ElevenLabs Scribe)
+- ✅ Manual CAPTCHA assistance
+- ✅ Multiple search engines support 
