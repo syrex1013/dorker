@@ -3422,144 +3422,7 @@ class MultiEngineDorker {
       await this.close();
       await this.initialize();
 
-      // Quick verification that browser can access Google with proxy
-      console.log(chalk.blue("🔍 Verifying browser proxy connection..."));
-      let connectionWorking = false;
-
-      // Give proxy time to stabilize after browser restart
-      console.log(
-        chalk.yellow("⏳ Waiting 3 seconds for proxy to stabilize...")
-      );
-      await sleep(3000);
-
-      try {
-        // Test with Google directly since that's what we'll be using
-        await this.page.goto("https://www.google.com", {
-          waitUntil: "domcontentloaded",
-          timeout: 20000, // 20 second timeout for slow proxies
-        });
-
-        // Small delay to let page settle
-        await sleep(2000);
-
-        // Check for specific proxy error messages
-        const hasProxyError = await this.page.evaluate(() => {
-          const pageText =
-            document.body?.innerText || document.body?.textContent || "";
-          const errorMessages = [
-            "No Internet",
-            "ERR_PROXY_CONNECTION_FAILED",
-            "There is something wrong with the proxy server",
-            "proxy server or the address is incorrect",
-            "Contacting the system admin",
-            "Checking the proxy address",
-            "This site can't be reached",
-            "took too long to respond",
-            "Check your Internet connection",
-            "ERR_INTERNET_DISCONNECTED",
-            "ERR_NETWORK_CHANGED",
-          ];
-
-          return errorMessages.some((msg) =>
-            pageText.toLowerCase().includes(msg.toLowerCase())
-          );
-        });
-
-        if (hasProxyError) {
-          logger?.warn("Proxy error detected on page", {
-            proxy: `${proxy.host}:${proxy.port}`,
-          });
-          console.log(chalk.red("❌ Proxy error detected on page"));
-          connectionWorking = false;
-        } else {
-          console.log(chalk.green("✅ Proxy connection verified with Google"));
-          logger?.info("Proxy connection test successful with Google");
-          connectionWorking = true;
-        }
-      } catch (testError) {
-        logger?.warn("Proxy connection test failed", {
-          error: testError.message,
-          proxy: `${proxy.host}:${proxy.port}`,
-        });
-        console.log(
-          chalk.red(`❌ Proxy connection failed: ${testError.message}`)
-        );
-        connectionWorking = false;
-      }
-
-      if (!connectionWorking) {
-        console.log(
-          chalk.yellow("🔄 Proxy failed, will try to get a new one...")
-        );
-
-        // Clean up the bad proxy
-        await deleteProxy(proxy.id);
-        this.currentProxy = null;
-        this.proxiesUsed.pop(); // Remove from tracking
-
-        // Try to get a new proxy automatically
-        console.log(chalk.blue("🌐 Generating replacement proxy..."));
-        const newProxy = await generateProxy();
-
-        if (!newProxy) {
-          logger?.warn("Failed to generate replacement proxy");
-          console.log(chalk.red("❌ Failed to generate replacement proxy"));
-          return false;
-        }
-
-        this.currentProxy = newProxy;
-        this.proxiesUsed.push(newProxy);
-
-        console.log(
-          chalk.green(
-            `✅ New proxy: ${newProxy.host}:${newProxy.port} (ID: ${newProxy.id})`
-          )
-        );
-
-        // Reinitialize browser with new proxy
-        await this.close();
-        await this.initialize();
-
-        // Test the new proxy
-        try {
-          await this.page.goto("https://www.google.com", {
-            waitUntil: "domcontentloaded",
-            timeout: 15000,
-          });
-
-          await sleep(2000);
-
-          const hasNewProxyError = await this.page.evaluate(() => {
-            const pageText =
-              document.body?.innerText || document.body?.textContent || "";
-            const errorMessages = [
-              "No Internet",
-              "ERR_PROXY_CONNECTION_FAILED",
-              "There is something wrong with the proxy server",
-            ];
-
-            return errorMessages.some((msg) =>
-              pageText.toLowerCase().includes(msg.toLowerCase())
-            );
-          });
-
-          if (hasNewProxyError) {
-            console.log(chalk.red("❌ Replacement proxy also failed"));
-            await deleteProxy(newProxy.id);
-            this.currentProxy = null;
-            this.proxiesUsed.pop();
-            return false;
-          } else {
-            console.log(chalk.green("✅ Replacement proxy working"));
-          }
-        } catch (newTestError) {
-          console.log(chalk.red("❌ Replacement proxy test failed"));
-          await deleteProxy(newProxy.id);
-          this.currentProxy = null;
-          this.proxiesUsed.pop();
-          return false;
-        }
-      }
+      console.log(chalk.green("✅ Browser restarted with proxy successfully"));
 
       // If we have the current dork, navigate to Google and perform the search
       if (currentDork) {
@@ -7530,23 +7393,7 @@ class MultiEngineDorker {
         // Enhanced human-like text clearing and typing
         logger?.debug("Clearing existing search text with human behavior");
 
-        // First, select all existing text with varied methods
-        const isMac = this.fingerprint.platform === "MacIntel";
-        const ctrlKey = isMac ? "Meta" : "Control";
-
-        // Reliable clearing method - always use triple-click to avoid cursor positioning issues
-        await this.cursor.click(selector);
-        await sleep(Math.random() * 100 + 50);
-
-        // Triple-click to select all text (most reliable method)
-        await this.page.click(selector, { clickCount: 3 });
-        await sleep(Math.random() * 100 + 50);
-
-        // Use Delete key to clear selection
-        await this.page.keyboard.press("Delete");
-        await sleep(Math.random() * 50 + 25);
-
-        // Verify the field is empty with enhanced detection
+        // First check if there's existing content and react naturally like a human would
         const currentValue = await this.page.evaluate((sel) => {
           const element = document.querySelector(sel);
           if (!element) return "";
@@ -7564,29 +7411,71 @@ class MultiEngineDorker {
           return element.textContent || element.innerText || "";
         }, selector);
 
-        // Enhanced manual clearing if needed
+        // Human-like pause to "read" existing content (like real users do)
         if (currentValue && currentValue.trim()) {
-          logger?.debug("Manual clearing required", {
-            remainingText: currentValue.substring(0, 20),
+          logger?.debug("Found existing search text, clearing like a human", {
+            existingText: currentValue.substring(0, 30),
           });
 
-          // Human-like character deletion with variable speed
-          for (let i = 0; i < currentValue.length + 5; i++) {
-            await this.page.keyboard.press("Backspace");
-            // Variable deletion speed (humans don't delete at constant speed)
-            const deleteDelay =
-              Math.random() < 0.3
-                ? Math.random() * 50 + 20
-                : Math.random() * 15 + 5;
-            await sleep(deleteDelay);
+          // Human pause to "read" what's already there
+          await sleep(Math.random() * 300 + 200);
+
+          // Human-like clearing pattern: select all then delete (most common user behavior)
+          const isMac = this.fingerprint.platform === "MacIntel";
+          const ctrlKey = isMac ? "Meta" : "Control";
+
+          // First method: Ctrl/Cmd+A to select all (most common)
+          if (Math.random() < 0.7) {
+            await this.page.keyboard.down(ctrlKey);
+            await this.page.keyboard.press("KeyA");
+            await this.page.keyboard.up(ctrlKey);
+            await sleep(Math.random() * 100 + 50);
+            await this.page.keyboard.press("Delete");
+          } else {
+            // Alternative method: Triple-click (less common but human)
+            await this.page.click(selector, { clickCount: 3 });
+            await sleep(Math.random() * 100 + 50);
+            await this.page.keyboard.press("Delete");
           }
 
-          // Final safety clear
-          await this.page.keyboard.down(ctrlKey);
-          await this.page.keyboard.press("KeyA");
-          await this.page.keyboard.up(ctrlKey);
-          await sleep(Math.random() * 50 + 25);
-          await this.page.keyboard.press("Delete");
+          // Verify clearing worked
+          await sleep(Math.random() * 100 + 50);
+          const afterClearValue = await this.page.evaluate((sel) => {
+            const element = document.querySelector(sel);
+            if (!element) return "";
+            if (element.tagName === "INPUT" || element.tagName === "TEXTAREA") {
+              return element.value || "";
+            }
+            if (element.contentEditable === "true") {
+              return element.textContent || element.innerText || "";
+            }
+            return element.textContent || element.innerText || "";
+          }, selector);
+
+          // If still has content, use more aggressive clearing
+          if (afterClearValue && afterClearValue.trim()) {
+            logger?.debug("Additional clearing needed", {
+              remainingText: afterClearValue.substring(0, 20),
+            });
+
+            // More human-like deletion: move to end and backspace
+            await this.page.keyboard.press("End");
+            await sleep(Math.random() * 50 + 25);
+
+            // Delete character by character with human-like rhythm
+            for (let i = 0; i < afterClearValue.length + 3; i++) {
+              await this.page.keyboard.press("Backspace");
+              const deleteDelay =
+                Math.random() < 0.3
+                  ? Math.random() * 80 + 40 // Occasional slower deletion
+                  : Math.random() * 30 + 15; // Normal speed
+              await sleep(deleteDelay);
+            }
+          }
+        } else {
+          // No existing content - just ensure field is focused
+          await this.cursor.click(selector);
+          await sleep(Math.random() * 100 + 50);
         }
 
         logger?.debug("Search box cleared successfully");
