@@ -50,6 +50,12 @@ const logWithDedup = (level, message, color = null) => {
     CONSOLE_LOG_CACHE.delete(firstItem);
   }
 
+  // Always use logger with proper level structure
+  if (logger) {
+    logger[level](message);
+  }
+
+  // Also show to console with color if specified
   if (color) {
     console.log(color(message));
   } else {
@@ -318,7 +324,11 @@ async function deleteProxy(proxyId) {
 
   try {
     logger?.debug("Attempting to delete proxy via ASOCKS API", { proxyId });
-    console.log(chalk.blue(`🗑️ Deleting proxy ${proxyId} via ASOCKS API...`));
+    logWithDedup(
+      "info",
+      `🗑️ Deleting proxy ${proxyId} via ASOCKS API...`,
+      chalk.blue
+    );
 
     // ASOCKS API delete-port endpoint
     const response = await axios.delete(
@@ -338,7 +348,11 @@ async function deleteProxy(proxyId) {
       (response.data && response.data.success === true)
     ) {
       logger?.info("Successfully deleted proxy via ASOCKS API", { proxyId });
-      console.log(chalk.green(`✅ Proxy ${proxyId} deleted successfully`));
+      logWithDedup(
+        "info",
+        `✅ Proxy ${proxyId} deleted successfully`,
+        chalk.green
+      );
       return true;
     } else {
       throw new Error(
@@ -357,25 +371,31 @@ async function deleteProxy(proxyId) {
     });
 
     if (error.response?.status === 401 || error.response?.status === 403) {
-      console.log(
-        chalk.red("❌ ASOCKS API authentication failed during proxy deletion")
+      logWithDedup(
+        "error",
+        "❌ ASOCKS API authentication failed during proxy deletion",
+        chalk.red
       );
     } else if (error.response?.status === 404) {
-      console.log(
-        chalk.yellow(`⚠️ Proxy ${proxyId} not found (may already be deleted)`)
+      logWithDedup(
+        "warn",
+        `⚠️ Proxy ${proxyId} not found (may already be deleted)`,
+        chalk.yellow
       );
       return true; // Consider it successful if already deleted
     } else if (error.response?.data) {
-      console.log(
-        chalk.red(
-          `❌ Failed to delete proxy ${proxyId}: ${JSON.stringify(
-            error.response.data
-          )}`
-        )
+      logWithDedup(
+        "error",
+        `❌ Failed to delete proxy ${proxyId}: ${JSON.stringify(
+          error.response.data
+        )}`,
+        chalk.red
       );
     } else {
-      console.log(
-        chalk.red(`❌ Failed to delete proxy ${proxyId}: ${error.message}`)
+      logWithDedup(
+        "error",
+        `❌ Failed to delete proxy ${proxyId}: ${error.message}`,
+        chalk.red
       );
     }
 
@@ -570,7 +590,7 @@ const createLogger = async () => {
   }
 
   const logger = winston.createLogger({
-    level: process.env.LOG_LEVEL || "info", // Default to info level, configurable via environment
+    level: process.env.LOG_LEVEL || "debug", // Default to debug level to capture all logs, configurable via environment
     format: winston.format.combine(
       winston.format.timestamp({
         format: "YYYY-MM-DD HH:mm:ss",
@@ -742,7 +762,7 @@ const GOOGLE_CONSENT_SCRIPT = `
 (function() {
   console.log('Dorker: Checking for Google consent modal...');
   
-  // Common Google consent modal selectors
+  // Common Google consent modal selectors including Polish consent page
   const consentSelectors = [
     '#L2AGLb', // Known Google consent button ID - try this first
     'button[id="L2AGLb"]', // Alternative selector for the same button
@@ -755,7 +775,16 @@ const GOOGLE_CONSENT_SCRIPT = `
     'div[role="dialog"] button[jsname]',
     'button[data-ved]:contains("Accept")',
     'button[data-ved]:contains("Zaakceptuj")',
-    'form[action*="consent"] button[type="submit"]'
+    'form[action*="consent"] button[type="submit"]',
+    // Polish Google consent page specific selectors
+    'form[action*="consent.google.com"] button[type="submit"]',
+    'button[data-ved*="2ahUKEwj"]', // Common Google button data-ved pattern
+    '.VfPpkd-LgbsSe', // Material Design button class used by Google
+    'button.VfPpkd-LgbsSe:contains("Zaakceptuj wszystko")',
+    'button.VfPpkd-LgbsSe:contains("Accept all")',
+    // Fallback for any button containing accept text in Polish
+    'button[type="submit"]:contains("Zaakceptuj")',
+    'input[type="submit"][value*="Zaakceptuj"]'
   ];
   
   let clicked = false;
@@ -782,10 +811,10 @@ const GOOGLE_CONSENT_SCRIPT = `
           
           // Check if button is visible and clickable
           const rect = button.getBoundingClientRect();
-          if (rect.width > 0 && rect.height > 0) {
-            console.log('Dorker: Clicking consent button...', button.textContent);
-            button.click();
-            clicked = true;
+                      if (rect.width > 0 && rect.height > 0) {
+              console.log('Dorker: Clicking consent button...', button.textContent);
+              button.click();
+              clicked = true;
             
             // Wait a moment for the click to take effect
             setTimeout(() => {
@@ -848,12 +877,10 @@ async function loadDorks(filePath) {
       count: dorks.length,
       filePath,
     });
-    console.log(
-      chalk.green(
-        `[+] Loaded ${chalk.yellow(dorks.length)} dorks from ${chalk.cyan(
-          filePath
-        )}`
-      )
+    logWithDedup(
+      "info",
+      `[+] Loaded ${dorks.length} dorks from ${filePath}`,
+      chalk.green
     );
     return dorks;
   } catch (error) {
@@ -882,8 +909,10 @@ async function saveResults(data, filePath) {
     const fullPath = path.resolve(filePath);
     await fs.writeFile(fullPath, JSON.stringify(data, null, 2), "utf-8");
     logger?.info("Results saved successfully", { filePath: fullPath });
-    console.log(
-      chalk.green(`\n[+] Results saved successfully to ${chalk.cyan(fullPath)}`)
+    logWithDedup(
+      "info",
+      `\n[+] Results saved successfully to ${fullPath}`,
+      chalk.green
     );
   } catch (error) {
     logger?.error("Error saving results", { filePath, error: error.message });
@@ -959,16 +988,16 @@ async function saveUrlsToFile(results, filePath) {
       duplicatesRemoved: urls.length - uniqueUrls.length,
     });
 
-    console.log(
-      chalk.green(
-        `💾 Saved ${uniqueUrls.length} unique URLs to ${path.basename(
-          filePath
-        )}`
-      )
+    logWithDedup(
+      "info",
+      `💾 Saved ${uniqueUrls.length} unique URLs to ${path.basename(filePath)}`,
+      chalk.green
     );
     if (urls.length > uniqueUrls.length) {
-      console.log(
-        chalk.blue(`   (${urls.length - uniqueUrls.length} duplicates removed)`)
+      logWithDedup(
+        "info",
+        `   (${urls.length - uniqueUrls.length} duplicates removed)`,
+        chalk.blue
       );
     }
   } catch (error) {
@@ -994,9 +1023,15 @@ ${"═".repeat(62)}
 `;
 
   console.log(banner);
-  console.log(chalk.greenBright("🚀 Welcome to the Advanced Dorker CLI!"));
-  console.log(
-    chalk.gray("   Professional Google Dorking with CAPTCHA & Proxy Support\n")
+  logWithDedup(
+    "info",
+    "🚀 Welcome to the Advanced Dorker CLI!",
+    chalk.greenBright
+  );
+  logWithDedup(
+    "info",
+    "   Professional Google Dorking with CAPTCHA & Proxy Support\n",
+    chalk.gray
   );
 
   // Show configuration status
@@ -1238,88 +1273,94 @@ class MultiEngineDorker {
         });
       }
 
-      // Try puppeteer-real-browser first, fallback to regular puppeteer
+      // Always use puppeteer-real-browser with enhanced retry logic
       let browser, page;
-      try {
-        console.log(chalk.blue("🤖 Attempting puppeteer-real-browser..."));
-        const connectConfig = {
-          headless: this.options.headless === true ? "new" : false,
-          args: [
-            ...additionalArgs,
-            "--enable-javascript",
-            "--allow-running-insecure-content",
-            "--disable-web-security",
-            "--disable-features=VizDisplayCompositor",
-            "--disable-site-isolation-trials",
-            "--disable-extensions-except",
-            "--disable-plugins-discovery",
-            "--autoplay-policy=no-user-gesture-required",
-          ],
-          customConfig: {},
-          turnstile: true, // Auto-solve Cloudflare Turnstile
-          connectOption: {
-            defaultViewport: null,
-            ignoreHTTPSErrors: true,
-            ignoreDefaultArgs: [
-              "--enable-automation",
-              "--enable-blink-features=IdleDetection",
-            ],
-          },
-          disableXvfb: false,
-          ignoreAllFlags: false,
-        };
+      let retryCount = 0;
+      const maxRetries = 3;
 
-        // Only add proxy if it's properly configured
-        if (proxyConfig && proxyConfig.host && proxyConfig.port) {
-          connectConfig.proxy = proxyConfig;
-        }
-
-        const result = await connect(connectConfig);
-
-        browser = result.browser;
-        page = result.page;
-        console.log(chalk.green("✅ Using puppeteer-real-browser"));
-      } catch (realBrowserError) {
-        console.log(
-          chalk.yellow(
-            "⚠️ puppeteer-real-browser failed, falling back to regular puppeteer"
-          )
-        );
-        logger?.warn("puppeteer-real-browser failed, using fallback", {
-          error: realBrowserError.message,
-          stack: realBrowserError.stack,
-          hasProxy: !!proxyConfig,
-        });
-
-        // Add proxy args if needed for regular puppeteer
-        if (proxyConfig) {
-          additionalArgs.push(
-            `--proxy-server=socks5://${proxyConfig.host}:${proxyConfig.port}`
-          );
-        }
-        additionalArgs.push(`--user-data-dir=${this.userDataDir}`);
-
-        // Fallback to regular puppeteer
-        browser = await puppeteer.launch({
-          headless: this.options.headless,
-          args: additionalArgs,
-          ignoreDefaultArgs: ["--enable-automation"],
-          ignoreHTTPSErrors: true,
-          defaultViewport: null,
-        });
-
-        page = await browser.newPage();
-
-        // Set proxy authentication if using regular puppeteer with proxy
-        if (proxyConfig && proxyConfig.username && proxyConfig.password) {
-          await page.authenticate({
-            username: proxyConfig.username,
-            password: proxyConfig.password,
+      while (retryCount < maxRetries) {
+        try {
+          logger?.info("Attempting puppeteer-real-browser initialization", {
+            attempt: retryCount + 1,
           });
-          console.log(chalk.blue(`🔐 Proxy authentication configured`));
-        }
+          logWithDedup(
+            "info",
+            `🤖 Attempting puppeteer-real-browser (attempt ${
+              retryCount + 1
+            }/${maxRetries})...`,
+            chalk.blue
+          );
 
-        console.log(chalk.green("✅ Using regular puppeteer"));
+          const connectConfig = {
+            headless: this.options.headless === true ? "new" : false,
+            args: [
+              ...additionalArgs,
+              "--enable-javascript",
+              "--allow-running-insecure-content",
+              "--disable-web-security",
+              "--disable-features=VizDisplayCompositor",
+              "--disable-site-isolation-trials",
+              "--disable-extensions-except",
+              "--disable-plugins-discovery",
+              "--autoplay-policy=no-user-gesture-required",
+            ],
+            customConfig: {},
+            turnstile: true, // Auto-solve Cloudflare Turnstile
+            connectOption: {
+              defaultViewport: null,
+              ignoreHTTPSErrors: true,
+              ignoreDefaultArgs: [
+                "--enable-automation",
+                "--enable-blink-features=IdleDetection",
+              ],
+            },
+            disableXvfb: false,
+            ignoreAllFlags: false,
+          };
+
+          // Only add proxy if it's properly configured
+          if (proxyConfig && proxyConfig.host && proxyConfig.port) {
+            connectConfig.proxy = proxyConfig;
+          }
+
+          const result = await connect(connectConfig);
+
+          browser = result.browser;
+          page = result.page;
+          logger?.info("Successfully initialized puppeteer-real-browser");
+          logWithDedup("info", "✅ Using puppeteer-real-browser", chalk.green);
+          break; // Success, exit retry loop
+        } catch (realBrowserError) {
+          retryCount++;
+          logger?.warn("puppeteer-real-browser initialization failed", {
+            error: realBrowserError.message,
+            attempt: retryCount,
+            maxRetries,
+            hasProxy: !!proxyConfig,
+          });
+
+          if (retryCount < maxRetries) {
+            logWithDedup(
+              "warn",
+              `⚠️ puppeteer-real-browser failed (attempt ${retryCount}), retrying...`,
+              chalk.yellow
+            );
+            await sleep(1000 * retryCount); // Progressive delay
+          } else {
+            logger?.error("All puppeteer-real-browser attempts failed", {
+              error: realBrowserError.message,
+              totalAttempts: retryCount,
+            });
+            logWithDedup(
+              "error",
+              "❌ All puppeteer-real-browser attempts failed",
+              chalk.red
+            );
+            throw new Error(
+              `Failed to initialize puppeteer-real-browser after ${maxRetries} attempts: ${realBrowserError.message}`
+            );
+          }
+        }
       }
 
       this.browser = browser;
@@ -1340,6 +1381,51 @@ class MultiEngineDorker {
           error: error.message,
         });
       }
+
+      // Add human-like interaction helpers to page
+      this.page.humanClick = async (selector, options = {}) => {
+        try {
+          const element = await this.page.$(selector);
+          if (!element) {
+            throw new Error(`Element not found: ${selector}`);
+          }
+          // Always use ghost cursor for human-like clicking
+          await this.cursor.click(selector, options);
+          // Add realistic post-click delay
+          await sleep(Math.random() * 100 + 50);
+        } catch (error) {
+          logger?.warn("Human click failed, using fallback", {
+            selector,
+            error: error.message,
+          });
+          // Fallback to regular click if ghost cursor fails
+          const element = await this.page.$(selector);
+          if (element) {
+            await element.click(options);
+          }
+        }
+      };
+
+      this.page.humanType = async (selector, text, options = {}) => {
+        try {
+          const element = await this.page.$(selector);
+          if (!element) {
+            throw new Error(`Element not found: ${selector}`);
+          }
+          // Use our enhanced human typing behavior
+          await this.typeWithHumanBehavior(text, selector);
+        } catch (error) {
+          logger?.warn("Human typing failed, using fallback", {
+            selector,
+            error: error.message,
+          });
+          // Fallback to regular typing
+          await this.page.type(selector, text, {
+            delay: Math.random() * 80 + 60,
+            ...options,
+          });
+        }
+      };
 
       // Enable human typing on this page
       this.page.typeHuman = async (selector, text, options = {}) => {
@@ -1386,34 +1472,27 @@ class MultiEngineDorker {
       // Apply advanced fingerprinting
       await this.applyFingerprint();
 
-      // Inject additional anti-detection scripts
+      // Inject minimal anti-detection scripts (optimized for performance)
       await this.page.evaluateOnNewDocument(() => {
-        // Fix reCAPTCHA CORS issues by intercepting and modifying requests
-        const originalFetch = window.fetch;
-        window.fetch = function (...args) {
-          const [_resource, config] = args;
+        // Only inject critical anti-detection code initially
 
-          // Remove problematic headers that trigger CORS
-          if (config && config.headers) {
-            const headers = new Headers(config.headers);
-            headers.delete("cache-control");
-            headers.delete("pragma");
-            headers.delete("expires");
-            config.headers = headers;
+        // Prevent detection of automation tools
+        try {
+          if (!Object.prototype.hasOwnProperty.call(navigator, "webdriver")) {
+            Object.defineProperty(navigator, "webdriver", {
+              get: () => undefined,
+            });
+          } else {
+            delete navigator.webdriver;
           }
-
-          return originalFetch.apply(this, args);
-        };
-
-        // Add missing reCAPTCHA functions to prevent JavaScript errors
-        if (typeof window.solveSimpleChallenge === "undefined") {
-          window.solveSimpleChallenge = function () {
-            console.log("solveSimpleChallenge called");
-            return true;
-          };
+        } catch (e) {
+          // Ignore errors in webdriver override
         }
 
-        // Add other missing reCAPTCHA globals
+        // Add minimal missing functions that Google expects
+        window.google = window.google || {};
+
+        // Add basic reCAPTCHA globals to prevent errors
         window.recaptcha = window.recaptcha || {};
         window.grecaptcha = window.grecaptcha || {
           ready: function (cb) {
@@ -1427,96 +1506,7 @@ class MultiEngineDorker {
           },
         };
 
-        // Override XMLHttpRequest to handle CORS issues
-        const originalXHR = window.XMLHttpRequest;
-        window.XMLHttpRequest = function () {
-          const xhr = new originalXHR();
-          const originalSetRequestHeader = xhr.setRequestHeader;
-
-          xhr.setRequestHeader = function (header, value) {
-            // Skip problematic headers
-            if (
-              header.toLowerCase() === "cache-control" ||
-              header.toLowerCase() === "pragma" ||
-              header.toLowerCase() === "expires"
-            ) {
-              return;
-            }
-            return originalSetRequestHeader.call(this, header, value);
-          };
-
-          return xhr;
-        };
-
-        // Add missing functions that Google expects
-        window.google = window.google || {};
-        window.google.codesearch = window.google.codesearch || {};
-
-        // Prevent detection of automation tools (check if already defined)
-        if (!Object.prototype.hasOwnProperty.call(navigator, "webdriver")) {
-          Object.defineProperty(navigator, "webdriver", {
-            get: () => undefined,
-          });
-        } else {
-          // If already defined, try to delete it first
-          try {
-            delete navigator.webdriver;
-          } catch (e) {
-            // If can't delete, override the descriptor
-            try {
-              Object.defineProperty(navigator, "webdriver", {
-                get: () => undefined,
-                configurable: true,
-              });
-            } catch (_e2) {
-              // Last resort - just set it
-              navigator.webdriver = undefined;
-            }
-          }
-        }
-
-        // Add realistic performance timing
-        if (window.performance && window.performance.timing) {
-          const timing = window.performance.timing;
-          const now = Date.now();
-          Object.defineProperty(timing, "navigationStart", {
-            get: () => now - 1000,
-          });
-          Object.defineProperty(timing, "loadEventEnd", { get: () => now });
-        }
-
-        // Track errors for debugging
-        window._recaptchaErrors = [];
-        window._corsErrors = [];
-
-        // Override console to catch reCAPTCHA errors
-        const originalConsoleError = console.error;
-        console.error = function (...args) {
-          const message = args.join(" ");
-          if (message.includes("recaptcha") || message.includes("CORS")) {
-            window._recaptchaErrors.push(message);
-            if (message.includes("CORS")) {
-              window._corsErrors.push(message);
-            }
-          }
-          return originalConsoleError.apply(this, args);
-        };
-
-        // Add missing DOM methods that reCAPTCHA might expect
-        if (!document.elementsFromPoint) {
-          document.elementsFromPoint = function (x, y) {
-            const element = document.elementFromPoint(x, y);
-            return element ? [element] : [];
-          };
-        }
-
-        // Mock additional reCAPTCHA-related globals
-        window.___grecaptcha_cfg = window.___grecaptcha_cfg || {
-          clients: {},
-          count: 0,
-        };
-
-        // Prevent reCAPTCHA from detecting automation
+        // Prevent outer dimensions detection
         Object.defineProperty(window, "outerHeight", {
           get: () => window.innerHeight,
         });
@@ -1525,75 +1515,40 @@ class MultiEngineDorker {
         });
       });
 
-      // Inject dark mode CSS for websites that don't support it natively
-      await this.page.evaluateOnNewDocument(() => {
-        // Set dark mode preference for sites that respect it
-        Object.defineProperty(window, "matchMedia", {
-          value: function (query) {
-            if (query === "(prefers-color-scheme: dark)") {
-              return {
-                matches: true,
-                addListener: () => {},
-                removeListener: () => {},
-                addEventListener: () => {},
-                removeEventListener: () => {},
-              };
-            }
-            // Return original matchMedia for other queries
-            return (
-              window.matchMedia?.call?.(window, query) || { matches: false }
-            );
-          },
+      // Remove the deferred scripts completely to prevent recursion issues
+      // The basic anti-detection in evaluateOnNewDocument is sufficient
+
+      // Add performance optimizations for faster page loading
+      await this.page.setDefaultTimeout(30000);
+      await this.page.setDefaultNavigationTimeout(30000);
+
+      // Disable images and CSS for faster loading if needed
+      if (this.options.fastMode) {
+        await this.page.setRequestInterception(true);
+        this.page.on("request", (req) => {
+          const resourceType = req.resourceType();
+          if (
+            resourceType === "image" ||
+            resourceType === "stylesheet" ||
+            resourceType === "font"
+          ) {
+            req.abort();
+          } else {
+            req.continue();
+          }
         });
-
-        // Inject subtle dark mode CSS for sites that don't support it natively
-        const darkModeCSS = `
-          /* Set color scheme preference */
-          :root {
-            color-scheme: dark;
-          }
-          
-          /* Only apply dark background to body if no existing dark mode */
-          body:not([data-dark-mode]):not([class*="dark"]):not([class*="night"]):not([style*="background-color: rgb(0"]):not([style*="background-color: #0"]):not([style*="background-color: #1"]):not([style*="background-color: #2"]):not([style*="background-color: #3"]) {
-            background-color: #1a1a1a !important;
-            color: #e0e0e0 !important;
-          }
-          
-          /* Preserve all interactive elements and media */
-          iframe, img, video, canvas, svg, embed, object,
-          iframe[src*="recaptcha"], 
-          iframe[src*="google.com/recaptcha"],
-          div[class*="recaptcha"],
-          .g-recaptcha,
-          [role="button"],
-          button, input, select, textarea {
-            filter: none !important;
-            background: initial !important;
-          }
-        `;
-
-        // Wait for DOM and inject CSS
-        if (document.readyState === "loading") {
-          document.addEventListener("DOMContentLoaded", () => {
-            const style = document.createElement("style");
-            style.innerHTML = darkModeCSS;
-            document.head?.appendChild(style);
-          });
-        } else {
-          const style = document.createElement("style");
-          style.innerHTML = darkModeCSS;
-          document.head?.appendChild(style);
-        }
-      });
+      }
 
       logger?.info("Browser initialized successfully", {
         userAgent: this.fingerprint.userAgent.substring(0, 50) + "...",
         viewport: this.currentViewport,
-        darkMode: true,
+        optimized: true,
       });
 
-      console.log(
-        chalk.green("✅ Browser initialized with stealth mode + dark theme")
+      logWithDedup(
+        "info",
+        "✅ Browser initialized with optimized performance",
+        chalk.green
       );
     } catch (error) {
       logger?.error("Failed to initialize browser", {
@@ -1622,19 +1577,23 @@ class MultiEngineDorker {
 
       // Override navigator properties to match fingerprint
       await this.page.evaluateOnNewDocument((fingerprint) => {
-        // Override timezone
-        Object.defineProperty(
-          Intl.DateTimeFormat.prototype,
-          "resolvedOptions",
-          {
-            value: function () {
-              return Object.assign(
-                Intl.DateTimeFormat.prototype.resolvedOptions.call(this),
-                { timeZone: fingerprint.timezone }
-              );
-            },
-          }
-        );
+        // Override timezone (fixed to prevent recursion)
+        if (typeof window._dorkerTimezoneOverridden === "undefined") {
+          window._dorkerTimezoneOverridden = true;
+          const originalResolvedOptions =
+            Intl.DateTimeFormat.prototype.resolvedOptions;
+          Object.defineProperty(
+            Intl.DateTimeFormat.prototype,
+            "resolvedOptions",
+            {
+              value: function () {
+                const result = originalResolvedOptions.call(this);
+                result.timeZone = fingerprint.timezone;
+                return result;
+              },
+            }
+          );
+        }
 
         // Override languages
         Object.defineProperty(navigator, "languages", {
@@ -1661,68 +1620,38 @@ class MultiEngineDorker {
           });
         }
 
-        // Override WebGL vendor and renderer with enhanced parameters
-        const getParameter = WebGLRenderingContext.prototype.getParameter;
-        WebGLRenderingContext.prototype.getParameter = function (parameter) {
-          if (parameter === 37445) return fingerprint.webgl.vendor;
-          if (parameter === 37446) return fingerprint.webgl.renderer;
-          if (parameter === 3379) return fingerprint.webgl.maxTextureSize;
-          if (parameter === 34024) return fingerprint.webgl.maxTextureSize;
-          if (parameter === 34076)
-            return fingerprint.webgl.maxCombinedTextureImageUnits;
-          if (parameter === 35660)
-            return fingerprint.webgl.maxVertexTextureImageUnits;
-          if (parameter === 34930)
-            return fingerprint.webgl.maxTextureImageUnits;
-          if (parameter === 36349)
-            return fingerprint.webgl.maxFragmentUniformVectors;
-          if (parameter === 36347)
-            return fingerprint.webgl.maxVertexUniformVectors;
-          if (parameter === 36348) return fingerprint.webgl.maxVaryingVectors;
-          if (parameter === 3415)
-            return fingerprint.webgl.aliasedLineWidthRange;
-          if (parameter === 3414)
-            return fingerprint.webgl.aliasedPointSizeRange;
-          if (parameter === 3413)
-            return fingerprint.webgl.aliasedLineWidthRange;
-          if (parameter === 3412)
-            return fingerprint.webgl.aliasedPointSizeRange;
-          if (parameter === 3410) return fingerprint.webgl.depthBits;
-          if (parameter === 3411) return fingerprint.webgl.stencilBits;
-          if (parameter === 34047) return fingerprint.webgl.maxAnisotropy;
-          return getParameter.call(this, parameter);
-        };
+        // Override WebGL vendor and renderer (simplified to prevent recursion)
+        if (typeof window._dorkerWebGLOverridden === "undefined") {
+          window._dorkerWebGLOverridden = true;
 
-        const getParameter2 = WebGL2RenderingContext.prototype.getParameter;
-        WebGL2RenderingContext.prototype.getParameter = function (parameter) {
-          if (parameter === 37445) return fingerprint.webgl.vendor;
-          if (parameter === 37446) return fingerprint.webgl.renderer;
-          if (parameter === 3379) return fingerprint.webgl.maxTextureSize;
-          if (parameter === 34024) return fingerprint.webgl.maxTextureSize;
-          if (parameter === 34076)
-            return fingerprint.webgl.maxCombinedTextureImageUnits;
-          if (parameter === 35660)
-            return fingerprint.webgl.maxVertexTextureImageUnits;
-          if (parameter === 34930)
-            return fingerprint.webgl.maxTextureImageUnits;
-          if (parameter === 36349)
-            return fingerprint.webgl.maxFragmentUniformVectors;
-          if (parameter === 36347)
-            return fingerprint.webgl.maxVertexUniformVectors;
-          if (parameter === 36348) return fingerprint.webgl.maxVaryingVectors;
-          if (parameter === 3415)
-            return fingerprint.webgl.aliasedLineWidthRange;
-          if (parameter === 3414)
-            return fingerprint.webgl.aliasedPointSizeRange;
-          if (parameter === 3413)
-            return fingerprint.webgl.aliasedLineWidthRange;
-          if (parameter === 3412)
-            return fingerprint.webgl.aliasedPointSizeRange;
-          if (parameter === 3410) return fingerprint.webgl.depthBits;
-          if (parameter === 3411) return fingerprint.webgl.stencilBits;
-          if (parameter === 34047) return fingerprint.webgl.maxAnisotropy;
-          return getParameter2.call(this, parameter);
-        };
+          try {
+            const originalGetParameter =
+              WebGLRenderingContext.prototype.getParameter;
+            WebGLRenderingContext.prototype.getParameter = function (
+              parameter
+            ) {
+              // Only override the most critical parameters
+              if (parameter === 37445) return fingerprint.webgl.vendor;
+              if (parameter === 37446) return fingerprint.webgl.renderer;
+              return originalGetParameter.call(this, parameter);
+            };
+
+            if (typeof WebGL2RenderingContext !== "undefined") {
+              const originalGetParameter2 =
+                WebGL2RenderingContext.prototype.getParameter;
+              WebGL2RenderingContext.prototype.getParameter = function (
+                parameter
+              ) {
+                // Only override the most critical parameters
+                if (parameter === 37445) return fingerprint.webgl.vendor;
+                if (parameter === 37446) return fingerprint.webgl.renderer;
+                return originalGetParameter2.call(this, parameter);
+              };
+            }
+          } catch (e) {
+            // Ignore WebGL override errors
+          }
+        }
 
         // Override screen properties
         Object.defineProperty(screen, "width", {
@@ -1744,156 +1673,80 @@ class MultiEngineDorker {
           get: () => fingerprint.pixelDepth,
         });
 
-        // Override canvas fingerprinting with enhanced noise
-        const originalGetContext = HTMLCanvasElement.prototype.getContext;
-        HTMLCanvasElement.prototype.getContext = function (
-          contextType,
-          contextAttributes
-        ) {
-          const context = originalGetContext.call(
-            this,
-            contextType,
-            contextAttributes
-          );
+        // Simplified canvas fingerprinting (to prevent performance issues)
+        if (typeof window._dorkerCanvasOverridden === "undefined") {
+          window._dorkerCanvasOverridden = true;
 
-          if (contextType === "2d" && context) {
-            const originalFillText = context.fillText;
-            const originalStrokeText = context.strokeText;
-            const originalFillRect = context.fillRect;
-            const originalGetImageData = context.getImageData;
-
-            context.fillText = function (text, x, y, maxWidth) {
-              // Add slight noise to make canvas fingerprint unique
-              const noisyX = x + fingerprint.canvas.noise;
-              const noisyY = y + fingerprint.canvas.noise;
-              context.textBaseline = fingerprint.canvas.textBaseline;
-              context.globalCompositeOperation =
-                fingerprint.canvas.globalCompositeOperation;
-              if (fingerprint.canvas.filter !== "none") {
-                context.filter = fingerprint.canvas.filter;
-              }
-              return originalFillText.call(
+          try {
+            const originalGetContext = HTMLCanvasElement.prototype.getContext;
+            HTMLCanvasElement.prototype.getContext = function (
+              contextType,
+              contextAttributes
+            ) {
+              const context = originalGetContext.call(
                 this,
-                text,
-                noisyX,
-                noisyY,
-                maxWidth
+                contextType,
+                contextAttributes
               );
-            };
 
-            context.strokeText = function (text, x, y, maxWidth) {
-              const noisyX = x + fingerprint.canvas.noise;
-              const noisyY = y + fingerprint.canvas.noise;
-              return originalStrokeText.call(
-                this,
-                text,
-                noisyX,
-                noisyY,
-                maxWidth
-              );
-            };
-
-            context.fillRect = function (x, y, width, height) {
-              const noisyX = x + fingerprint.canvas.noise * 0.5;
-              const noisyY = y + fingerprint.canvas.noise * 0.5;
-              return originalFillRect.call(this, noisyX, noisyY, width, height);
-            };
-
-            // Add noise to getImageData to make canvas fingerprint unique
-            context.getImageData = function (sx, sy, sw, sh) {
-              const imageData = originalGetImageData.call(this, sx, sy, sw, sh);
-              // Add subtle noise to a few random pixels
-              for (let i = 0; i < 10; i++) {
-                const idx =
-                  Math.floor((Math.random() * imageData.data.length) / 4) * 4;
-                imageData.data[idx] = Math.min(
-                  255,
-                  imageData.data[idx] +
-                    Math.floor(fingerprint.canvas.noise * 255)
-                );
-                imageData.data[idx + 1] = Math.min(
-                  255,
-                  imageData.data[idx + 1] +
-                    Math.floor(fingerprint.canvas.noise * 255)
-                );
-                imageData.data[idx + 2] = Math.min(
-                  255,
-                  imageData.data[idx + 2] +
-                    Math.floor(fingerprint.canvas.noise * 255)
-                );
+              // Only add minimal canvas noise to prevent fingerprinting
+              if (contextType === "2d" && context && fingerprint.canvas) {
+                const originalGetImageData = context.getImageData;
+                context.getImageData = function (sx, sy, sw, sh) {
+                  const imageData = originalGetImageData.call(
+                    this,
+                    sx,
+                    sy,
+                    sw,
+                    sh
+                  );
+                  // Add minimal noise to prevent fingerprinting
+                  if (imageData.data.length > 0) {
+                    const idx =
+                      Math.floor(Math.random() * (imageData.data.length / 4)) *
+                      4;
+                    imageData.data[idx] = Math.min(
+                      255,
+                      imageData.data[idx] + 1
+                    );
+                  }
+                  return imageData;
+                };
               }
-              return imageData;
+
+              return context;
             };
+          } catch (e) {
+            // Ignore canvas override errors
           }
-
-          if (contextType === "webgl" || contextType === "webgl2") {
-            // Add WebGL-specific noise
-            const originalReadPixels = context.readPixels;
-            context.readPixels = function (...args) {
-              const result = originalReadPixels.apply(this, args);
-              // Add tiny variations to WebGL output
-              if (args[6] && args[6].length > 0) {
-                args[6][0] += fingerprint.canvas.noise;
-              }
-              return result;
-            };
-          }
-
-          return context;
-        };
-
-        // Override AudioContext fingerprinting
-        if (window.AudioContext) {
-          const OriginalAudioContext = window.AudioContext;
-          window.AudioContext = function () {
-            const context = new OriginalAudioContext();
-            Object.defineProperty(context, "sampleRate", {
-              get: () => fingerprint.audio.sampleRate,
-            });
-            return context;
-          };
         }
 
-        // Override navigator.plugins
-        Object.defineProperty(navigator, "plugins", {
-          get: () => {
-            const pluginArray = Array.from(
-              { length: fingerprint.plugins.length },
-              (_, i) => ({
-                name: fingerprint.plugins[i],
-                filename:
-                  fingerprint.plugins[i].toLowerCase().replace(/\s+/g, "") +
-                  ".plugin",
-                description: fingerprint.plugins[i],
-                length: 1,
-                [0]: {
-                  type:
-                    "application/x-" +
-                    fingerprint.plugins[i].toLowerCase().replace(/\s+/g, ""),
-                },
-              })
-            );
+        // Minimal AudioContext override (if needed)
+        if (
+          window.AudioContext &&
+          typeof window._dorkerAudioOverridden === "undefined"
+        ) {
+          window._dorkerAudioOverridden = true;
+          try {
+            const OriginalAudioContext = window.AudioContext;
+            window.AudioContext = function () {
+              const context = new OriginalAudioContext();
+              return context;
+            };
+          } catch (e) {
+            // Ignore AudioContext override errors
+          }
+        }
 
-            // Make it look like a real PluginArray
-            pluginArray.namedItem = (name) =>
-              pluginArray.find((p) => p.name === name) || null;
-            pluginArray.refresh = () => {};
+        // Note: navigator.plugins will be defined later in a more comprehensive way
 
-            return pluginArray;
-          },
-        });
-
-        // Override touch support
-        if (fingerprint.touchSupport) {
+        // Minimal touch support override
+        try {
           Object.defineProperty(navigator, "maxTouchPoints", {
-            get: () => Math.floor(Math.random() * 5) + 1,
+            get: () => (fingerprint.touchSupport ? 1 : 0),
           });
-
-          window.ontouchstart = null;
-        } else {
-          Object.defineProperty(navigator, "maxTouchPoints", {
-            get: () => 0,
-          });
+        } catch (e) {
+          // Ignore touch override errors
         }
 
         // Override navigator.connection if supported
@@ -1911,40 +1764,43 @@ class MultiEngineDorker {
           });
         }
 
-        // Override battery API if supported
+        // Override battery API if supported (simplified)
         if (fingerprint.battery && navigator.getBattery) {
-          const _originalGetBattery = navigator.getBattery;
-          navigator.getBattery = function () {
-            return Promise.resolve({
-              charging: fingerprint.battery.charging,
-              level: fingerprint.battery.level,
-              chargingTime: fingerprint.battery.charging
-                ? Math.random() * 3600
-                : Infinity,
-              dischargingTime: !fingerprint.battery.charging
-                ? Math.random() * 7200
-                : Infinity,
-              addEventListener: () => {},
-              removeEventListener: () => {},
-            });
-          };
+          try {
+            navigator.getBattery = function () {
+              return Promise.resolve({
+                charging: fingerprint.battery.charging,
+                level: fingerprint.battery.level,
+                chargingTime: 0,
+                dischargingTime: Infinity,
+                addEventListener: () => {},
+                removeEventListener: () => {},
+              });
+            };
+          } catch (e) {
+            // Ignore battery override errors
+          }
         }
 
-        // Add realistic performance timing variations
-        if (window.performance && window.performance.timing) {
-          const originalNow = performance.now;
-          performance.now = function () {
-            // Add slight random variation to timing
-            return originalNow.call(this) + (Math.random() - 0.5) * 0.1;
-          };
-        }
+        // Skip performance timing overrides - they can cause recursion
 
-        // Override permissions
-        const originalQuery = window.navigator.permissions.query;
-        window.navigator.permissions.query = (parameters) =>
-          parameters.name === "notifications"
-            ? Promise.resolve({ state: Notification.permission })
-            : originalQuery(parameters);
+        // Override permissions (safely)
+        if (
+          window.navigator.permissions &&
+          window.navigator.permissions.query
+        ) {
+          try {
+            const originalQuery = window.navigator.permissions.query.bind(
+              window.navigator.permissions
+            );
+            window.navigator.permissions.query = (parameters) =>
+              parameters.name === "notifications"
+                ? Promise.resolve({ state: "default" })
+                : originalQuery(parameters);
+          } catch (e) {
+            // Ignore permission override errors
+          }
+        }
 
         // Remove automation indicators
         Object.defineProperty(navigator, "webdriver", {
@@ -2053,77 +1909,86 @@ class MultiEngineDorker {
         window.outerWidth = fingerprint.screen.width;
         window.outerHeight = fingerprint.screen.height;
 
-        // Override Notification API
-        const originalNotification = window.Notification;
-        window.Notification = function (title, options) {
-          return {
-            title: title,
-            options: options,
-            close: () => {},
-            addEventListener: () => {},
-          };
-        };
-        window.Notification.permission = "default";
-        window.Notification.requestPermission = () =>
-          Promise.resolve("default");
+        // Override Notification API (simplified)
+        if (window.Notification) {
+          try {
+            window.Notification.permission = "default";
+            window.Notification.requestPermission = () =>
+              Promise.resolve("default");
+          } catch (e) {
+            // Ignore Notification override errors
+          }
+        }
 
-        // Override plugins to look more realistic
-        Object.defineProperty(navigator, "plugins", {
-          get: () => {
-            const plugins = [
-              {
-                name: "Chrome PDF Plugin",
-                description: "Portable Document Format",
-                filename: "internal-pdf-viewer",
-                length: 1,
-                item: (i) => ({
-                  type: "application/x-google-chrome-pdf",
-                  suffixes: "pdf",
+        // Override plugins to look more realistic (with error handling)
+        try {
+          Object.defineProperty(navigator, "plugins", {
+            get: () => {
+              const plugins = [
+                {
+                  name: "Chrome PDF Plugin",
                   description: "Portable Document Format",
-                  enabledPlugin: true,
-                }),
-                namedItem: () => null,
-              },
-              {
-                name: "Chrome PDF Viewer",
-                description: "Portable Document Format",
-                filename: "mhjfbmdgcfjbbpaeojofohoefgiehjai",
-                length: 1,
-                item: (i) => ({
-                  type: "application/pdf",
-                  suffixes: "pdf",
+                  filename: "internal-pdf-viewer",
+                  length: 1,
+                  item: (i) => ({
+                    type: "application/x-google-chrome-pdf",
+                    suffixes: "pdf",
+                    description: "Portable Document Format",
+                    enabledPlugin: true,
+                  }),
+                  namedItem: () => null,
+                },
+                {
+                  name: "Chrome PDF Viewer",
                   description: "Portable Document Format",
-                  enabledPlugin: true,
-                }),
-                namedItem: () => null,
-              },
-              {
-                name: "Native Client",
-                description: "",
-                filename: "internal-nacl-plugin",
-                length: 2,
-                item: (i) =>
-                  i === 0
-                    ? {
-                        type: "application/x-nacl",
-                        suffixes: "",
-                        description: "Native Client Executable",
-                        enabledPlugin: true,
-                      }
-                    : {
-                        type: "application/x-pnacl",
-                        suffixes: "",
-                        description: "Portable Native Client Executable",
-                        enabledPlugin: true,
-                      },
-                namedItem: () => null,
-              },
-            ];
+                  filename: "mhjfbmdgcfjbbpaeojofohoefgiehjai",
+                  length: 1,
+                  item: (i) => ({
+                    type: "application/pdf",
+                    suffixes: "pdf",
+                    description: "Portable Document Format",
+                    enabledPlugin: true,
+                  }),
+                  namedItem: () => null,
+                },
+                {
+                  name: "Native Client",
+                  description: "",
+                  filename: "internal-nacl-plugin",
+                  length: 2,
+                  item: (i) =>
+                    i === 0
+                      ? {
+                          type: "application/x-nacl",
+                          suffixes: "",
+                          description: "Native Client Executable",
+                          enabledPlugin: true,
+                        }
+                      : {
+                          type: "application/x-pnacl",
+                          suffixes: "",
+                          description: "Portable Native Client Executable",
+                          enabledPlugin: true,
+                        },
+                  namedItem: () => null,
+                },
+              ];
 
-            plugins.length = plugins.length;
-            return plugins;
-          },
-        });
+              plugins.length = plugins.length;
+              return plugins;
+            },
+          });
+        } catch (e) {
+          // Plugins property might already be defined, log the error and continue
+          logger?.warn("Failed to redefine navigator.plugins", {
+            error: e.message,
+          });
+          console.log(
+            chalk.yellow(
+              "⚠️ Navigator.plugins already defined, using existing definition"
+            )
+          );
+        }
 
         // Override mimeTypes
         Object.defineProperty(navigator, "mimeTypes", {
@@ -2439,13 +2304,21 @@ class MultiEngineDorker {
 
     // Prevent infinite recursion with blocked proxies
     if (retryCount >= 3) {
-      console.log(chalk.red("❌ Maximum proxy retry attempts reached (3)"));
+      logWithDedup(
+        "error",
+        "❌ Maximum proxy retry attempts reached (3)",
+        chalk.red
+      );
       logger?.warn("Maximum proxy switch retries reached", { retryCount });
       return false;
     }
 
     if (retryCount > 0) {
-      console.log(chalk.blue(`🔄 Proxy switch attempt ${retryCount + 1}/3`));
+      logWithDedup(
+        "info",
+        `🔄 Proxy switch attempt ${retryCount + 1}/3`,
+        chalk.blue
+      );
     }
 
     try {
@@ -2584,7 +2457,7 @@ class MultiEngineDorker {
       // Reinitialize browser with new proxy
       await this.initialize();
 
-      console.log(chalk.green("✅ Browser restarted with new proxy"));
+      logWithDedup("info", "✅ Browser restarted with new proxy", chalk.green);
 
       // Navigate to Google and perform search again if we have the dork
       if (currentDork) {
@@ -2956,7 +2829,11 @@ class MultiEngineDorker {
 
     try {
       logger?.info("CAPTCHA detected, attempting to enable proxy");
-      console.log(chalk.yellow("🌐 CAPTCHA detected! Generating new proxy..."));
+      logWithDedup(
+        "warn",
+        "🌐 CAPTCHA detected! Generating new proxy...",
+        chalk.yellow
+      );
 
       // Test API connection first if this is the first time using proxy
       if (!this.proxyApiTested) {
@@ -3686,33 +3563,36 @@ class MultiEngineDorker {
 
   async waitForSearchResults() {
     try {
-      logger?.debug("Waiting for search results to appear");
+      logger?.debug(
+        "Waiting for search results to appear with dynamic content loading"
+      );
 
-      // Shorter timeout for faster processing
-      const TIMEOUT = 8000;
+      // Longer timeout to allow for dynamic DOM loading
+      const TIMEOUT = 15000;
 
-      // Wait for any of the result selectors to appear, with timeout
+      // Wait specifically for Google's result links with redirect URLs
       const resultFound = await Promise.race([
-        // Wait for results from any engine
+        // Wait for Google's specific URL redirect pattern (most reliable)
         this.page
-          .waitForSelector(this.engine.resultSelectors[0], { timeout: TIMEOUT })
+          .waitForSelector('a[href^="/url?"]', { timeout: TIMEOUT })
           .then(() => true)
           .catch(() => false),
+        // Wait for direct links as fallback
         this.page
-          .waitForSelector(this.engine.resultSelectors[1] || "nonexistent", {
-            timeout: TIMEOUT,
-          })
+          .waitForSelector('a[href^="http"]', { timeout: TIMEOUT })
           .then(() => true)
           .catch(() => false),
+        // Wait for search result containers (fallback)
         this.page
-          .waitForSelector(this.engine.resultSelectors[2] || "nonexistent", {
-            timeout: TIMEOUT,
-          })
+          .waitForSelector("[data-ved]", { timeout: TIMEOUT })
           .then(() => true)
           .catch(() => false),
         // Timeout fallback
         sleep(TIMEOUT).then(() => false),
       ]);
+
+      // Wait additional time for dynamic content to fully load
+      await sleep(3000);
 
       // Quick check for "no results" text
       const hasNoResultsText = await this.page
@@ -3741,20 +3621,29 @@ class MultiEngineDorker {
       }
 
       if (resultFound) {
-        // Double check that results actually contain links
+        // Double check that we have actual Google redirect links
         const hasValidResults = await this.page
-          .evaluate((engine) => {
-            for (const selector of engine.resultSelectors) {
-              const results = document.querySelectorAll(selector);
-              for (const result of results) {
-                const linkEl = result.querySelector(engine.linkSelector);
-                if (linkEl && linkEl.href && linkEl.href.startsWith("http")) {
-                  return true;
-                }
-              }
+          .evaluate(() => {
+            // Look for Google's URL redirect pattern
+            const redirectLinks = document.querySelectorAll('a[href^="/url?"]');
+            if (redirectLinks.length > 0) {
+              console.log(
+                `Dorker: Found ${redirectLinks.length} Google redirect links`
+              );
+              return true;
             }
+
+            // Fallback to any links
+            const anyLinks = document.querySelectorAll('a[href^="http"]');
+            if (anyLinks.length > 0) {
+              console.log(
+                `Dorker: Found ${anyLinks.length} direct links as fallback`
+              );
+              return true;
+            }
+
             return false;
-          }, this.engine)
+          })
           .catch(() => false);
 
         logger?.debug("Search results validation", { hasValidResults });
@@ -3774,6 +3663,180 @@ class MultiEngineDorker {
 
   async handleCookieConsent(force = false) {
     try {
+      const currentUrl = this.page.url();
+
+      // Enhanced Polish consent detection - check for the specific consent form structure
+      const polishConsentDetected = await this.page.evaluate(() => {
+        // Check for the specific Polish consent structure
+        const polishConsentContainer = document.querySelector(".GZ7xNe");
+        const polishConsentHeader = document.querySelector("h1.I90TVb#S3BnEe");
+
+        if (polishConsentContainer && polishConsentHeader) {
+          const headerText = polishConsentHeader.textContent || "";
+          if (headerText.includes("Zanim przejdziesz do Google")) {
+            console.log(
+              'Dorker: Detected Polish consent form with "Zanim przejdziesz do Google"'
+            );
+            return true;
+          }
+        }
+
+        // Also check for general Google consent page patterns
+        const bodyText = document.body?.textContent || "";
+        return (
+          bodyText.includes("Zanim przejdziesz do Google") ||
+          bodyText.includes("Używamy plików cookie") ||
+          bodyText.includes("Zaakceptuj wszystko")
+        );
+      });
+
+      // Handle specific Google consent page (consent.google.com) or detected Polish consent
+      if (currentUrl.includes("consent.google.com") || polishConsentDetected) {
+        logger?.info(
+          "Detected Google consent page, handling Polish consent modal"
+        );
+        logWithDedup(
+          "info",
+          "🍪 Detected Polish Google consent page - handling acceptance",
+          chalk.blue
+        );
+
+        // Wait for page to fully load
+        await sleep(2000);
+
+        // Enhanced consent button detection for Polish form
+        const acceptClicked = await this.page.evaluate(() => {
+          // Priority 1: Look for "Zaakceptuj wszystko" (Accept all) buttons in Polish consent form
+          const acceptTexts = [
+            "Zaakceptuj wszystko",
+            "Accept all",
+            "Zaakceptuj",
+            "Akceptuję",
+            "I agree",
+            "Accept",
+          ];
+
+          // Try text-based search first (most reliable for Polish consent)
+          for (const acceptText of acceptTexts) {
+            const buttons = Array.from(
+              document.querySelectorAll(
+                'button, div[role="button"], input[type="button"], input[type="submit"]'
+              )
+            );
+            const matchingButton = buttons.find((button) => {
+              const text = (button.textContent || button.value || "").trim();
+              return text.includes(acceptText) && button.offsetParent !== null;
+            });
+
+            if (matchingButton) {
+              console.log(
+                `Dorker: Found Polish consent button with text: "${acceptText}"`
+              );
+              matchingButton.click();
+              return true;
+            }
+          }
+
+          // Priority 2: Look for buttons within the Polish consent container
+          const polishConsentContainer = document.querySelector(".GZ7xNe");
+          if (polishConsentContainer) {
+            const buttonsInConsent = polishConsentContainer.querySelectorAll(
+              'button, div[role="button"], input[type="submit"]'
+            );
+            for (const button of buttonsInConsent) {
+              const text = (button.textContent || button.value || "")
+                .trim()
+                .toLowerCase();
+              if (
+                text.includes("zaakceptuj") ||
+                text.includes("accept") ||
+                text.includes("akceptuj")
+              ) {
+                console.log(
+                  `Dorker: Found consent button in Polish container: "${text}"`
+                );
+                button.click();
+                return true;
+              }
+            }
+          }
+
+          // Priority 3: Look for various accept button patterns on consent.google.com
+          const acceptSelectors = [
+            'button:contains("Zaakceptuj wszystko")',
+            'button:contains("Accept all")',
+            'form[action*="consent"] button[type="submit"]',
+            ".VfPpkd-LgbsSe",
+            "button[data-ved]",
+            'input[type="submit"]',
+            'button[type="submit"]',
+            ".GZ7xNe button",
+            '.GZ7xNe input[type="submit"]',
+          ];
+
+          for (const selector of acceptSelectors) {
+            try {
+              let buttons;
+              if (selector.includes(":contains")) {
+                const baseSelector = selector.split(":contains")[0];
+                const containsText = selector.match(
+                  /:contains\\("([^"]+)"\\)/
+                )[1];
+                buttons = Array.from(
+                  document.querySelectorAll(baseSelector)
+                ).filter((el) =>
+                  el.textContent
+                    .toLowerCase()
+                    .includes(containsText.toLowerCase())
+                );
+              } else {
+                buttons = document.querySelectorAll(selector);
+              }
+
+              if (buttons.length > 0) {
+                const button = buttons[0];
+                console.log(
+                  "Dorker: Found consent accept button:",
+                  button.textContent || button.value
+                );
+                button.click();
+                return true;
+              }
+            } catch (e) {
+              console.log(
+                "Dorker: Error with selector",
+                selector,
+                ":",
+                e.message
+              );
+            }
+          }
+          return false;
+        });
+
+        if (acceptClicked) {
+          logWithDedup(
+            "info",
+            "✅ Successfully accepted Polish Google consent",
+            chalk.green
+          );
+          // Wait for navigation after accepting consent
+          await this.page.waitForNavigation({ timeout: 10000 }).catch(() => {
+            logger?.debug(
+              "Navigation timeout after consent acceptance, continuing..."
+            );
+          });
+          this.googleConsentHandled = true;
+          return;
+        } else {
+          logWithDedup(
+            "warn",
+            "⚠️ Could not find Polish consent accept button",
+            chalk.yellow
+          );
+        }
+      }
+
       if (this.isGoogleEngine) {
         if (this.googleConsentHandled && !force) {
           logger?.debug(
@@ -3792,17 +3855,19 @@ class MultiEngineDorker {
         force,
       });
 
-      console.log(chalk.blue("[*] Checking for cookie consent..."));
+      logWithDedup("info", "[*] Checking for cookie consent...", chalk.blue);
 
-      // Instant check and click - no polling
+      // Enhanced instant check and click - updated with Polish selectors
       const clicked = await this.page.evaluate(() => {
-        // Try to find and click immediately
+        // Enhanced selectors including Polish consent patterns
         const selectors = [
           "button#L2AGLb",
           "button#W0wltc",
           'button[data-ved*="QiZAH"]',
           'div[role="dialog"] button[jsname="V67aGc"]',
           'button[jsname="V67aGc"]',
+          ".GZ7xNe button", // Polish consent container
+          "h1.I90TVb#S3BnEe ~ * button", // Buttons after Polish header
           'button:contains("Zaakceptuj wszystko")',
           'button:contains("Accept all")',
           'button:contains("Zaakceptuj")',
@@ -4434,7 +4499,9 @@ class MultiEngineDorker {
       }
 
       // Clear any existing text and type the solution with human behavior
-      await inputField.click();
+      // Use human-like clicking
+      await this.cursor.click(inputField);
+      await sleep(Math.random() * 100 + 50);
       await sleep(200);
 
       // Select all existing text (if any) and replace it
@@ -4726,7 +4793,17 @@ class MultiEngineDorker {
                   console.log(
                     chalk.green("✅ Found checkbox inside reCAPTCHA frame!")
                   );
-                  await checkboxInFrame.click();
+                  // Use human-like clicking for checkbox
+                  try {
+                    await this.cursor.click(checkboxInFrame);
+                    await sleep(Math.random() * 200 + 100);
+                  } catch (error) {
+                    logger?.warn(
+                      "Human click on checkbox failed, using direct click",
+                      { error: error.message }
+                    );
+                    await checkboxInFrame.click();
+                  }
                   checkboxClicked = true;
                   break;
                 }
@@ -4747,7 +4824,17 @@ class MultiEngineDorker {
                         `✅ Found checkbox with selector: ${selector}`
                       )
                     );
-                    await element.click();
+                    // Use human-like clicking for challenge element
+                    try {
+                      await this.cursor.click(element);
+                      await sleep(Math.random() * 150 + 75);
+                    } catch (error) {
+                      logger?.warn(
+                        "Human click on challenge element failed, using direct click",
+                        { error: error.message }
+                      );
+                      await element.click();
+                    }
                     checkboxClicked = true;
                     break;
                   }
@@ -4979,7 +5066,17 @@ class MultiEngineDorker {
                   console.log(
                     chalk.green(`✅ Found audio button in bframe: ${selector}`)
                   );
-                  await audioButton.click();
+                  // Use human-like clicking for audio button
+                  try {
+                    await this.cursor.click(audioButton);
+                    await sleep(Math.random() * 150 + 75);
+                  } catch (error) {
+                    logger?.warn(
+                      "Human click on audio button failed, using direct click",
+                      { error: error.message }
+                    );
+                    await audioButton.click();
+                  }
                   audioButtonFound = true;
                   console.log(
                     chalk.green(
@@ -5536,7 +5633,17 @@ class MultiEngineDorker {
                   console.log(
                     chalk.green(`✅ Found audio-response input: ${selector}`)
                   );
-                  await audioResponseInput.click();
+                  // Use human-like clicking for audio response input
+                  try {
+                    await this.cursor.click(audioResponseInput);
+                    await sleep(Math.random() * 100 + 50);
+                  } catch (error) {
+                    logger?.warn(
+                      "Human click on audio input failed, using direct click",
+                      { error: error.message }
+                    );
+                    await audioResponseInput.click();
+                  }
                   audioResponseClicked = true;
                   break;
                 }
@@ -6369,7 +6476,10 @@ class MultiEngineDorker {
 
         // Add space before word (except first word)
         if (wordIndex > 0) {
-          await this.page.keyboard.type(" ");
+          // Type space with human-like behavior
+          await this.page.keyboard.type(" ", {
+            delay: Math.random() * 80 + 60,
+          });
           // Brief pause after space
           await sleep(Math.random() * 150 + 80);
         }
@@ -6385,7 +6495,10 @@ class MultiEngineDorker {
           charDelay += (Math.random() - 0.5) * 30;
           charDelay = Math.max(40, Math.min(charDelay, 200)); // Keep delays reasonable
 
-          await this.page.keyboard.type(char);
+          // Type character with human-like behavior
+          await this.page.keyboard.type(char, {
+            delay: Math.random() * 80 + 60,
+          });
           await sleep(charDelay);
         }
 
@@ -7148,7 +7261,17 @@ class MultiEngineDorker {
           await this.cursor.click(selector);
         } else {
           logger?.warn("No search box selector found, using fallback click");
-          await searchBox.click();
+          // Use human-like clicking for search box
+          try {
+            await this.cursor.click(searchBox);
+            await sleep(Math.random() * 100 + 50);
+          } catch (error) {
+            logger?.warn(
+              "Human click on search box failed, using direct click",
+              { error: error.message }
+            );
+            await searchBox.click();
+          }
         }
 
         // Small pause after click
@@ -7516,7 +7639,25 @@ class MultiEngineDorker {
       }
 
       // CRITICAL: Always check for cookie consent on new search results page
-      console.log(chalk.blue("[*] Checking for cookie consent..."));
+      // Also check if we got redirected to consent page
+      const finalUrl = this.page.url();
+      if (finalUrl.includes("consent.google.com")) {
+        logger?.info("Search redirected to consent page, handling acceptance");
+        await this.handleCookieConsent(true); // Force consent handling
+
+        // Navigate back to search after consent
+        if (this.googleConsentHandled) {
+          logger?.info("Retrying search after consent acceptance");
+          await sleep(2000);
+          const searchUrl = this.engine.searchUrl(dork);
+          await this.page.goto(searchUrl, {
+            waitUntil: "domcontentloaded",
+            timeout: 30000,
+          });
+        }
+      }
+
+      logWithDedup("info", "[*] Checking for cookie consent...", chalk.blue);
       await this.handleCookieConsent();
 
       // Check for 403 error pages proactively before checking for CAPTCHAs
@@ -7671,76 +7812,200 @@ class MultiEngineDorker {
         return [];
       }
 
-      // Extract search results with enhanced error handling and logging
-      logger?.debug("Extracting search results from page");
+      // Extract search results without relying on dynamic CSS classes
+      logger?.debug(
+        "Extracting search results using URL redirect pattern detection"
+      );
 
-      const searchResults = await this.page.evaluate((engine) => {
+      const searchResults = await this.page.evaluate(() => {
         const items = [];
+        console.log("Dorker: Starting result extraction...");
 
-        for (const selector of engine.resultSelectors) {
-          const elements = document.querySelectorAll(selector);
+        // Primary method: Look for Google's URL redirect links
+        const redirectLinks = document.querySelectorAll('a[href^="/url?"]');
+        console.log(
+          `Dorker: Found ${redirectLinks.length} redirect links to process`
+        );
 
-          elements.forEach((el, index) => {
-            try {
-              const titleEl = el.querySelector(engine.titleSelector);
-              const linkEl = el.querySelector(engine.linkSelector);
-              const descEl = el.querySelector(engine.descSelector);
+        redirectLinks.forEach((linkEl, index) => {
+          try {
+            let url = linkEl.href || linkEl.getAttribute("href") || "";
 
-              if (titleEl && linkEl) {
-                const title = titleEl.innerText || titleEl.textContent || "";
-                let url = linkEl.href || linkEl.getAttribute("href") || "";
+            // Extract the actual URL from Google's redirect format
+            if (url.includes("/url?")) {
+              try {
+                // Handle relative URLs by making them absolute
+                const baseUrl = window.location.origin;
+                const fullUrl = url.startsWith("/") ? baseUrl + url : url;
+                const urlObj = new URL(fullUrl);
 
-                // Clean up URL redirects - handle both Google redirect formats
-                if (url.includes("/url?")) {
-                  try {
-                    // Handle relative URLs by making them absolute
-                    const baseUrl = window.location.origin;
-                    const fullUrl = url.startsWith("/") ? baseUrl + url : url;
-                    const urlObj = new URL(fullUrl);
+                // Extract from the 'url' parameter specifically
+                const targetUrl = urlObj.searchParams.get("url");
 
-                    // Try different parameter names Google uses for the actual URL
-                    const targetUrl =
-                      urlObj.searchParams.get("url") ||
-                      urlObj.searchParams.get("q") ||
-                      urlObj.searchParams.get("u") ||
-                      url;
-
-                    // Decode any URL encoding in the extracted URL
-                    url = decodeURIComponent(targetUrl);
-
-                    console.log(
-                      `🔗 Extracted URL: ${url.substring(0, 100)}...`
-                    );
-                  } catch (e) {
-                    console.log(
-                      `⚠️ URL parsing failed for: ${url.substring(0, 50)}...`
-                    );
-                    // Keep original URL if parsing fails
-                  }
+                if (targetUrl) {
+                  // Decode any URL encoding in the extracted URL
+                  url = decodeURIComponent(targetUrl);
+                  console.log(
+                    `🔗 Extracted URL from redirect: ${url.substring(
+                      0,
+                      100
+                    )}...`
+                  );
+                } else {
+                  console.log(
+                    `⚠️ No 'url' parameter found in: ${url.substring(
+                      0,
+                      100
+                    )}...`
+                  );
+                  return; // Skip this link
                 }
+              } catch (e) {
+                console.log(
+                  `⚠️ URL parsing failed for: ${url.substring(0, 50)}...`
+                );
+                return; // Skip this link
+              }
+            }
 
-                const description = descEl
-                  ? descEl.innerText || descEl.textContent || ""
-                  : "No description available";
+            // Find the title - look for heading elements in parent/nearby elements
+            let title = "";
+            let titleEl = null;
 
-                if (title.trim() && url.trim() && url.startsWith("http")) {
-                  items.push({
-                    title: title.trim(),
-                    url: url.trim(),
-                    description: description.trim().substring(0, 300),
-                  });
+            // Try multiple approaches to find the title
+            const parentContainer =
+              linkEl.closest("[data-ved]") ||
+              linkEl.closest("div") ||
+              linkEl.parentElement;
+            if (parentContainer) {
+              // Look for h3 elements (most common for Google results)
+              titleEl = parentContainer.querySelector("h3");
+              if (!titleEl) {
+                // Try looking for any heading elements
+                titleEl = parentContainer.querySelector(
+                  "h1, h2, h3, h4, h5, h6"
+                );
+              }
+              if (!titleEl && linkEl.textContent) {
+                // Use link text as fallback
+                title = linkEl.textContent.trim();
+              }
+            }
+
+            if (titleEl) {
+              title = titleEl.innerText || titleEl.textContent || "";
+            }
+
+            // Find description - look in nearby elements
+            let description = "No description available";
+            if (parentContainer) {
+              // Look for description elements (often have span or div with text)
+              const descElements =
+                parentContainer.querySelectorAll("span, div");
+              for (const descEl of descElements) {
+                const text = (
+                  descEl.innerText ||
+                  descEl.textContent ||
+                  ""
+                ).trim();
+                // Skip very short text or elements that look like dates/metadata
+                if (
+                  text.length > 30 &&
+                  !text.match(
+                    /^\d+\s*(ago|hour|minute|day|week|month|year)/i
+                  ) &&
+                  !text.includes("...")
+                ) {
+                  description = text.substring(0, 300);
+                  break;
                 }
               }
+            }
+
+            // Only add if we have valid data
+            if (title.trim() && url.trim() && url.startsWith("http")) {
+              items.push({
+                title: title.trim(),
+                url: url.trim(),
+                description: description.trim(),
+              });
+              console.log(`✅ Added result: ${title.substring(0, 50)}...`);
+            } else {
+              console.log(
+                `❌ Skipped invalid result: title="${title}" url="${url.substring(
+                  0,
+                  50
+                )}"`
+              );
+            }
+          } catch (err) {
+            console.log(`❌ Error processing link ${index}: ${err.message}`);
+          }
+        });
+
+        // Fallback method: Look for direct HTTP links if no redirect links found
+        if (items.length === 0) {
+          console.log(
+            "Dorker: No redirect links found, trying direct links..."
+          );
+          const directLinks = document.querySelectorAll(
+            'a[href^="http"]:not([href*="google.com"]):not([href*="youtube.com/redirect"])'
+          );
+          console.log(
+            `Dorker: Found ${directLinks.length} direct links to process`
+          );
+
+          directLinks.forEach((linkEl, index) => {
+            try {
+              const url = linkEl.href || linkEl.getAttribute("href") || "";
+
+              // Skip Google's own URLs and common noise
+              if (
+                url.includes("google.com") ||
+                url.includes("policies.google.com") ||
+                url.includes("support.google.com")
+              ) {
+                return;
+              }
+
+              let title = linkEl.textContent || linkEl.innerText || "";
+              if (!title.trim()) {
+                // Try to find title in parent
+                const parent =
+                  linkEl.closest("[data-ved]") || linkEl.parentElement;
+                if (parent) {
+                  const headingEl = parent.querySelector(
+                    "h1, h2, h3, h4, h5, h6"
+                  );
+                  title = headingEl
+                    ? headingEl.textContent || headingEl.innerText || ""
+                    : title;
+                }
+              }
+
+              if (title.trim() && url.trim() && url.startsWith("http")) {
+                items.push({
+                  title: title.trim(),
+                  url: url.trim(),
+                  description: "No description available",
+                });
+                console.log(
+                  `✅ Added direct link: ${title.substring(0, 50)}...`
+                );
+              }
             } catch (err) {
-              // Silently continue with next element
+              console.log(
+                `❌ Error processing direct link ${index}: ${err.message}`
+              );
             }
           });
-
-          // Don't break - continue collecting from all selectors
         }
 
+        console.log(
+          `Dorker: Extraction complete, found ${items.length} total results`
+        );
         return items;
-      }, this.engine);
+      });
 
       if (searchResults.length === 0) {
         logger?.info("No results extracted from page", { dork });
@@ -8341,7 +8606,8 @@ async function main() {
     allResults[dork].forEach((res, index) => {
       console.log(`  ${chalk.yellow(index + 1)}. ${chalk.blue(res.title)}`);
       console.log(`     ${chalk.green(res.url)}`);
-      console.log(`     ${chalk.gray(res.description.substring(0, 120))}...`);
+      // Description printing disabled per user request
+      // console.log(`     ${chalk.gray(res.description.substring(0, 120))}...`);
     });
   }
 
@@ -8370,9 +8636,7 @@ async function main() {
 
   // Save URLs to separate file if requested
   if (options.saveUrlsToFile && Object.keys(allResults).length > 0) {
-    const urlsFileName = options.output
-      ? options.output.replace(/\.[^/.]+$/, "") + "_urls.txt"
-      : "dorker_urls.txt";
+    const urlsFileName = "result.txt";
     await saveUrlsToFile(allResults, urlsFileName);
   }
 
