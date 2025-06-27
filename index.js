@@ -2950,9 +2950,33 @@ class MultiEngineDorker {
 
                     console.log(chalk.blue("🔄 Trying to get a new proxy..."));
 
-                    // Try to get a new proxy
-                    const replacementProxy = await generateProxy();
-                    if (replacementProxy) {
+                    // Try to get new proxies with multiple attempts
+                    let replacementFound = false;
+                    for (
+                      let proxyAttempt = 1;
+                      proxyAttempt <= 3;
+                      proxyAttempt++
+                    ) {
+                      console.log(
+                        chalk.blue(
+                          `🔄 Proxy generation attempt ${proxyAttempt}/3...`
+                        )
+                      );
+
+                      const replacementProxy = await generateProxy();
+                      if (!replacementProxy) {
+                        console.log(
+                          chalk.red(
+                            `❌ Proxy generation ${proxyAttempt} failed`
+                          )
+                        );
+                        if (proxyAttempt < 3) {
+                          await sleep(2000); // Wait before next attempt
+                          continue;
+                        }
+                        break;
+                      }
+
                       console.log(
                         chalk.green(
                           `🌐 Got replacement proxy: ${replacementProxy.host}:${replacementProxy.port}`
@@ -2985,10 +3009,23 @@ class MultiEngineDorker {
                         );
                       } else {
                         console.log(
-                          chalk.red("❌ Replacement proxy also failed")
+                          chalk.red(
+                            `❌ Replacement proxy ${proxyAttempt} failed`
+                          )
                         );
                         await deleteProxy(replacementProxy.id);
+                        if (proxyAttempt < 3) {
+                          await sleep(1000); // Wait before next attempt
+                        }
                       }
+                    }
+
+                    if (!replacementFound) {
+                      console.log(
+                        chalk.yellow(
+                          "⚠️ All proxy replacement attempts failed, continuing without proxy..."
+                        )
+                      );
                     }
 
                     return false;
@@ -3295,9 +3332,9 @@ class MultiEngineDorker {
         console.log(chalk.blue("🌐 Generating replacement proxy..."));
 
         let workingProxy = null;
-        for (let retryAttempt = 1; retryAttempt <= 3; retryAttempt++) {
+        for (let retryAttempt = 1; retryAttempt <= 5; retryAttempt++) {
           console.log(
-            chalk.yellow(`   Replacement attempt ${retryAttempt}/3...`)
+            chalk.yellow(`   Replacement attempt ${retryAttempt}/5...`)
           );
 
           const newProxy = await generateProxy();
@@ -3307,17 +3344,22 @@ class MultiEngineDorker {
                 `   ❌ Attempt ${retryAttempt} failed to generate proxy`
               )
             );
-            if (retryAttempt === 3) {
+            if (retryAttempt === 5) {
               logger?.warn(
-                "Failed to generate replacement proxy after 3 attempts"
+                "Failed to generate replacement proxy after 5 attempts"
               );
               console.log(
                 chalk.red(
                   "❌ Failed to generate replacement proxy after all attempts"
                 )
               );
+              console.log(
+                chalk.yellow("⚠️ Continuing without proxy for this dork...")
+              );
               return false;
             }
+            // Add delay between attempts to avoid hitting API rate limits
+            await sleep(2000);
             continue;
           }
 
@@ -3342,13 +3384,18 @@ class MultiEngineDorker {
             );
             await deleteProxy(newProxy.id);
 
-            if (retryAttempt === 3) {
+            if (retryAttempt === 5) {
               console.log(
                 chalk.red("❌ All replacement proxy attempts failed")
               );
               logger?.warn("All replacement proxy attempts failed");
+              console.log(
+                chalk.yellow("⚠️ Continuing without proxy for this dork...")
+              );
               return false;
             }
+            // Add delay between proxy tests
+            await sleep(1000);
           }
         }
 
@@ -6441,8 +6488,34 @@ class MultiEngineDorker {
 
     // If we are here, automatic solving failed for a reason other than automated queries.
     logger?.warn(
-      "Automatic CAPTCHA solving failed. Manual intervention was not requested."
+      "Automatic CAPTCHA solving failed. Attempting proxy switch as fallback."
     );
+
+    // Try proxy switch as last resort if enabled
+    if (this.options.useProxyOnCaptcha && !this.currentProxy) {
+      console.log(
+        chalk.blue(
+          "🌐 CAPTCHA solving failed - trying proxy switch as fallback..."
+        )
+      );
+
+      try {
+        const proxyEnabled = await this.enableProxyForCaptcha(dork);
+        if (proxyEnabled) {
+          logger?.info("Proxy enabled as CAPTCHA fallback");
+          return "proxy_switched_retry";
+        }
+      } catch (proxyError) {
+        logger?.warn("Proxy fallback also failed", {
+          error: proxyError.message,
+        });
+      }
+    }
+
+    console.log(
+      chalk.yellow("⚠️ All CAPTCHA solving methods failed - skipping this dork")
+    );
+    logger?.warn("All CAPTCHA resolution methods exhausted for this dork");
     return false;
   }
 
@@ -7921,6 +7994,11 @@ class MultiEngineDorker {
 
         if (!resolved) {
           logger?.info("CAPTCHA resolution failed, skipping dork", { dork });
+          console.log(
+            chalk.yellow(
+              "⚠️ Skipping this dork due to CAPTCHA failure - continuing with next dork"
+            )
+          );
           return [];
         }
       }
@@ -8418,6 +8496,13 @@ async function main() {
         totalLinks: totalLinksFound,
       });
 
+      // Show success message with progress
+      console.log(
+        chalk.green(
+          `\n📋 Dork ${i + 1}/${dorks.length}: Found ${results.length} results!`
+        )
+      );
+
       // Save results immediately after each successful dork
       if (outputFilePath) {
         await appendDorkResults(dork, results, outputFilePath, allResults);
@@ -8456,6 +8541,15 @@ async function main() {
       logger?.info("Dork completed with no results", {
         dork: dork.substring(0, 100),
       });
+
+      // Show user that we're continuing despite no results
+      console.log(
+        chalk.blue(
+          `\n📋 Dork ${i + 1}/${
+            dorks.length
+          }: No results found - continuing to next dork`
+        )
+      );
 
       progressBar.increment(1, { links: totalLinksFound });
 
