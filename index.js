@@ -1378,8 +1378,9 @@ async function getSettings() {
     {
       type: "number",
       name: "delay",
-      message: "Delay between dorks (ms)?",
-      default: 3000,
+      message:
+        "Delay between dorks (ms)? (Minimum 8000ms recommended for stealth)",
+      default: 12000,
     },
     {
       type: "confirm",
@@ -6551,9 +6552,84 @@ class MultiEngineDorker {
         });
       }
 
+      // Enhanced inter-search browsing simulation to break patterns
+      await this.simulateInterSearchBehavior();
+
       logger?.debug("Session cleanup completed successfully");
     } catch (error) {
       logger?.warn("Session cleaning error", { error: error.message });
+    }
+  }
+
+  async simulateInterSearchBehavior() {
+    try {
+      if (!this.page || this.page.isClosed()) return;
+
+      logger?.debug("Simulating realistic browsing behavior between searches");
+
+      // Simulate human behavior patterns between searches
+      const behaviorPatterns = [
+        async () => {
+          // Scroll through results briefly (like reviewing what was found)
+          console.log(chalk.gray("📖 Simulating result review..."));
+          await this.simulateScrolling();
+          await sleep(Math.random() * 2000 + 1000);
+        },
+        async () => {
+          // Move mouse around thoughtfully
+          console.log(chalk.gray("🤔 Simulating thoughtful browsing..."));
+          await this.simulateMouseMovement();
+          await this.simulateReadingPause();
+        },
+        async () => {
+          // Briefly hover over page elements
+          console.log(chalk.gray("👀 Simulating page exploration..."));
+          await this.simulateHoverElements();
+          await sleep(Math.random() * 1500 + 500);
+        },
+        async () => {
+          // Simulate checking other tabs/windows
+          console.log(chalk.gray("🔄 Simulating tab switching behavior..."));
+          await this.simulateTabNavigation();
+        },
+      ];
+
+      // Randomly choose 1-2 behaviors to perform
+      const numBehaviors = Math.random() < 0.7 ? 1 : 2;
+      const shuffledBehaviors = behaviorPatterns.sort(
+        () => Math.random() - 0.5
+      );
+
+      for (let i = 0; i < numBehaviors; i++) {
+        await shuffledBehaviors[i]();
+        // Pause between behaviors
+        if (i < numBehaviors - 1) {
+          await sleep(Math.random() * 1000 + 500);
+        }
+      }
+
+      // Sometimes simulate going to Google homepage (common user pattern)
+      if (Math.random() < 0.3) {
+        console.log(chalk.gray("🏠 Simulating return to homepage..."));
+        try {
+          await this.page.goto("https://www.google.com", {
+            waitUntil: "domcontentloaded",
+            timeout: 15000,
+          });
+          await sleep(Math.random() * 1000 + 500);
+          await this.handleCookieConsent();
+        } catch (error) {
+          logger?.debug("Homepage navigation failed (non-critical)", {
+            error: error.message,
+          });
+        }
+      }
+
+      logger?.debug("Inter-search behavior simulation completed");
+    } catch (error) {
+      logger?.debug("Inter-search behavior simulation failed", {
+        error: error.message,
+      });
     }
   }
 
@@ -8402,30 +8478,70 @@ async function main() {
 
       progressBar.increment(1, { links: totalLinksFound });
 
-      // Check if browser is still alive before cleaning session
-      if (dorker.page && !dorker.page.isClosed()) {
-        await dorker.cleanSession();
-      } else {
-        logger?.warn(
-          "Browser closed after getting results, reinitializing for next dork"
+      // Enhanced anti-detection: occasionally restart browser completely
+      const shouldRestartBrowser =
+        (i + 1) % 3 === 0 || // Every 3rd search
+        Math.random() < 0.2; // 20% random chance
+
+      if (shouldRestartBrowser && i < dorks.length - 1) {
+        console.log(
+          chalk.blue("🔄 Performing browser restart for enhanced stealth...")
         );
-        if (i < dorks.length - 1) {
-          try {
-            await dorker.initialize();
-          } catch (reinitError) {
-            logger?.error("Failed to reinitialize browser", {
-              error: reinitError.message,
-            });
-            console.log(
-              chalk.red("❌ Failed to reinitialize browser. Stopping.")
-            );
-            break;
+        logger?.info("Restarting browser for anti-detection", {
+          dorkIndex: i + 1,
+          reason: (i + 1) % 3 === 0 ? "scheduled" : "random",
+        });
+
+        try {
+          await dorker.close();
+          await sleep(Math.random() * 2000 + 1000); // Pause between restart
+          await dorker.initialize();
+          console.log(chalk.green("✅ Browser restart completed"));
+        } catch (restartError) {
+          logger?.error("Failed to restart browser", {
+            error: restartError.message,
+          });
+          console.log(chalk.red("❌ Failed to restart browser. Stopping."));
+          break;
+        }
+      } else {
+        // Normal session cleaning
+        if (dorker.page && !dorker.page.isClosed()) {
+          await dorker.cleanSession();
+        } else {
+          logger?.warn(
+            "Browser closed after getting results, reinitializing for next dork"
+          );
+          if (i < dorks.length - 1) {
+            try {
+              await dorker.initialize();
+            } catch (reinitError) {
+              logger?.error("Failed to reinitialize browser", {
+                error: reinitError.message,
+              });
+              console.log(
+                chalk.red("❌ Failed to reinitialize browser. Stopping.")
+              );
+              break;
+            }
           }
         }
       }
 
-      // Minimal delay after successful scraping
-      await sleep(Math.min(options.delay, 300) + randomDelay(50, 150));
+      // Enhanced human-like delay after successful scraping - significant pause to avoid detection
+      const baseDelay = Math.max(options.delay, 8000); // Minimum 8 seconds between searches
+      const humanVariation = randomDelay(2000, 5000); // Add 2-5 seconds of human variation
+      const thinkingTime = Math.random() * 3000 + 1000; // Additional 1-4 seconds of "thinking"
+
+      console.log(
+        chalk.blue(
+          `⏳ Human-like pause: ${(
+            (baseDelay + humanVariation + thinkingTime) /
+            1000
+          ).toFixed(1)}s before next search`
+        )
+      );
+      await sleep(baseDelay + humanVariation + thinkingTime);
     } else {
       logger?.info("Dork completed with no results", {
         dork: dork.substring(0, 100),
@@ -8442,27 +8558,67 @@ async function main() {
 
       progressBar.increment(1, { links: totalLinksFound });
 
-      // Check if browser is still alive before cleaning session
-      if (dorker.page && !dorker.page.isClosed()) {
-        await dorker.cleanSession();
+      // Enhanced anti-detection: occasionally restart browser completely for failed searches too
+      const shouldRestartBrowser =
+        (i + 1) % 4 === 0 || // Every 4th failed search
+        Math.random() < 0.15; // 15% random chance for failures
+
+      if (shouldRestartBrowser && i < dorks.length - 1) {
+        console.log(
+          chalk.blue("🔄 Performing browser restart for enhanced stealth...")
+        );
+        logger?.info("Restarting browser for anti-detection after failure", {
+          dorkIndex: i + 1,
+          reason: (i + 1) % 4 === 0 ? "scheduled" : "random",
+        });
+
+        try {
+          await dorker.close();
+          await sleep(Math.random() * 2000 + 1000); // Pause between restart
+          await dorker.initialize();
+          console.log(chalk.green("✅ Browser restart completed"));
+        } catch (restartError) {
+          logger?.error("Failed to restart browser", {
+            error: restartError.message,
+          });
+          console.log(chalk.red("❌ Failed to restart browser. Stopping."));
+          break;
+        }
       } else {
-        logger?.warn("Browser closed, reinitializing for next dork");
-        if (i < dorks.length - 1) {
-          try {
-            await dorker.initialize();
-          } catch (reinitError) {
-            logger?.error("Failed to reinitialize browser", {
-              error: reinitError.message,
-            });
-            console.log(
-              chalk.red("❌ Failed to reinitialize browser. Stopping.")
-            );
-            break;
+        // Normal session cleaning
+        if (dorker.page && !dorker.page.isClosed()) {
+          await dorker.cleanSession();
+        } else {
+          logger?.warn("Browser closed, reinitializing for next dork");
+          if (i < dorks.length - 1) {
+            try {
+              await dorker.initialize();
+            } catch (reinitError) {
+              logger?.error("Failed to reinitialize browser", {
+                error: reinitError.message,
+              });
+              console.log(
+                chalk.red("❌ Failed to reinitialize browser. Stopping.")
+              );
+              break;
+            }
           }
         }
       }
 
-      await sleep(Math.min(options.delay, 500) + randomDelay(50, 200));
+      // Enhanced delay even for failed searches to maintain consistent timing pattern
+      const baseDelay = Math.max(options.delay, 6000); // Minimum 6 seconds even for failures
+      const humanVariation = randomDelay(1000, 3000); // Add 1-3 seconds of variation
+
+      console.log(
+        chalk.blue(
+          `⏳ Pause before next search: ${(
+            (baseDelay + humanVariation) /
+            1000
+          ).toFixed(1)}s`
+        )
+      );
+      await sleep(baseDelay + humanVariation);
     }
   }
 
