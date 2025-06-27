@@ -312,14 +312,33 @@ const generateRandomFingerprint = () => {
     { width: 2560, height: 1080, deviceScaleFactor: 1 }, // Ultrawide 21:9
   ];
 
-  // WebGL vendor/renderer pairs (real combinations)
+  // WebGL vendor/renderer pairs (real combinations with more variations)
   const webglData = [
+    // Intel Graphics
     { vendor: "Intel Inc.", renderer: "Intel Iris OpenGL Engine" },
     { vendor: "Intel Inc.", renderer: "Intel HD Graphics 630" },
     { vendor: "Intel Inc.", renderer: "Intel UHD Graphics 630" },
+    { vendor: "Intel Inc.", renderer: "Intel UHD Graphics 620" },
+    { vendor: "Intel Inc.", renderer: "Intel Iris Xe Graphics" },
+    { vendor: "Intel Inc.", renderer: "Intel HD Graphics 4000" },
+    { vendor: "Intel Inc.", renderer: "Intel HD Graphics 5000" },
+    { vendor: "Intel Inc.", renderer: "Intel HD Graphics 520" },
+    { vendor: "Intel Inc.", renderer: "Intel HD Graphics 530" },
+    { vendor: "Intel", renderer: "Mesa Intel(R) UHD Graphics 630 (CFL GT2)" },
+    { vendor: "Intel", renderer: "Mesa Intel(R) HD Graphics 620 (KBL GT2)" },
+
+    // NVIDIA Graphics
+    {
+      vendor: "NVIDIA Corporation",
+      renderer: "NVIDIA GeForce GTX 1050/PCIe/SSE2",
+    },
     {
       vendor: "NVIDIA Corporation",
       renderer: "NVIDIA GeForce GTX 1050 Ti/PCIe/SSE2",
+    },
+    {
+      vendor: "NVIDIA Corporation",
+      renderer: "NVIDIA GeForce GTX 1060 3GB/PCIe/SSE2",
     },
     {
       vendor: "NVIDIA Corporation",
@@ -327,11 +346,47 @@ const generateRandomFingerprint = () => {
     },
     {
       vendor: "NVIDIA Corporation",
+      renderer: "NVIDIA GeForce GTX 1070/PCIe/SSE2",
+    },
+    {
+      vendor: "NVIDIA Corporation",
+      renderer: "NVIDIA GeForce GTX 1080/PCIe/SSE2",
+    },
+    {
+      vendor: "NVIDIA Corporation",
+      renderer: "NVIDIA GeForce GTX 1650/PCIe/SSE2",
+    },
+    {
+      vendor: "NVIDIA Corporation",
+      renderer: "NVIDIA GeForce GTX 1660 Ti/PCIe/SSE2",
+    },
+    {
+      vendor: "NVIDIA Corporation",
+      renderer: "NVIDIA GeForce RTX 2060/PCIe/SSE2",
+    },
+    {
+      vendor: "NVIDIA Corporation",
+      renderer: "NVIDIA GeForce RTX 2070/PCIe/SSE2",
+    },
+    {
+      vendor: "NVIDIA Corporation",
       renderer: "NVIDIA GeForce RTX 2070 SUPER/PCIe/SSE2",
     },
     {
       vendor: "NVIDIA Corporation",
+      renderer: "NVIDIA GeForce RTX 2080/PCIe/SSE2",
+    },
+    {
+      vendor: "NVIDIA Corporation",
+      renderer: "NVIDIA GeForce RTX 3050/PCIe/SSE2",
+    },
+    {
+      vendor: "NVIDIA Corporation",
       renderer: "NVIDIA GeForce RTX 3060/PCIe/SSE2",
+    },
+    {
+      vendor: "NVIDIA Corporation",
+      renderer: "NVIDIA GeForce RTX 3060 Ti/PCIe/SSE2",
     },
     {
       vendor: "NVIDIA Corporation",
@@ -341,12 +396,73 @@ const generateRandomFingerprint = () => {
       vendor: "NVIDIA Corporation",
       renderer: "NVIDIA GeForce RTX 3080/PCIe/SSE2",
     },
+    {
+      vendor: "NVIDIA Corporation",
+      renderer: "NVIDIA GeForce RTX 3090/PCIe/SSE2",
+    },
+    {
+      vendor: "NVIDIA Corporation",
+      renderer: "NVIDIA GeForce RTX 4060/PCIe/SSE2",
+    },
+    {
+      vendor: "NVIDIA Corporation",
+      renderer: "NVIDIA GeForce RTX 4070/PCIe/SSE2",
+    },
+    {
+      vendor: "NVIDIA Corporation",
+      renderer: "NVIDIA GeForce RTX 4080/PCIe/SSE2",
+    },
+    {
+      vendor: "NVIDIA Corporation",
+      renderer: "NVIDIA GeForce RTX 4090/PCIe/SSE2",
+    },
+
+    // AMD Graphics
     { vendor: "AMD", renderer: "AMD Radeon Pro 5500M OpenGL Engine" },
     { vendor: "AMD", renderer: "AMD Radeon RX 580 2048SP" },
     { vendor: "AMD", renderer: "AMD Radeon RX 6700 XT" },
+    { vendor: "AMD", renderer: "AMD Radeon RX 570 Series" },
+    { vendor: "AMD", renderer: "AMD Radeon RX 580 Series" },
+    { vendor: "AMD", renderer: "AMD Radeon RX 590 Series" },
+    { vendor: "AMD", renderer: "AMD Radeon RX 5500 XT" },
+    { vendor: "AMD", renderer: "AMD Radeon RX 5600 XT" },
+    { vendor: "AMD", renderer: "AMD Radeon RX 5700" },
+    { vendor: "AMD", renderer: "AMD Radeon RX 5700 XT" },
+    { vendor: "AMD", renderer: "AMD Radeon RX 6600" },
+    { vendor: "AMD", renderer: "AMD Radeon RX 6600 XT" },
+    { vendor: "AMD", renderer: "AMD Radeon RX 6800" },
+    { vendor: "AMD", renderer: "AMD Radeon RX 6800 XT" },
+    { vendor: "AMD", renderer: "AMD Radeon RX 6900 XT" },
+    { vendor: "AMD", renderer: "AMD Radeon RX 7900 XTX" },
+    { vendor: "AMD", renderer: "AMD Radeon RX 7900 XT" },
+    { vendor: "AMD", renderer: "AMD Radeon Vega 56" },
+    { vendor: "AMD", renderer: "AMD Radeon Vega 64" },
+
+    // Apple Silicon
     { vendor: "Apple", renderer: "Apple M1" },
     { vendor: "Apple", renderer: "Apple M1 Pro" },
+    { vendor: "Apple", renderer: "Apple M1 Max" },
     { vendor: "Apple", renderer: "Apple M2" },
+    { vendor: "Apple", renderer: "Apple M2 Pro" },
+    { vendor: "Apple", renderer: "Apple M2 Max" },
+    { vendor: "Apple", renderer: "Apple M3" },
+    { vendor: "Apple", renderer: "Apple M3 Pro" },
+
+    // Google/Mesa (Chrome OS and Linux)
+    {
+      vendor: "Google Inc. (Intel)",
+      renderer:
+        "ANGLE (Intel, Mesa Intel(R) HD Graphics 620 (KBL GT2), OpenGL 4.6)",
+    },
+    {
+      vendor: "Google Inc. (NVIDIA)",
+      renderer:
+        "ANGLE (NVIDIA, NVIDIA GeForce GTX 1650/PCIe/SSE2, OpenGL 4.5.0)",
+    },
+    {
+      vendor: "Google Inc. (AMD)",
+      renderer: "ANGLE (AMD, AMD Radeon RX 580 Series, OpenGL 4.6)",
+    },
   ];
 
   // Realistic language combinations
@@ -549,9 +665,102 @@ const generateRandomFingerprint = () => {
   const connection =
     connectionTypes[Math.floor(Math.random() * connectionTypes.length)];
 
+  // Generate more unique fingerprint characteristics
+  const webglParams = {
+    ...webgl,
+    // Add more WebGL parameters for uniqueness
+    maxTextureSize: [4096, 8192, 16384][Math.floor(Math.random() * 3)],
+    maxViewportDims: [16384, 32768][Math.floor(Math.random() * 2)],
+    maxCombinedTextureImageUnits: [32, 64, 80, 96][
+      Math.floor(Math.random() * 4)
+    ],
+    maxVertexTextureImageUnits: [16, 32][Math.floor(Math.random() * 2)],
+    maxTextureImageUnits: [16, 32][Math.floor(Math.random() * 2)],
+    maxFragmentUniformVectors: [1024, 2048, 4096][
+      Math.floor(Math.random() * 3)
+    ],
+    maxVertexUniformVectors: [1024, 2048, 4096][Math.floor(Math.random() * 3)],
+    maxVaryingVectors: [30, 32, 64][Math.floor(Math.random() * 3)],
+    aliasedLineWidthRange: [
+      [1, 1],
+      [1, 7.984375],
+      [1, 10],
+    ][Math.floor(Math.random() * 3)],
+    aliasedPointSizeRange: [
+      [1, 255],
+      [1, 511],
+      [1, 1024],
+    ][Math.floor(Math.random() * 3)],
+    maxAnisotropy: [16, 32][Math.floor(Math.random() * 2)],
+    shadings: ["Gouraud", "Phong", "Flat"][Math.floor(Math.random() * 3)],
+    depthBits: [24, 32][Math.floor(Math.random() * 2)],
+    stencilBits: [0, 8][Math.floor(Math.random() * 2)],
+  };
+
+  // Generate unique media device IDs
+  const mediaDevices = {
+    audioInputs: Array.from(
+      { length: Math.floor(Math.random() * 3) + 1 },
+      (_, i) => ({
+        deviceId: Math.random().toString(36).substring(2, 15),
+        kind: "audioinput",
+        label:
+          ["Built-in Microphone", "External Microphone", "USB Audio Device"][
+            i
+          ] || "Microphone",
+        groupId: Math.random().toString(36).substring(2, 10),
+      })
+    ),
+    audioOutputs: Array.from(
+      { length: Math.floor(Math.random() * 2) + 1 },
+      (_, i) => ({
+        deviceId: Math.random().toString(36).substring(2, 15),
+        kind: "audiooutput",
+        label:
+          ["Built-in Output", "External Speakers", "Headphones"][i] ||
+          "Speakers",
+        groupId: Math.random().toString(36).substring(2, 10),
+      })
+    ),
+    videoInputs:
+      Math.random() > 0.5
+        ? [
+            {
+              deviceId: Math.random().toString(36).substring(2, 15),
+              kind: "videoinput",
+              label: [
+                "FaceTime HD Camera",
+                "Integrated Camera",
+                "HD Pro Webcam C920",
+              ][Math.floor(Math.random() * 3)],
+              groupId: Math.random().toString(36).substring(2, 10),
+            },
+          ]
+        : [],
+  };
+
+  // Browser-specific features
+  const browserFeatures = {
+    pdfViewerEnabled: Math.random() > 0.1, // 90% have PDF viewer
+    webglDebugRendererInfo: Math.random() > 0.3, // 70% expose debug info
+    speechSynthesis: Math.random() > 0.2, // 80% have speech synthesis
+    getUserMedia: Math.random() > 0.3, // 70% have getUserMedia
+    bluetooth: Math.random() > 0.7, // 30% have bluetooth API
+    usb: Math.random() > 0.8, // 20% have USB API
+  };
+
+  // Generate realistic browser history length
+  const historyLength = Math.floor(Math.random() * 50) + 1;
+
+  // Realistic localStorage/sessionStorage items
+  const storageItems = Math.floor(Math.random() * 10);
+
+  // Generate unique client rects noise
+  const clientRectsNoise = Math.random() * 0.0001;
+
   return {
     screen,
-    webgl,
+    webgl: webglParams,
     languages: language,
     userAgent,
     platform:
@@ -563,17 +772,63 @@ const generateRandomFingerprint = () => {
     timezone,
     hardwareConcurrency,
     deviceMemory,
-    canvas: canvasVariation,
-    audio: audioVariation,
+    canvas: {
+      ...canvasVariation,
+      // Add more canvas fingerprinting variations
+      globalCompositeOperation: ["source-over", "multiply", "screen"][
+        Math.floor(Math.random() * 3)
+      ],
+      filter: Math.random() > 0.5 ? "none" : `blur(${Math.random() * 0.5}px)`,
+    },
+    audio: {
+      ...audioVariation,
+      // Add more audio fingerprinting variations
+      baseLatency: Math.random() * 0.01 + 0.001,
+      outputLatency: Math.random() * 0.02 + 0.01,
+      sinkId: "",
+    },
     fonts,
     plugins,
     battery,
     connection,
-    // Add unique session identifiers
+    // Enhanced unique identifiers
     sessionId: Math.random().toString(36).substring(2, 15),
     touchSupport: Math.random() > 0.7, // 30% chance of touch support
     colorDepth: [24, 32][Math.floor(Math.random() * 2)],
     pixelDepth: [24, 32][Math.floor(Math.random() * 2)],
+    mediaDevices,
+    browserFeatures,
+    historyLength,
+    storageItems,
+    clientRectsNoise,
+    // CPU class for Windows
+    cpuClass: platform === "windows" ? "x64" : undefined,
+    // Add screen orientation
+    screenOrientation:
+      Math.random() > 0.8 ? "portrait-primary" : "landscape-primary",
+    // Unique browser window properties
+    innerWidth: screen.width - Math.floor(Math.random() * 200),
+    innerHeight: screen.height - Math.floor(Math.random() * 300) - 100,
+    // Add network information
+    networkInformation: {
+      downlink: Math.floor(Math.random() * 10) + 1,
+      effectiveType: connection,
+      rtt: Math.floor(Math.random() * 200) + 50,
+      saveData: Math.random() > 0.9,
+    },
+    // Permissions state
+    permissions: {
+      geolocation: ["granted", "denied", "prompt"][
+        Math.floor(Math.random() * 3)
+      ],
+      notifications: ["granted", "denied", "prompt"][
+        Math.floor(Math.random() * 3)
+      ],
+      camera: ["granted", "denied", "prompt"][Math.floor(Math.random() * 3)],
+      microphone: ["granted", "denied", "prompt"][
+        Math.floor(Math.random() * 3)
+      ],
+    },
   };
 };
 
@@ -987,6 +1242,56 @@ async function appendDorkResults(dork, results, filePath, allResults) {
   }
 }
 
+async function saveUrlsToFile(results, filePath) {
+  try {
+    const urls = [];
+
+    // Extract all URLs from all dorks
+    for (const dork in results) {
+      if (results[dork] && Array.isArray(results[dork])) {
+        results[dork].forEach((result) => {
+          if (result.url && result.url.trim()) {
+            urls.push(result.url.trim());
+          }
+        });
+      }
+    }
+
+    // Remove duplicates
+    const uniqueUrls = [...new Set(urls)];
+
+    // Save one URL per line
+    const urlContent = uniqueUrls.join("\n") + "\n";
+    await fs.writeFile(filePath, urlContent, "utf8");
+
+    logger?.info("URLs saved to file", {
+      filePath,
+      urlCount: uniqueUrls.length,
+      totalFound: urls.length,
+      duplicatesRemoved: urls.length - uniqueUrls.length,
+    });
+
+    console.log(
+      chalk.green(
+        `💾 Saved ${uniqueUrls.length} unique URLs to ${path.basename(
+          filePath
+        )}`
+      )
+    );
+    if (urls.length > uniqueUrls.length) {
+      console.log(
+        chalk.blue(`   (${urls.length - uniqueUrls.length} duplicates removed)`)
+      );
+    }
+  } catch (error) {
+    logger?.error("Failed to save URLs to file", {
+      error: error.message,
+      filePath,
+    });
+    console.error(chalk.red(`❌ Failed to save URLs: ${error.message}`));
+  }
+}
+
 // --- Interactive Menu Functions ---
 async function showWelcome() {
   console.clear();
@@ -1098,6 +1403,12 @@ async function getSettings() {
       }`,
       default: ASOCKS_CONFIG.apiKey ? false : false, // Disabled if no API key
     },
+    {
+      type: "confirm",
+      name: "saveUrlsToFile",
+      message: "💾 Save all URLs line by line to a separate file?",
+      default: false,
+    },
   ]);
 
   return settings;
@@ -1158,9 +1469,9 @@ class MultiEngineDorker {
       await fs.mkdir(tempDir, { recursive: true });
       this.userDataDir = path.join(tempDir, `session_${Date.now()}`);
 
-      // Additional args to pass to puppeteer-real-browser
+      // Additional args to pass to puppeteer-real-browser for enhanced stealth
       const additionalArgs = [
-        "--window-size=1920,1080",
+        `--window-size=${this.fingerprint.screen.width},${this.fingerprint.screen.height}`,
         "--disable-background-networking",
         "--disable-background-timer-throttling",
         "--disable-renderer-backgrounding",
@@ -1177,6 +1488,45 @@ class MultiEngineDorker {
         "--force-dark-mode",
         "--enable-features=WebUIDarkMode",
         "--force-prefers-color-scheme=dark",
+        // Enhanced anti-detection flags
+        "--disable-blink-features=AutomationControlled",
+        "--disable-dev-shm-usage",
+        "--disable-setuid-sandbox",
+        "--no-sandbox",
+        "--disable-web-security",
+        "--disable-features=IsolateOrigins,site-per-process",
+        "--allow-running-insecure-content",
+        "--disable-features=BlockInsecurePrivateNetworkRequests",
+        "--disable-features=ImprovedCookieControls",
+        "--flag-switches-begin",
+        "--flag-switches-end",
+        "--disable-features=UserAgentClientHint",
+        "--disable-features=DeviceMemory",
+        // Hardware acceleration settings (vary based on fingerprint)
+        this.fingerprint.webgl.vendor.includes("NVIDIA") ||
+        this.fingerprint.webgl.vendor.includes("AMD")
+          ? "--enable-gpu"
+          : "--disable-gpu",
+        // Memory settings based on fingerprint
+        `--memory-pressure-off`,
+        `--max_old_space_size=${this.fingerprint.deviceMemory * 1024}`,
+        // Network settings
+        "--aggressive-cache-discard",
+        "--disable-features=NetworkService",
+        // Font rendering
+        "--font-render-hinting=medium",
+        // Audio settings
+        "--autoplay-policy=user-gesture-required",
+        "--disable-features=AudioServiceOutOfProcess",
+        // Privacy settings
+        "--disable-features=PrivacySandboxSettings4",
+        "--disable-features=FederatedLearningOfCohorts",
+        "--disable-features=FlocIdComputedEventLogging",
+        // WebRTC settings
+        "--disable-features=WebRtcHideLocalIpsWithMdns",
+        "--force-webrtc-ip-handling-policy=default_public_interface_only",
+        // Language settings
+        `--lang=${this.fingerprint.languages[0]}`,
       ];
 
       // Configure proxy for puppeteer-real-browser
@@ -1622,26 +1972,66 @@ class MultiEngineDorker {
           });
         }
 
-        // Override WebGL vendor and renderer
+        // Override WebGL vendor and renderer with enhanced parameters
         const getParameter = WebGLRenderingContext.prototype.getParameter;
         WebGLRenderingContext.prototype.getParameter = function (parameter) {
-          if (parameter === 37445) {
-            return fingerprint.webgl.vendor;
-          }
-          if (parameter === 37446) {
-            return fingerprint.webgl.renderer;
-          }
+          if (parameter === 37445) return fingerprint.webgl.vendor;
+          if (parameter === 37446) return fingerprint.webgl.renderer;
+          if (parameter === 3379) return fingerprint.webgl.maxTextureSize;
+          if (parameter === 34024) return fingerprint.webgl.maxTextureSize;
+          if (parameter === 34076)
+            return fingerprint.webgl.maxCombinedTextureImageUnits;
+          if (parameter === 35660)
+            return fingerprint.webgl.maxVertexTextureImageUnits;
+          if (parameter === 34930)
+            return fingerprint.webgl.maxTextureImageUnits;
+          if (parameter === 36349)
+            return fingerprint.webgl.maxFragmentUniformVectors;
+          if (parameter === 36347)
+            return fingerprint.webgl.maxVertexUniformVectors;
+          if (parameter === 36348) return fingerprint.webgl.maxVaryingVectors;
+          if (parameter === 3415)
+            return fingerprint.webgl.aliasedLineWidthRange;
+          if (parameter === 3414)
+            return fingerprint.webgl.aliasedPointSizeRange;
+          if (parameter === 3413)
+            return fingerprint.webgl.aliasedLineWidthRange;
+          if (parameter === 3412)
+            return fingerprint.webgl.aliasedPointSizeRange;
+          if (parameter === 3410) return fingerprint.webgl.depthBits;
+          if (parameter === 3411) return fingerprint.webgl.stencilBits;
+          if (parameter === 34047) return fingerprint.webgl.maxAnisotropy;
           return getParameter.call(this, parameter);
         };
 
         const getParameter2 = WebGL2RenderingContext.prototype.getParameter;
         WebGL2RenderingContext.prototype.getParameter = function (parameter) {
-          if (parameter === 37445) {
-            return fingerprint.webgl.vendor;
-          }
-          if (parameter === 37446) {
-            return fingerprint.webgl.renderer;
-          }
+          if (parameter === 37445) return fingerprint.webgl.vendor;
+          if (parameter === 37446) return fingerprint.webgl.renderer;
+          if (parameter === 3379) return fingerprint.webgl.maxTextureSize;
+          if (parameter === 34024) return fingerprint.webgl.maxTextureSize;
+          if (parameter === 34076)
+            return fingerprint.webgl.maxCombinedTextureImageUnits;
+          if (parameter === 35660)
+            return fingerprint.webgl.maxVertexTextureImageUnits;
+          if (parameter === 34930)
+            return fingerprint.webgl.maxTextureImageUnits;
+          if (parameter === 36349)
+            return fingerprint.webgl.maxFragmentUniformVectors;
+          if (parameter === 36347)
+            return fingerprint.webgl.maxVertexUniformVectors;
+          if (parameter === 36348) return fingerprint.webgl.maxVaryingVectors;
+          if (parameter === 3415)
+            return fingerprint.webgl.aliasedLineWidthRange;
+          if (parameter === 3414)
+            return fingerprint.webgl.aliasedPointSizeRange;
+          if (parameter === 3413)
+            return fingerprint.webgl.aliasedLineWidthRange;
+          if (parameter === 3412)
+            return fingerprint.webgl.aliasedPointSizeRange;
+          if (parameter === 3410) return fingerprint.webgl.depthBits;
+          if (parameter === 3411) return fingerprint.webgl.stencilBits;
+          if (parameter === 34047) return fingerprint.webgl.maxAnisotropy;
           return getParameter2.call(this, parameter);
         };
 
@@ -1665,7 +2055,7 @@ class MultiEngineDorker {
           get: () => fingerprint.pixelDepth,
         });
 
-        // Override canvas fingerprinting
+        // Override canvas fingerprinting with enhanced noise
         const originalGetContext = HTMLCanvasElement.prototype.getContext;
         HTMLCanvasElement.prototype.getContext = function (
           contextType,
@@ -1679,11 +2069,20 @@ class MultiEngineDorker {
 
           if (contextType === "2d" && context) {
             const originalFillText = context.fillText;
+            const originalStrokeText = context.strokeText;
+            const originalFillRect = context.fillRect;
+            const originalGetImageData = context.getImageData;
+
             context.fillText = function (text, x, y, maxWidth) {
               // Add slight noise to make canvas fingerprint unique
               const noisyX = x + fingerprint.canvas.noise;
               const noisyY = y + fingerprint.canvas.noise;
               context.textBaseline = fingerprint.canvas.textBaseline;
+              context.globalCompositeOperation =
+                fingerprint.canvas.globalCompositeOperation;
+              if (fingerprint.canvas.filter !== "none") {
+                context.filter = fingerprint.canvas.filter;
+              }
               return originalFillText.call(
                 this,
                 text,
@@ -1691,6 +2090,63 @@ class MultiEngineDorker {
                 noisyY,
                 maxWidth
               );
+            };
+
+            context.strokeText = function (text, x, y, maxWidth) {
+              const noisyX = x + fingerprint.canvas.noise;
+              const noisyY = y + fingerprint.canvas.noise;
+              return originalStrokeText.call(
+                this,
+                text,
+                noisyX,
+                noisyY,
+                maxWidth
+              );
+            };
+
+            context.fillRect = function (x, y, width, height) {
+              const noisyX = x + fingerprint.canvas.noise * 0.5;
+              const noisyY = y + fingerprint.canvas.noise * 0.5;
+              return originalFillRect.call(this, noisyX, noisyY, width, height);
+            };
+
+            // Add noise to getImageData to make canvas fingerprint unique
+            context.getImageData = function (sx, sy, sw, sh) {
+              const imageData = originalGetImageData.call(this, sx, sy, sw, sh);
+              // Add subtle noise to a few random pixels
+              for (let i = 0; i < 10; i++) {
+                const idx =
+                  Math.floor((Math.random() * imageData.data.length) / 4) * 4;
+                imageData.data[idx] = Math.min(
+                  255,
+                  imageData.data[idx] +
+                    Math.floor(fingerprint.canvas.noise * 255)
+                );
+                imageData.data[idx + 1] = Math.min(
+                  255,
+                  imageData.data[idx + 1] +
+                    Math.floor(fingerprint.canvas.noise * 255)
+                );
+                imageData.data[idx + 2] = Math.min(
+                  255,
+                  imageData.data[idx + 2] +
+                    Math.floor(fingerprint.canvas.noise * 255)
+                );
+              }
+              return imageData;
+            };
+          }
+
+          if (contextType === "webgl" || contextType === "webgl2") {
+            // Add WebGL-specific noise
+            const originalReadPixels = context.readPixels;
+            context.readPixels = function (...args) {
+              const result = originalReadPixels.apply(this, args);
+              // Add tiny variations to WebGL output
+              if (args[6] && args[6].length > 0) {
+                args[6][0] += fingerprint.canvas.noise;
+              }
+              return result;
             };
           }
 
@@ -2068,6 +2524,152 @@ class MultiEngineDorker {
           navigator.getBattery = async () => battery;
         }
 
+        // Override MediaDevices
+        if (navigator.mediaDevices) {
+          const _originalEnumerateDevices =
+            navigator.mediaDevices.enumerateDevices;
+          navigator.mediaDevices.enumerateDevices = async function () {
+            // Return unique media devices based on fingerprint
+            const devices = [
+              ...fingerprint.mediaDevices.audioInputs,
+              ...fingerprint.mediaDevices.audioOutputs,
+              ...fingerprint.mediaDevices.videoInputs,
+            ];
+            return devices;
+          };
+        }
+
+        // Override screen orientation
+        if (screen.orientation) {
+          Object.defineProperty(screen.orientation, "type", {
+            get: () => fingerprint.screenOrientation,
+          });
+          Object.defineProperty(screen.orientation, "angle", {
+            get: () =>
+              fingerprint.screenOrientation.includes("portrait") ? 0 : 90,
+          });
+        }
+
+        // Override window dimensions
+        Object.defineProperty(window, "innerWidth", {
+          get: () => fingerprint.innerWidth,
+        });
+        Object.defineProperty(window, "innerHeight", {
+          get: () => fingerprint.innerHeight,
+        });
+
+        // Override history length
+        Object.defineProperty(history, "length", {
+          get: () => fingerprint.historyLength,
+        });
+
+        // Add storage items to simulate real browsing
+        try {
+          for (let i = 0; i < fingerprint.storageItems; i++) {
+            const key = `__fp_${Math.random().toString(36).substring(2, 8)}`;
+            const value = Math.random().toString(36).substring(2, 15);
+            localStorage.setItem(key, value);
+            sessionStorage.setItem(key + "_session", value);
+          }
+        } catch (e) {
+          // Storage might be restricted
+        }
+
+        // Override getBoundingClientRect to add noise
+        const originalGetBoundingClientRect =
+          Element.prototype.getBoundingClientRect;
+        Element.prototype.getBoundingClientRect = function () {
+          const rect = originalGetBoundingClientRect.call(this);
+          return {
+            ...rect,
+            x: rect.x + fingerprint.clientRectsNoise,
+            y: rect.y + fingerprint.clientRectsNoise,
+            width: rect.width + fingerprint.clientRectsNoise,
+            height: rect.height + fingerprint.clientRectsNoise,
+            top: rect.top + fingerprint.clientRectsNoise,
+            right: rect.right + fingerprint.clientRectsNoise,
+            bottom: rect.bottom + fingerprint.clientRectsNoise,
+            left: rect.left + fingerprint.clientRectsNoise,
+          };
+        };
+
+        // Override network information API
+        if (
+          navigator.connection ||
+          navigator.mozConnection ||
+          navigator.webkitConnection
+        ) {
+          const connection =
+            navigator.connection ||
+            navigator.mozConnection ||
+            navigator.webkitConnection;
+          Object.defineProperty(connection, "downlink", {
+            get: () => fingerprint.networkInformation.downlink,
+          });
+          Object.defineProperty(connection, "rtt", {
+            get: () => fingerprint.networkInformation.rtt,
+          });
+          Object.defineProperty(connection, "saveData", {
+            get: () => fingerprint.networkInformation.saveData,
+          });
+        }
+
+        // Override CPU class for Windows
+        if (fingerprint.cpuClass) {
+          Object.defineProperty(navigator, "cpuClass", {
+            get: () => fingerprint.cpuClass,
+          });
+        }
+
+        // Override permissions
+        if (navigator.permissions) {
+          const originalQuery = navigator.permissions.query;
+          navigator.permissions.query = async function (descriptor) {
+            const permissionName = descriptor.name;
+            if (fingerprint.permissions[permissionName]) {
+              return {
+                state: fingerprint.permissions[permissionName],
+                onchange: null,
+              };
+            }
+            return originalQuery.call(this, descriptor);
+          };
+        }
+
+        // Add more realistic browser APIs
+        if (
+          !window.speechSynthesis &&
+          fingerprint.browserFeatures.speechSynthesis
+        ) {
+          window.speechSynthesis = {
+            speak: () => {},
+            cancel: () => {},
+            pause: () => {},
+            resume: () => {},
+            getVoices: () => [],
+            pending: false,
+            speaking: false,
+            paused: false,
+          };
+        }
+
+        // Mock Bluetooth API if needed
+        if (!navigator.bluetooth && fingerprint.browserFeatures.bluetooth) {
+          navigator.bluetooth = {
+            requestDevice: () =>
+              Promise.reject(new Error("Bluetooth not available")),
+            getAvailability: () => Promise.resolve(false),
+          };
+        }
+
+        // Mock USB API if needed
+        if (!navigator.usb && fingerprint.browserFeatures.usb) {
+          navigator.usb = {
+            requestDevice: () => Promise.reject(new Error("USB not available")),
+            getDevices: () => Promise.resolve([]),
+          };
+        }
+
         // Mock media devices
         if (!navigator.mediaDevices) {
           navigator.mediaDevices = {};
@@ -2207,7 +2809,7 @@ class MultiEngineDorker {
         chalk.blue(`🌐 Generated new proxy: ${newProxy.host}:${newProxy.port}`)
       );
 
-      // Test the new proxy
+      // Test the new proxy with automatic retry if failed
       console.log(chalk.blue("🔍 Testing new proxy connection..."));
       const proxyWorks = await this.testProxyConnection(newProxy);
 
@@ -2218,7 +2820,64 @@ class MultiEngineDorker {
         if (newProxy.id) {
           await deleteProxy(newProxy.id);
         }
-        return false;
+
+        // Automatically try to create another proxy (retry up to 3 times)
+        console.log(chalk.blue("🔄 Automatically generating another proxy..."));
+
+        for (let retryAttempt = 1; retryAttempt <= 3; retryAttempt++) {
+          console.log(chalk.yellow(`   Retry attempt ${retryAttempt}/3...`));
+
+          const retryProxy = await generateProxy();
+          if (!retryProxy || !retryProxy.host) {
+            console.log(
+              chalk.red(
+                `   ❌ Attempt ${retryAttempt} failed to generate proxy`
+              )
+            );
+            continue;
+          }
+
+          console.log(
+            chalk.blue(
+              `   🌐 Testing retry proxy: ${retryProxy.host}:${retryProxy.port}`
+            )
+          );
+
+          const retryProxyWorks = await this.testProxyConnection(retryProxy);
+          if (retryProxyWorks) {
+            console.log(
+              chalk.green(`   ✅ Retry proxy ${retryAttempt} works! Using it.`)
+            );
+
+            // Update the proxy reference to the working one
+            newProxy.id = retryProxy.id;
+            newProxy.host = retryProxy.host;
+            newProxy.port = retryProxy.port;
+            newProxy.username = retryProxy.username;
+            newProxy.password = retryProxy.password;
+
+            logger?.info("Retry proxy successful", {
+              attempt: retryAttempt,
+              proxy: `${retryProxy.host}:${retryProxy.port}`,
+            });
+            break;
+          } else {
+            console.log(
+              chalk.red(`   ❌ Retry proxy ${retryAttempt} also failed`)
+            );
+            // Delete the failed retry proxy
+            if (retryProxy.id) {
+              await deleteProxy(retryProxy.id);
+            }
+
+            // If this is the last attempt, return false
+            if (retryAttempt === 3) {
+              console.log(chalk.red("❌ All proxy retry attempts failed"));
+              logger?.error("All proxy generation retry attempts failed");
+              return false;
+            }
+          }
+        }
       }
 
       console.log(chalk.green("✅ New proxy connection successful"));
@@ -2367,17 +3026,33 @@ class MultiEngineDorker {
           const hasErrorPage = await this.page.evaluate(() => {
             const pageText =
               document.body?.innerText || document.body?.textContent || "";
+            const pageTitle = document.title || "";
+            const combinedText = (pageText + " " + pageTitle).toLowerCase();
+
             const errorMessages = [
               "403",
-              "Forbidden",
-              "Access denied",
+              "forbidden",
+              "access denied",
               "blocked",
-              "Your client does not have permission",
-              "The request could not be satisfied",
+              "your client does not have permission",
+              "the request could not be satisfied",
+              "that's an error",
+              "server error",
+              "permission denied",
+              "not authorized",
+              "request blocked",
+              "access restricted",
+              "ip blocked",
+              "proxy blocked",
+              "connection refused",
+              "unauthorized",
+              "error 403",
+              "http 403",
+              "status code 403",
             ];
 
             return errorMessages.some((msg) =>
-              pageText.toLowerCase().includes(msg.toLowerCase())
+              combinedText.includes(msg.toLowerCase())
             );
           });
 
@@ -2616,38 +3291,81 @@ class MultiEngineDorker {
         this.currentProxy = null;
         this.proxiesUsed.pop(); // Remove from tracking
 
-        // Try to get a new proxy automatically
+        // Try to get a new proxy automatically with multiple attempts
         console.log(chalk.blue("🌐 Generating replacement proxy..."));
-        const newProxy = await generateProxy();
 
-        if (!newProxy) {
-          logger?.warn("Failed to generate replacement proxy");
-          console.log(chalk.red("❌ Failed to generate replacement proxy"));
+        let workingProxy = null;
+        for (let retryAttempt = 1; retryAttempt <= 3; retryAttempt++) {
+          console.log(
+            chalk.yellow(`   Replacement attempt ${retryAttempt}/3...`)
+          );
+
+          const newProxy = await generateProxy();
+          if (!newProxy) {
+            console.log(
+              chalk.red(
+                `   ❌ Attempt ${retryAttempt} failed to generate proxy`
+              )
+            );
+            if (retryAttempt === 3) {
+              logger?.warn(
+                "Failed to generate replacement proxy after 3 attempts"
+              );
+              console.log(
+                chalk.red(
+                  "❌ Failed to generate replacement proxy after all attempts"
+                )
+              );
+              return false;
+            }
+            continue;
+          }
+
+          console.log(
+            chalk.blue(
+              `   🌐 Testing replacement proxy: ${newProxy.host}:${newProxy.port}`
+            )
+          );
+
+          const newProxyWorks = await this.testProxyConnection(newProxy);
+          if (newProxyWorks) {
+            console.log(
+              chalk.green(
+                `   ✅ Replacement proxy ${retryAttempt} works! Using it.`
+              )
+            );
+            workingProxy = newProxy;
+            break;
+          } else {
+            console.log(
+              chalk.red(`   ❌ Replacement proxy ${retryAttempt} failed`)
+            );
+            await deleteProxy(newProxy.id);
+
+            if (retryAttempt === 3) {
+              console.log(
+                chalk.red("❌ All replacement proxy attempts failed")
+              );
+              logger?.warn("All replacement proxy attempts failed");
+              return false;
+            }
+          }
+        }
+
+        if (!workingProxy) {
           return false;
         }
 
-        // Update proxy references
-        this.currentProxy = newProxy;
+        // Update proxy references with working proxy
+        this.currentProxy = workingProxy;
         this.proxiesUsed.pop(); // Remove the old failed one
-        this.proxiesUsed.push(newProxy);
+        this.proxiesUsed.push(workingProxy);
 
         console.log(
           chalk.green(
-            `✅ New proxy generated: ${newProxy.host}:${newProxy.port} (ID: ${newProxy.id} ${newProxy.username} ${newProxy.password})`
+            `✅ Working proxy set: ${workingProxy.host}:${workingProxy.port} (ID: ${workingProxy.id})`
           )
         );
-
-        // Test the new proxy with retries
-        const newProxyWorks = await this.testProxyConnection(newProxy);
-        if (!newProxyWorks) {
-          console.log(chalk.red("❌ Replacement proxy also failed"));
-          await deleteProxy(newProxy.id);
-          this.currentProxy = null;
-          this.proxiesUsed.pop();
-          return false;
-        }
-
-        console.log(chalk.green("✅ Replacement proxy test passed"));
       } else {
         console.log(chalk.green("✅ Proxy connection test passed"));
       }
@@ -3960,13 +4678,55 @@ class MultiEngineDorker {
         return await this.tryImageCaptchaSolving();
       }
 
-      // Handle reCAPTCHA (which we'll try to solve with audio)
+      // Handle reCAPTCHA (which we'll try to solve with audio first, then image fallback)
       if (captchaType === true) {
         logger?.info(
           "reCAPTCHA detected, attempting to solve with audio method."
         );
         console.log(chalk.cyan("🎵 Trying to solve audio reCAPTCHA..."));
-        return await this.tryAudioCaptchaSolving();
+
+        try {
+          return await this.tryAudioCaptchaSolving();
+        } catch (audioError) {
+          // If audio CAPTCHA failed due to blocking, try image CAPTCHA as fallback
+          if (
+            audioError.message &&
+            audioError.message.includes("protect our users")
+          ) {
+            logger?.info(
+              "Audio CAPTCHA blocked, trying image CAPTCHA fallback"
+            );
+            console.log(
+              chalk.blue("🖼️ Audio blocked - trying image CAPTCHA fallback...")
+            );
+
+            try {
+              return await this.tryImageCaptchaSolving();
+            } catch (imageError) {
+              logger?.debug("Image CAPTCHA fallback failed", {
+                error: imageError.message,
+              });
+              console.log(
+                chalk.yellow("⚠️ Both audio and image CAPTCHA failed")
+              );
+              return false;
+            }
+          }
+
+          // Re-throw if it's a proxy switch signal
+          if (
+            audioError.message &&
+            audioError.message.includes("proxy_switched")
+          ) {
+            throw audioError;
+          }
+
+          // For other errors, just return false
+          logger?.debug("Audio CAPTCHA failed with error", {
+            error: audioError.message,
+          });
+          return false;
+        }
       }
 
       // If we're here, it's either `manual_required` or another unhandled type.
@@ -4738,9 +5498,14 @@ class MultiEngineDorker {
 
           if (automatedQueriesDetected) {
             logger?.warn(
-              "Automated queries blocking detected - attempting proxy switch first"
+              "Automated queries blocking detected - audio CAPTCHA is blocked"
             );
-            console.log(chalk.red("🚫 Automated Queries Detected!"));
+            console.log(chalk.red("🚫 Audio CAPTCHA Blocked by Google!"));
+            console.log(
+              chalk.yellow(
+                "   Message: 'Your computer or network may be sending automated queries'"
+              )
+            );
 
             // First try proxy switching if enabled - pass currentDork
             const proxySwitchSuccessful =
@@ -4757,10 +5522,37 @@ class MultiEngineDorker {
               throw new Error("proxy_switched_retry");
             }
 
-            // If proxy switch failed or not enabled, fall back to manual mode
+            // If proxy switch failed, try image CAPTCHA as fallback before manual mode
+            console.log(
+              chalk.blue(
+                "🖼️ Audio blocked - checking for image CAPTCHA as fallback..."
+              )
+            );
+
+            try {
+              const imageCapchaResult = await this.tryImageCaptchaSolving();
+              if (imageCapchaResult) {
+                console.log(
+                  chalk.green("✅ Image CAPTCHA solved successfully!")
+                );
+                logger?.info(
+                  "Image CAPTCHA solved as fallback to blocked audio"
+                );
+                return true;
+              }
+            } catch (imageCaptchaError) {
+              logger?.debug("Image CAPTCHA fallback failed", {
+                error: imageCaptchaError.message,
+              });
+              console.log(
+                chalk.yellow("⚠️ Image CAPTCHA fallback also failed")
+              );
+            }
+
+            // If both proxy switch and image CAPTCHA failed, fall back to manual mode
             console.log(
               chalk.yellow(
-                "🔄 Proxy switch failed or not enabled - switching to manual mode"
+                "🔄 All automatic solutions failed - switching to manual mode"
               )
             );
             console.log(
@@ -6030,34 +6822,137 @@ class MultiEngineDorker {
         "direct_type",
         "referral",
         "search_engine",
+        "new_tab",
+        "history",
       ];
       const arrivalSource =
         arrivalSources[Math.floor(Math.random() * arrivalSources.length)];
 
-      // Simulate different arrival behaviors
+      // Simulate realistic initial mouse position
+      const viewport = await this.page.viewport();
+      const startX = Math.random() * viewport.width;
+      const startY = Math.random() * viewport.height;
+      await this.cursor.moveTo({ x: startX, y: startY });
+
+      // Simulate different arrival behaviors with more variation
       switch (arrivalSource) {
         case "bookmark":
           // Quick arrival, minimal exploration
           await sleep(Math.random() * 500 + 200);
+          // Move mouse to search box area quickly
+          await this.cursor.moveTo({
+            x: viewport.width / 2 + (Math.random() - 0.5) * 200,
+            y: viewport.height / 2 + (Math.random() - 0.5) * 100,
+          });
           break;
         case "direct_type":
           // Medium arrival, some page exploration
-          await this.simulatePageExploration(2000);
+          await this.simulatePageExploration(Math.random() * 2000 + 1000);
+          // Simulate looking around the page
+          await this.simulateMouseMovement();
           break;
         case "referral":
           // Curious arrival, more exploration
-          await this.simulatePageExploration(3000);
+          await this.simulatePageExploration(Math.random() * 3000 + 2000);
+          // Might check multiple elements
+          await this.simulateHoverElements();
           break;
         case "search_engine":
           // Very quick, task-focused
           await sleep(Math.random() * 300 + 100);
           break;
+        case "new_tab":
+          // New tab, might be distracted
+          await sleep(Math.random() * 1000 + 500);
+          if (Math.random() < 0.3) {
+            await this.simulateScrolling();
+          }
+          break;
+        case "history":
+          // Coming from history, knows what they want
+          await sleep(Math.random() * 400 + 200);
+          // Quick mouse movement to search
+          await this.cursor.moveTo({
+            x: viewport.width / 2,
+            y: viewport.height / 2,
+          });
+          break;
+      }
+
+      // Simulate checking page load completion (human verification behavior)
+      await this.page.evaluate(() => {
+        // Check if images loaded
+        const images = document.querySelectorAll("img");
+        images.forEach((img) => {
+          if (!img.complete) {
+            console.log("Waiting for images to load...");
+          }
+        });
+      });
+
+      // Sometimes move mouse in a thinking pattern
+      if (Math.random() < 0.3) {
+        const thinkingPatterns = [
+          async () => {
+            // Small circular motion (thinking)
+            for (let i = 0; i < 5; i++) {
+              const angle = (i / 5) * Math.PI * 2;
+              await this.cursor.moveTo({
+                x: startX + Math.cos(angle) * 30,
+                y: startY + Math.sin(angle) * 30,
+              });
+              await sleep(100);
+            }
+          },
+          async () => {
+            // Back and forth motion (indecisive)
+            await this.cursor.moveTo({ x: startX - 50, y: startY });
+            await sleep(200);
+            await this.cursor.moveTo({ x: startX + 50, y: startY });
+            await sleep(200);
+          },
+          async () => {
+            // Zigzag pattern (scanning)
+            for (let i = 0; i < 3; i++) {
+              await this.cursor.moveTo({
+                x: startX + (i % 2 ? 100 : -100),
+                y: startY + i * 50,
+              });
+              await sleep(150);
+            }
+          },
+        ];
+
+        const pattern =
+          thinkingPatterns[Math.floor(Math.random() * thinkingPatterns.length)];
+        await pattern();
       }
 
       // Sometimes check other Google services (simulate real user behavior)
-      if (Math.random() < 0.2) {
+      if (Math.random() < 0.25) {
         await this.simulateOtherGoogleServicesInteraction();
       }
+
+      // Add realistic initial page interactions
+      if (Math.random() < 0.15) {
+        // Sometimes users accidentally right-click
+        await this.simulateRightClick();
+      }
+
+      // Simulate checking for notifications/updates (common user behavior)
+      if (Math.random() < 0.1) {
+        await this.page.evaluate(() => {
+          // Check notification permission
+          if ("Notification" in window) {
+            console.log("Notification permission:", Notification.permission);
+          }
+        });
+      }
+
+      logger?.info("Initial browsing behavior completed", {
+        arrivalSource,
+        duration: Date.now() - performance.now(),
+      });
     } catch (error) {
       logger?.debug("Initial browsing simulation failed", {
         error: error.message,
@@ -6764,14 +7659,9 @@ class MultiEngineDorker {
 
       // No delay - continue immediately
 
-      // Skip cookie consent check on search results page
-      const resultPageUrl = this.page.url();
-      if (
-        !resultPageUrl.includes("/search?") &&
-        !resultPageUrl.includes("&q=")
-      ) {
-        await this.handleCookieConsent();
-      }
+      // Always check for cookie consent on each new search
+      console.log(chalk.blue("[*] Checking for cookie consent..."));
+      await this.handleCookieConsent();
 
       logger?.debug("Human-like Google search completed successfully");
     } catch (error) {
@@ -6857,7 +7747,8 @@ class MultiEngineDorker {
           timeout: 60000,
         });
 
-        // Handle cookie consent
+        // Always check for cookie consent on search results
+        console.log(chalk.blue("[*] Checking for cookie consent..."));
         await this.handleCookieConsent();
       } else if (this.isGoogleEngine) {
         logger?.debug("Using human-like Google search behavior", { dork });
@@ -6872,7 +7763,8 @@ class MultiEngineDorker {
           timeout: 60000,
         });
 
-        // Handle cookie consent for non-Google engines
+        // Always check for cookie consent on search results
+        console.log(chalk.blue("[*] Checking for cookie consent..."));
         await this.handleCookieConsent();
       }
 
@@ -6894,6 +7786,74 @@ class MultiEngineDorker {
         await this.page.goto(searchUrl, {
           waitUntil: "domcontentloaded",
           timeout: 15000,
+        });
+      }
+
+      // CRITICAL: Always check for cookie consent on new search results page
+      console.log(chalk.blue("[*] Checking for cookie consent..."));
+      await this.handleCookieConsent();
+
+      // Check for 403 error pages proactively before checking for CAPTCHAs
+      try {
+        const has403Error = await this.page.evaluate(() => {
+          const pageText =
+            document.body?.innerText || document.body?.textContent || "";
+          const pageTitle = document.title || "";
+          const combinedText = (pageText + " " + pageTitle).toLowerCase();
+
+          const error403Messages = [
+            "403",
+            "forbidden",
+            "access denied",
+            "that's an error",
+            "your client does not have permission",
+            "permission denied",
+            "not authorized",
+            "request blocked",
+            "access restricted",
+            "server error",
+            "ip blocked",
+            "proxy blocked",
+          ];
+
+          return error403Messages.some((msg) => combinedText.includes(msg));
+        });
+
+        if (has403Error) {
+          console.log(
+            chalk.red("🚫 403 Forbidden page detected during navigation")
+          );
+
+          if (this.options.useProxyOnCaptcha) {
+            logger?.info("403 error detected proactively, switching proxy", {
+              currentProxy: this.currentProxy
+                ? `${this.currentProxy.host}:${this.currentProxy.port}`
+                : "none",
+              dork: dork.substring(0, 100),
+            });
+
+            const proxySignal =
+              await this.handleAutomatedQueriesWithProxySwitch(
+                dork,
+                retryCount
+              );
+            throw new Error(proxySignal);
+          } else {
+            console.log(
+              chalk.yellow("⚠️ 403 error detected but proxy switching disabled")
+            );
+            logger?.warn(
+              "403 error detected proactively but proxy switching disabled",
+              {
+                dork: dork.substring(0, 100),
+              }
+            );
+            return []; // Return empty results for this dork
+          }
+        }
+      } catch (eval403Error) {
+        logger?.warn("Failed to check for 403 error proactively", {
+          error: eval403Error.message,
         });
       }
 
@@ -7144,6 +8104,76 @@ class MultiEngineDorker {
           );
           throw new Error(proxySignal);
         }
+      } else if (
+        error.message.includes("403") ||
+        error.message.includes("Forbidden") ||
+        error.message.includes("Access denied") ||
+        error.message.toLowerCase().includes("that's an error")
+      ) {
+        console.log(
+          chalk.yellow(
+            " 403 Forbidden error detected. Attempting proxy switch..."
+          )
+        );
+
+        // Check if we got a 403 error page
+        try {
+          const has403Page = await this.page.evaluate(() => {
+            const pageText =
+              document.body?.innerText || document.body?.textContent || "";
+            const pageTitle = document.title || "";
+            const combinedText = (pageText + " " + pageTitle).toLowerCase();
+
+            const error403Messages = [
+              "403",
+              "forbidden",
+              "access denied",
+              "that's an error",
+              "your client does not have permission",
+              "permission denied",
+              "not authorized",
+              "request blocked",
+              "access restricted",
+            ];
+
+            return error403Messages.some((msg) => combinedText.includes(msg));
+          });
+
+          if (has403Page) {
+            console.log(chalk.red("🚫 403 Forbidden page detected"));
+
+            // Handle 403 error with proxy switch if enabled
+            if (this.options.useProxyOnCaptcha) {
+              logger?.info("403 error detected, switching proxy", {
+                currentProxy: this.currentProxy
+                  ? `${this.currentProxy.host}:${this.currentProxy.port}`
+                  : "none",
+                error: error.message,
+              });
+
+              const proxySignal =
+                await this.handleAutomatedQueriesWithProxySwitch(
+                  dork,
+                  retryCount
+                );
+              throw new Error(proxySignal);
+            } else {
+              console.log(
+                chalk.yellow(
+                  "⚠️ Proxy switching disabled. Cannot bypass 403 error."
+                )
+              );
+              logger?.warn("403 error detected but proxy switching disabled", {
+                dork: dork.substring(0, 100),
+                error: error.message,
+              });
+            }
+          }
+        } catch (evalError) {
+          logger?.warn("Failed to evaluate page for 403 error", {
+            error: evalError.message,
+          });
+        }
       }
 
       // Handle browser/page closure errors
@@ -7255,6 +8285,7 @@ async function main() {
       output: settings.outputFile,
       autoSolve: settings.autoSolve,
       useProxyOnCaptcha: settings.useProxyOnCaptcha,
+      saveUrlsToFile: settings.saveUrlsToFile,
     };
 
     console.log(
@@ -7511,6 +8542,14 @@ async function main() {
       outputFile: options.output,
       resultCount: finalSummary.totalResults,
     });
+  }
+
+  // Save URLs to separate file if requested
+  if (options.saveUrlsToFile && Object.keys(allResults).length > 0) {
+    const urlsFileName = options.output
+      ? options.output.replace(/\.[^/.]+$/, "") + "_urls.txt"
+      : "dorker_urls.txt";
+    await saveUrlsToFile(allResults, urlsFileName);
   }
 
   // Final cleanup
