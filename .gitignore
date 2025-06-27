@@ -49,3 +49,5 @@ coverage/
 .DS_Store
 Thumbs.db
 dork.txt
+dorker_urls.txt
+RECAPTCHA_FIXES.md

@@ -1,23 +1,60 @@
-# Dorker Configuration Setup
+# Advanced Dorker Configuration Template
+# Copy this file to .env in your project root
 
-## Environment Variables Setup
-
-Create a .env file in the project root with the following variables:
-
-# Logger Level (debug, info, warn, error) - controls verbosity
-LOG_LEVEL=info
-
-# ASOCKS Proxy API Key (for proxy generation when CAPTCHA is detected)
-# Get your key from: https://panel.asocks.com/
+# === PROXY CONFIGURATION ===
+# ASOCKS Proxy Service (for CAPTCHA bypass)
 ASOCKS_API_KEY=your_asocks_api_key_here
 
-# OpenRouter.ai API Key (for AI-powered image CAPTCHA solving)
-# Get your key from: https://openrouter.ai/
-OPENROUTER_API_KEY=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
+# === CAPTCHA SOLVING APIS ===
+# OpenRouter.ai for image CAPTCHA solving
+OPENROUTER_API_KEY=your_openrouter_api_key_here
 
-# ElevenLabs API Key (for audio CAPTCHA transcription)
-# Get your key from: https://elevenlabs.io/
-ELEVENLABS_API_KEY=your_elevenlabs_api_key_here
+# === SPEECH-TO-TEXT APIS (for audio CAPTCHA) ===
+# OpenAI Whisper API (recommended - high accuracy)
+OPENAI_API_KEY=your_openai_api_key_here
+
+# AssemblyAI (free tier available)
+ASSEMBLYAI_API_KEY=your_assemblyai_api_key_here
+
+
+
+
+# === DEBUGGING ===
+# Enable console logging
+DEBUG_LOGS=false
+
+# === RECOMMENDED SETUP PRIORITY ===
+# 1. OPENAI_API_KEY - Best speech recognition, reasonable pricing
+# 2. ASSEMBLYAI_API_KEY - Good free tier, reliable for short audio
+# 3. ASOCKS_API_KEY - For proxy rotation when facing CAPTCHAs
+# 4. OPENROUTER_API_KEY - For image CAPTCHA solving
+
+# === RECAPTCHA TROUBLESHOOTING ===
+# If you see JavaScript errors with reCAPTCHA:
+# 1. Make sure you're using puppeteer-real-browser mode
+# 2. Disable aggressive anti-detection if needed
+# 3. Check that no browser extensions are interfering
+# 4. Ensure proper CORS headers for reCAPTCHA domains
+
+# === API KEY SETUP INSTRUCTIONS ===
+
+# OpenAI API Key:
+# 1. Go to https://platform.openai.com/api-keys
+# 2. Create a new API key
+# 3. Add billing information (Whisper API is very affordable)
+# 4. Paste the key as OPENAI_API_KEY above
+
+# AssemblyAI API Key:
+# 1. Go to https://www.assemblyai.com/
+# 2. Sign up for free account (free tier: 5 hours/month)
+# 3. Get API key from dashboard
+# 4. Paste the key as ASSEMBLYAI_API_KEY above
+
+# ASOCKS Proxy API Key:
+# 1. Go to https://asocks.com/
+# 2. Sign up for account
+# 3. Get API key from account settings
+# 4. Paste the key as ASOCKS_API_KEY above
 
 ## Usage
 
@@ -30,6 +67,6 @@ ELEVENLABS_API_KEY=your_elevenlabs_api_key_here
 
 - ✅ Automatic proxy switching when blocked
 - ✅ AI-powered image CAPTCHA solving 
-- ✅ Audio CAPTCHA solving (ElevenLabs Scribe)
+- ✅ Audio CAPTCHA solving
 - ✅ Manual CAPTCHA assistance
 - ✅ Multiple search engines support 

@@ -23,8 +23,39 @@ import dotenv from "dotenv";
 import process from "process";
 import randomUseragent from "random-useragent";
 import { createCursor } from "ghost-cursor";
+
 // Load environment variables
 dotenv.config();
+
+// Global API test cache to prevent duplicate testing
+let ASOCKS_API_TESTED = false;
+let ASOCKS_API_WORKS = false;
+
+// Console log deduplication cache
+const CONSOLE_LOG_CACHE = new Set();
+const LOG_CACHE_MAX_SIZE = 100;
+
+// Enhanced console logging with deduplication
+const logWithDedup = (level, message, color = null) => {
+  const logKey = `${level}:${message}`;
+  if (CONSOLE_LOG_CACHE.has(logKey)) {
+    return; // Skip duplicate log
+  }
+
+  CONSOLE_LOG_CACHE.add(logKey);
+
+  // Clean cache if it gets too large
+  if (CONSOLE_LOG_CACHE.size > LOG_CACHE_MAX_SIZE) {
+    const firstItem = CONSOLE_LOG_CACHE.values().next().value;
+    CONSOLE_LOG_CACHE.delete(firstItem);
+  }
+
+  if (color) {
+    console.log(color(message));
+  } else {
+    console.log(message);
+  }
+};
 
 // --- Configuration Objects ---
 const ASOCKS_CONFIG = {
@@ -39,18 +70,42 @@ const OPENROUTER_CONFIG = {
 
 // --- Proxy Management Functions ---
 async function testAsocksAPI() {
+  // Use global cache to prevent duplicate testing
+  if (ASOCKS_API_TESTED) {
+    if (ASOCKS_API_WORKS) {
+      logWithDedup(
+        "info",
+        "✅ ASOCKS API already verified (cached)",
+        chalk.green
+      );
+    } else {
+      logWithDedup(
+        "error",
+        "❌ ASOCKS API previously failed (cached)",
+        chalk.red
+      );
+    }
+    return ASOCKS_API_WORKS;
+  }
+
   if (!ASOCKS_CONFIG.apiKey) {
-    console.log(chalk.red("❌ No ASOCKS API key configured"));
-    console.log(
-      chalk.yellow("   Please set ASOCKS_API_KEY in your environment variables")
+    logWithDedup("error", "❌ No ASOCKS API key configured", chalk.red);
+    logWithDedup(
+      "info",
+      "   Please set ASOCKS_API_KEY in your environment variables",
+      chalk.yellow
     );
+    ASOCKS_API_TESTED = true;
+    ASOCKS_API_WORKS = false;
     return false;
   }
 
   try {
-    console.log(chalk.blue("🔍 Testing ASOCKS API connection..."));
-    console.log(
-      chalk.gray(`   API Key: ${ASOCKS_CONFIG.apiKey.substring(0, 8)}...`)
+    logWithDedup("info", "🔍 Testing ASOCKS API connection...", chalk.blue);
+    logWithDedup(
+      "info",
+      `   API Key: ${ASOCKS_CONFIG.apiKey.substring(0, 8)}...`,
+      chalk.gray
     );
 
     // Test API connectivity using plan info endpoint
@@ -66,33 +121,55 @@ async function testAsocksAPI() {
     );
 
     if (response.data && response.data.success === true) {
-      console.log(chalk.green("✅ ASOCKS API connection successful"));
+      logWithDedup(
+        "success",
+        "✅ ASOCKS API connection successful",
+        chalk.green
+      );
       if (response.data.message?.tariffName) {
-        console.log(chalk.gray(`   Plan: ${response.data.message.tariffName}`));
-      }
-      if (response.data.message?.expiredDate) {
-        console.log(
-          chalk.gray(`   Valid until: ${response.data.message.expiredDate}`)
+        logWithDedup(
+          "info",
+          `   Plan: ${response.data.message.tariffName}`,
+          chalk.gray
         );
       }
+      if (response.data.message?.expiredDate) {
+        logWithDedup(
+          "info",
+          `   Valid until: ${response.data.message.expiredDate}`,
+          chalk.gray
+        );
+      }
+      ASOCKS_API_TESTED = true;
+      ASOCKS_API_WORKS = true;
       return true;
     } else {
-      console.log(chalk.red("❌ ASOCKS API returned unsuccessful response"));
-      console.log(
-        chalk.gray(`   Response: ${JSON.stringify(response.data, null, 2)}`)
+      logWithDedup(
+        "error",
+        "❌ ASOCKS API returned unsuccessful response",
+        chalk.red
       );
+      logWithDedup(
+        "debug",
+        `   Response: ${JSON.stringify(response.data, null, 2)}`,
+        chalk.gray
+      );
+      ASOCKS_API_TESTED = true;
+      ASOCKS_API_WORKS = false;
       return false;
     }
   } catch (error) {
-    console.log(chalk.red("❌ ASOCKS API connection failed"));
-    console.log(chalk.gray(`   Error: ${error.message}`));
+    logWithDedup("error", "❌ ASOCKS API connection failed", chalk.red);
+    logWithDedup("debug", `   Error: ${error.message}`, chalk.gray);
     if (error.response?.data) {
-      console.log(
-        chalk.gray(
-          `   Response: ${JSON.stringify(error.response.data, null, 2)}`
-        )
+      logWithDedup(
+        "debug",
+        `   Response: ${JSON.stringify(error.response.data, null, 2)}`,
+        chalk.gray
       );
     }
+    ASOCKS_API_TESTED = true;
+    ASOCKS_API_WORKS = false;
     return false;
   }
 }
@@ -101,15 +178,27 @@ async function generateProxy() {
   // Check if we have a real proxy service configured
   if (!ASOCKS_CONFIG.apiKey) {
     logger?.debug("No proxy service configured - proxy generation disabled");
-    console.log(
-      chalk.yellow("⚠️ Proxy service not configured - skipping proxy switch")
+    logWithDedup(
+      "warning",
+      "⚠️ Proxy service not configured - skipping proxy switch",
+      chalk.yellow
     );
+    return null;
+  }
+
+  // Use cached API test result
+  if (!ASOCKS_API_WORKS && ASOCKS_API_TESTED) {
+    logger?.debug("ASOCKS API previously failed, skipping proxy generation");
     return null;
   }
 
   try {
     logger?.debug("Attempting to generate proxy via ASOCKS API");
-    console.log(chalk.blue("🌐 Generating new proxy via ASOCKS API..."));
+    logWithDedup(
+      "info",
+      "🌐 Generating new proxy via ASOCKS API...",
+      chalk.blue
+    );
 
     // ASOCKS API create-port endpoint
     const response = await axios.post(
@@ -168,8 +257,8 @@ async function generateProxy() {
       };
     } else {
       // Log the response for debugging if it doesn't match expected format
-      console.log(chalk.yellow("📋 ASOCKS API response:"));
-      console.log(chalk.gray(JSON.stringify(response.data, null, 2)));
+      logWithDedup("debug", "📋 ASOCKS API response:", chalk.yellow);
+      logWithDedup("debug", JSON.stringify(response.data, null, 2), chalk.gray);
       throw new Error(
         response.data?.message ||
           `API returned success: ${response.data?.success}, but no proxy data found`
@@ -184,28 +273,38 @@ async function generateProxy() {
     });
 
     if (error.response?.status === 401 || error.response?.status === 403) {
-      console.log(
-        chalk.red("❌ ASOCKS API authentication failed - check your API key")
+      logWithDedup(
+        "error",
+        "❌ ASOCKS API authentication failed - check your API key",
+        chalk.red
       );
     } else if (error.response?.status === 429) {
-      console.log(
-        chalk.red("❌ ASOCKS API rate limit exceeded - try again later")
+      logWithDedup(
+        "error",
+        "❌ ASOCKS API rate limit exceeded - try again later",
+        chalk.red
       );
     } else if (error.code === "ENOTFOUND" || error.code === "ECONNREFUSED") {
-      console.log(
-        chalk.red(
-          "❌ Unable to connect to ASOCKS API - check your internet connection"
-        )
+      logWithDedup(
+        "error",
+        "❌ Unable to connect to ASOCKS API - check your internet connection",
+        chalk.red
       );
     } else if (error.response?.data) {
-      console.log(
-        chalk.red(`❌ ASOCKS API error: ${JSON.stringify(error.response.data)}`)
+      logWithDedup(
+        "error",
+        `❌ ASOCKS API error: ${JSON.stringify(error.response.data)}`,
+        chalk.red
       );
     } else {
-      console.log(chalk.red(`❌ ASOCKS API error: ${error.message}`));
+      logWithDedup("error", `❌ ASOCKS API error: ${error.message}`, chalk.red);
     }
 
-    console.log(chalk.yellow("⚠️ Falling back to manual CAPTCHA mode"));
+    logWithDedup(
+      "warning",
+      "⚠️ Falling back to manual CAPTCHA mode",
+      chalk.yellow
+    );
     return null;
   }
 }
@@ -286,550 +385,139 @@ async function deleteProxy(proxyId) {
 }
 
 // --- Enhanced Advanced Fingerprinting Utilities ---
-const generateRandomFingerprint = () => {
-  // Expanded random screen resolutions with more realistic variations
-  const screens = [
-    { width: 1920, height: 1080, deviceScaleFactor: 1 },
-    { width: 1920, height: 1080, deviceScaleFactor: 1.25 },
-    { width: 1920, height: 1080, deviceScaleFactor: 1.5 },
-    { width: 2560, height: 1440, deviceScaleFactor: 1 },
-    { width: 2560, height: 1440, deviceScaleFactor: 1.5 },
-    { width: 3840, height: 2160, deviceScaleFactor: 1.5 },
-    { width: 3840, height: 2160, deviceScaleFactor: 2 },
-    { width: 1366, height: 768, deviceScaleFactor: 1 },
-    { width: 1536, height: 864, deviceScaleFactor: 1.25 },
-    { width: 1440, height: 900, deviceScaleFactor: 1 },
-    { width: 1440, height: 900, deviceScaleFactor: 2 }, // Retina
-    { width: 1680, height: 1050, deviceScaleFactor: 1 },
-    { width: 1280, height: 800, deviceScaleFactor: 1 },
-    { width: 1280, height: 720, deviceScaleFactor: 1 },
-    // Add more modern resolutions
-    { width: 2880, height: 1800, deviceScaleFactor: 2 }, // MacBook Pro 16"
-    { width: 3456, height: 2234, deviceScaleFactor: 2 }, // MacBook Pro 14"
-    { width: 2736, height: 1824, deviceScaleFactor: 2 }, // Surface Studio
-    { width: 1920, height: 1200, deviceScaleFactor: 1 }, // 16:10 monitor
-    { width: 3440, height: 1440, deviceScaleFactor: 1 }, // Ultrawide
-    { width: 2560, height: 1080, deviceScaleFactor: 1 }, // Ultrawide 21:9
-  ];
+const generateUniqueFingerprint = () => {
+  try {
+    // Generate unique seed based on current time and random values
+    const seed = Date.now() + Math.random() * 1000000;
+    const seedRandom = (index) => {
+      const x = Math.sin(seed + index) * 10000;
+      return x - Math.floor(x);
+    };
 
-  // WebGL vendor/renderer pairs (real combinations with more variations)
-  const webglData = [
-    // Intel Graphics
-    { vendor: "Intel Inc.", renderer: "Intel Iris OpenGL Engine" },
-    { vendor: "Intel Inc.", renderer: "Intel HD Graphics 630" },
-    { vendor: "Intel Inc.", renderer: "Intel UHD Graphics 630" },
-    { vendor: "Intel Inc.", renderer: "Intel UHD Graphics 620" },
-    { vendor: "Intel Inc.", renderer: "Intel Iris Xe Graphics" },
-    { vendor: "Intel Inc.", renderer: "Intel HD Graphics 4000" },
-    { vendor: "Intel Inc.", renderer: "Intel HD Graphics 5000" },
-    { vendor: "Intel Inc.", renderer: "Intel HD Graphics 520" },
-    { vendor: "Intel Inc.", renderer: "Intel HD Graphics 530" },
-    { vendor: "Intel", renderer: "Mesa Intel(R) UHD Graphics 630 (CFL GT2)" },
-    { vendor: "Intel", renderer: "Mesa Intel(R) HD Graphics 620 (KBL GT2)" },
+    // Parse real user agent for realistic values
+    const realUA = randomUseragent.getRandom();
 
-    // NVIDIA Graphics
-    {
-      vendor: "NVIDIA Corporation",
-      renderer: "NVIDIA GeForce GTX 1050/PCIe/SSE2",
-    },
-    {
-      vendor: "NVIDIA Corporation",
-      renderer: "NVIDIA GeForce GTX 1050 Ti/PCIe/SSE2",
-    },
-    {
-      vendor: "NVIDIA Corporation",
-      renderer: "NVIDIA GeForce GTX 1060 3GB/PCIe/SSE2",
-    },
-    {
-      vendor: "NVIDIA Corporation",
-      renderer: "NVIDIA GeForce GTX 1060 6GB/PCIe/SSE2",
-    },
-    {
-      vendor: "NVIDIA Corporation",
-      renderer: "NVIDIA GeForce GTX 1070/PCIe/SSE2",
-    },
-    {
-      vendor: "NVIDIA Corporation",
-      renderer: "NVIDIA GeForce GTX 1080/PCIe/SSE2",
-    },
-    {
-      vendor: "NVIDIA Corporation",
-      renderer: "NVIDIA GeForce GTX 1650/PCIe/SSE2",
-    },
-    {
-      vendor: "NVIDIA Corporation",
-      renderer: "NVIDIA GeForce GTX 1660 Ti/PCIe/SSE2",
-    },
-    {
-      vendor: "NVIDIA Corporation",
-      renderer: "NVIDIA GeForce RTX 2060/PCIe/SSE2",
-    },
-    {
-      vendor: "NVIDIA Corporation",
-      renderer: "NVIDIA GeForce RTX 2070/PCIe/SSE2",
-    },
-    {
-      vendor: "NVIDIA Corporation",
-      renderer: "NVIDIA GeForce RTX 2070 SUPER/PCIe/SSE2",
-    },
-    {
-      vendor: "NVIDIA Corporation",
-      renderer: "NVIDIA GeForce RTX 2080/PCIe/SSE2",
-    },
-    {
-      vendor: "NVIDIA Corporation",
-      renderer: "NVIDIA GeForce RTX 3050/PCIe/SSE2",
-    },
-    {
-      vendor: "NVIDIA Corporation",
-      renderer: "NVIDIA GeForce RTX 3060/PCIe/SSE2",
-    },
-    {
-      vendor: "NVIDIA Corporation",
-      renderer: "NVIDIA GeForce RTX 3060 Ti/PCIe/SSE2",
-    },
-    {
-      vendor: "NVIDIA Corporation",
-      renderer: "NVIDIA GeForce RTX 3070/PCIe/SSE2",
-    },
-    {
-      vendor: "NVIDIA Corporation",
-      renderer: "NVIDIA GeForce RTX 3080/PCIe/SSE2",
-    },
-    {
-      vendor: "NVIDIA Corporation",
-      renderer: "NVIDIA GeForce RTX 3090/PCIe/SSE2",
-    },
-    {
-      vendor: "NVIDIA Corporation",
-      renderer: "NVIDIA GeForce RTX 4060/PCIe/SSE2",
-    },
-    {
-      vendor: "NVIDIA Corporation",
-      renderer: "NVIDIA GeForce RTX 4070/PCIe/SSE2",
-    },
-    {
-      vendor: "NVIDIA Corporation",
-      renderer: "NVIDIA GeForce RTX 4080/PCIe/SSE2",
-    },
-    {
-      vendor: "NVIDIA Corporation",
-      renderer: "NVIDIA GeForce RTX 4090/PCIe/SSE2",
-    },
-
-    // AMD Graphics
-    { vendor: "AMD", renderer: "AMD Radeon Pro 5500M OpenGL Engine" },
-    { vendor: "AMD", renderer: "AMD Radeon RX 580 2048SP" },
-    { vendor: "AMD", renderer: "AMD Radeon RX 6700 XT" },
-    { vendor: "AMD", renderer: "AMD Radeon RX 570 Series" },
-    { vendor: "AMD", renderer: "AMD Radeon RX 580 Series" },
-    { vendor: "AMD", renderer: "AMD Radeon RX 590 Series" },
-    { vendor: "AMD", renderer: "AMD Radeon RX 5500 XT" },
-    { vendor: "AMD", renderer: "AMD Radeon RX 5600 XT" },
-    { vendor: "AMD", renderer: "AMD Radeon RX 5700" },
-    { vendor: "AMD", renderer: "AMD Radeon RX 5700 XT" },
-    { vendor: "AMD", renderer: "AMD Radeon RX 6600" },
-    { vendor: "AMD", renderer: "AMD Radeon RX 6600 XT" },
-    { vendor: "AMD", renderer: "AMD Radeon RX 6800" },
-    { vendor: "AMD", renderer: "AMD Radeon RX 6800 XT" },
-    { vendor: "AMD", renderer: "AMD Radeon RX 6900 XT" },
-    { vendor: "AMD", renderer: "AMD Radeon RX 7900 XTX" },
-    { vendor: "AMD", renderer: "AMD Radeon RX 7900 XT" },
-    { vendor: "AMD", renderer: "AMD Radeon Vega 56" },
-    { vendor: "AMD", renderer: "AMD Radeon Vega 64" },
-
-    // Apple Silicon
-    { vendor: "Apple", renderer: "Apple M1" },
-    { vendor: "Apple", renderer: "Apple M1 Pro" },
-    { vendor: "Apple", renderer: "Apple M1 Max" },
-    { vendor: "Apple", renderer: "Apple M2" },
-    { vendor: "Apple", renderer: "Apple M2 Pro" },
-    { vendor: "Apple", renderer: "Apple M2 Max" },
-    { vendor: "Apple", renderer: "Apple M3" },
-    { vendor: "Apple", renderer: "Apple M3 Pro" },
-
-    // Google/Mesa (Chrome OS and Linux)
-    {
-      vendor: "Google Inc. (Intel)",
-      renderer:
-        "ANGLE (Intel, Mesa Intel(R) HD Graphics 620 (KBL GT2), OpenGL 4.6)",
-    },
-    {
-      vendor: "Google Inc. (NVIDIA)",
-      renderer:
-        "ANGLE (NVIDIA, NVIDIA GeForce GTX 1650/PCIe/SSE2, OpenGL 4.5.0)",
-    },
-    {
-      vendor: "Google Inc. (AMD)",
-      renderer: "ANGLE (AMD, AMD Radeon RX 580 Series, OpenGL 4.6)",
-    },
-  ];
-
-  // Realistic language combinations
-  const languages = [
-    ["en-US", "en"],
-    ["en-GB", "en"],
-    ["en-US", "en", "es"],
-    ["en-US", "en", "fr"],
-    ["en-US", "en", "de"],
-    ["en-AU", "en"],
-    ["en-NZ", "en"],
-    ["en-US", "en", "zh-CN"],
-    ["en-US", "en", "ja"],
-    ["en-US", "en", "ko"],
-  ];
-
-  // Enhanced platform specific user agents with more realistic variations
-  const userAgents = {
-    windows: [
-      "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.0.0 Safari/537.36",
-      "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
-      "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/119.0.0.0 Safari/537.36",
-      "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/118.0.0.0 Safari/537.36",
-      "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.0.0 Safari/537.36 Edg/121.0.0.0",
-      "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36 Edg/120.0.0.0",
-      "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:121.0) Gecko/20100101 Firefox/121.0",
-      "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:120.0) Gecko/20100101 Firefox/120.0",
-      "Mozilla/5.0 (Windows NT 11.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.0.0 Safari/537.36",
-      "Mozilla/5.0 (Windows NT 11.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
-    ],
-    mac: [
-      "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.0.0 Safari/537.36",
-      "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
-      "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.2 Safari/605.1.15",
-      "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.1 Safari/605.1.15",
-      "Mozilla/5.0 (Macintosh; Intel Mac OS X 10.15; rv:121.0) Gecko/20100101 Firefox/121.0",
-      "Mozilla/5.0 (Macintosh; Apple M1 Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.0.0 Safari/537.36",
-      "Mozilla/5.0 (Macintosh; Apple M2 Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.0.0 Safari/537.36",
-      "Mozilla/5.0 (Macintosh; Intel Mac OS X 14_2) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.2 Safari/605.1.15",
-      "Mozilla/5.0 (Macintosh; Intel Mac OS X 14_1) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.1 Safari/605.1.15",
-    ],
-    linux: [
-      "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.0.0 Safari/537.36",
-      "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
-      "Mozilla/5.0 (X11; Ubuntu; Linux x86_64; rv:121.0) Gecko/20100101 Firefox/121.0",
-      "Mozilla/5.0 (X11; Ubuntu; Linux x86_64; rv:120.0) Gecko/20100101 Firefox/120.0",
-      "Mozilla/5.0 (X11; Linux x86_64; rv:121.0) Gecko/20100101 Firefox/121.0",
-      "Mozilla/5.0 (X11; Fedora; Linux x86_64; rv:121.0) Gecko/20100101 Firefox/121.0",
-    ],
-  };
-
-  // Timezone configurations
-  const timezones = [
-    "America/New_York",
-    "America/Chicago",
-    "America/Denver",
-    "America/Los_Angeles",
-    "America/Phoenix",
-    "America/Toronto",
-    "America/Vancouver",
-    "Europe/London",
-    "Europe/Paris",
-    "Europe/Berlin",
-    "Europe/Amsterdam",
-    "Europe/Rome",
-    "Europe/Madrid",
-    "Europe/Stockholm",
-    "Asia/Tokyo",
-    "Asia/Shanghai",
-    "Asia/Hong_Kong",
-    "Asia/Singapore",
-    "Australia/Sydney",
-    "Australia/Melbourne",
-  ];
-
-  // Select random values
-  const screen = screens[Math.floor(Math.random() * screens.length)];
-  const webgl = webglData[Math.floor(Math.random() * webglData.length)];
-  const language = languages[Math.floor(Math.random() * languages.length)];
-  const platform = ["windows", "mac", "linux"][Math.floor(Math.random() * 3)];
-  const userAgent =
-    userAgents[platform][
-      Math.floor(Math.random() * userAgents[platform].length)
-    ];
-  const timezone = timezones[Math.floor(Math.random() * timezones.length)];
-
-  // Generate realistic hardware concurrency based on platform
-  const hardwareConcurrency =
-    platform === "mac"
-      ? [8, 10, 12, 16][Math.floor(Math.random() * 4)]
-      : [4, 6, 8, 12, 16][Math.floor(Math.random() * 5)];
-
-  // Generate realistic device memory (in GB)
-  const deviceMemory = [4, 8, 16, 32][Math.floor(Math.random() * 4)];
-
-  // Canvas fingerprinting variations
-  const canvasVariations = [
-    { noise: Math.random() * 0.001, textBaseline: "top" },
-    { noise: Math.random() * 0.001, textBaseline: "bottom" },
-    { noise: Math.random() * 0.001, textBaseline: "middle" },
-    { noise: Math.random() * 0.001, textBaseline: "alphabetic" },
-  ];
-  const canvasVariation =
-    canvasVariations[Math.floor(Math.random() * canvasVariations.length)];
-
-  // Audio context fingerprinting variations
-  const audioContextVariations = [
-    { sampleRate: 44100, channelCount: 2 },
-    { sampleRate: 48000, channelCount: 2 },
-    { sampleRate: 44100, channelCount: 1 },
-    { sampleRate: 48000, channelCount: 1 },
-    { sampleRate: 96000, channelCount: 2 },
-  ];
-  const audioVariation =
-    audioContextVariations[
-      Math.floor(Math.random() * audioContextVariations.length)
+    // Enhanced screen resolutions with more realistic variations
+    const screens = [
+      { width: 1920, height: 1080, deviceScaleFactor: 1 },
+      { width: 1920, height: 1080, deviceScaleFactor: 1.25 },
+      { width: 1920, height: 1080, deviceScaleFactor: 1.5 },
+      { width: 2560, height: 1440, deviceScaleFactor: 1 },
+      { width: 2560, height: 1440, deviceScaleFactor: 1.5 },
+      { width: 3840, height: 2160, deviceScaleFactor: 1.5 },
+      { width: 3840, height: 2160, deviceScaleFactor: 2 },
+      { width: 1366, height: 768, deviceScaleFactor: 1 },
+      { width: 1536, height: 864, deviceScaleFactor: 1.25 },
+      { width: 1440, height: 900, deviceScaleFactor: 1 },
+      { width: 1440, height: 900, deviceScaleFactor: 2 }, // Retina
+      { width: 1680, height: 1050, deviceScaleFactor: 1 },
+      { width: 1280, height: 800, deviceScaleFactor: 1 },
+      { width: 1280, height: 720, deviceScaleFactor: 1 },
+      // Add more modern resolutions
+      { width: 2880, height: 1800, deviceScaleFactor: 2 }, // MacBook Pro 16"
+      { width: 3456, height: 2234, deviceScaleFactor: 2 }, // MacBook Pro 14"
+      { width: 2736, height: 1824, deviceScaleFactor: 2 }, // Surface Studio
+      { width: 1920, height: 1200, deviceScaleFactor: 1 }, // 16:10 monitor
+      { width: 3440, height: 1440, deviceScaleFactor: 1 }, // Ultrawide
+      { width: 2560, height: 1080, deviceScaleFactor: 1 }, // Ultrawide 21:9
     ];
 
-  // Font list variations (realistic combinations)
-  const fontVariations = [
-    [
-      "Arial",
-      "Helvetica",
-      "Times New Roman",
-      "Courier New",
-      "Verdana",
-      "Georgia",
-      "Palatino",
-      "Garamond",
-      "Bookman",
-      "Comic Sans MS",
-    ],
-    [
-      "Arial",
-      "Helvetica",
-      "Times New Roman",
-      "Courier New",
-      "Verdana",
-      "Georgia",
-      "Trebuchet MS",
-      "Arial Black",
-      "Impact",
-    ],
-    [
-      "Arial",
-      "Helvetica",
-      "Times New Roman",
-      "Courier New",
-      "Verdana",
-      "Georgia",
-      "Lucida Console",
-      "Lucida Sans Unicode",
-    ],
-    [
-      "System Font",
-      "Arial",
-      "Helvetica",
-      "SF Pro Display",
-      "SF Pro Text",
-      "Times New Roman",
-      "Menlo",
-      "Monaco",
-    ], // Mac-like
-    [
-      "Segoe UI",
-      "Arial",
-      "Helvetica",
-      "Times New Roman",
-      "Calibri",
-      "Cambria",
-      "Consolas",
-      "Verdana",
-    ], // Windows-like
-  ];
-  const fonts =
-    fontVariations[Math.floor(Math.random() * fontVariations.length)];
+    // Select random values with unique seeding
+    const screen = screens[Math.floor(seedRandom(1) * screens.length)];
 
-  // Plugin variations (realistic for modern browsers)
-  const pluginVariations = [
-    [], // Most modern browsers have no plugins
-    ["PDF Viewer"], // Common built-in
-    ["Chrome PDF Plugin", "Chrome PDF Viewer"], // Chrome-specific
-    ["PDF Viewer", "Widevine Content Decryption Module"], // Netflix/DRM users
-  ];
-  const plugins =
-    pluginVariations[Math.floor(Math.random() * pluginVariations.length)];
-
-  // Battery status variations (if supported)
-  const batteryVariations = [
-    { charging: true, level: 0.8 + Math.random() * 0.2 },
-    { charging: false, level: 0.2 + Math.random() * 0.6 },
-    { charging: true, level: 0.9 + Math.random() * 0.1 },
-    null, // Desktop/no battery
-  ];
-  const battery =
-    batteryVariations[Math.floor(Math.random() * batteryVariations.length)];
-
-  // Connection type variations
-  const connectionTypes = ["4g", "wifi", "ethernet", "slow-2g", "2g", "3g"];
-  const connection =
-    connectionTypes[Math.floor(Math.random() * connectionTypes.length)];
-
-  // Generate more unique fingerprint characteristics
-  const webglParams = {
-    ...webgl,
-    // Add more WebGL parameters for uniqueness
-    maxTextureSize: [4096, 8192, 16384][Math.floor(Math.random() * 3)],
-    maxViewportDims: [16384, 32768][Math.floor(Math.random() * 2)],
-    maxCombinedTextureImageUnits: [32, 64, 80, 96][
-      Math.floor(Math.random() * 4)
-    ],
-    maxVertexTextureImageUnits: [16, 32][Math.floor(Math.random() * 2)],
-    maxTextureImageUnits: [16, 32][Math.floor(Math.random() * 2)],
-    maxFragmentUniformVectors: [1024, 2048, 4096][
-      Math.floor(Math.random() * 3)
-    ],
-    maxVertexUniformVectors: [1024, 2048, 4096][Math.floor(Math.random() * 3)],
-    maxVaryingVectors: [30, 32, 64][Math.floor(Math.random() * 3)],
-    aliasedLineWidthRange: [
-      [1, 1],
-      [1, 7.984375],
-      [1, 10],
-    ][Math.floor(Math.random() * 3)],
-    aliasedPointSizeRange: [
-      [1, 255],
-      [1, 511],
-      [1, 1024],
-    ][Math.floor(Math.random() * 3)],
-    maxAnisotropy: [16, 32][Math.floor(Math.random() * 2)],
-    shadings: ["Gouraud", "Phong", "Flat"][Math.floor(Math.random() * 3)],
-    depthBits: [24, 32][Math.floor(Math.random() * 2)],
-    stencilBits: [0, 8][Math.floor(Math.random() * 2)],
-  };
-
-  // Generate unique media device IDs
-  const mediaDevices = {
-    audioInputs: Array.from(
-      { length: Math.floor(Math.random() * 3) + 1 },
-      (_, i) => ({
-        deviceId: Math.random().toString(36).substring(2, 15),
-        kind: "audioinput",
-        label:
-          ["Built-in Microphone", "External Microphone", "USB Audio Device"][
-            i
-          ] || "Microphone",
-        groupId: Math.random().toString(36).substring(2, 10),
-      })
-    ),
-    audioOutputs: Array.from(
-      { length: Math.floor(Math.random() * 2) + 1 },
-      (_, i) => ({
-        deviceId: Math.random().toString(36).substring(2, 15),
-        kind: "audiooutput",
-        label:
-          ["Built-in Output", "External Speakers", "Headphones"][i] ||
-          "Speakers",
-        groupId: Math.random().toString(36).substring(2, 10),
-      })
-    ),
-    videoInputs:
-      Math.random() > 0.5
-        ? [
-            {
-              deviceId: Math.random().toString(36).substring(2, 15),
-              kind: "videoinput",
-              label: [
-                "FaceTime HD Camera",
-                "Integrated Camera",
-                "HD Pro Webcam C920",
-              ][Math.floor(Math.random() * 3)],
-              groupId: Math.random().toString(36).substring(2, 10),
-            },
-          ]
-        : [],
-  };
-
-  // Browser-specific features
-  const browserFeatures = {
-    pdfViewerEnabled: Math.random() > 0.1, // 90% have PDF viewer
-    webglDebugRendererInfo: Math.random() > 0.3, // 70% expose debug info
-    speechSynthesis: Math.random() > 0.2, // 80% have speech synthesis
-    getUserMedia: Math.random() > 0.3, // 70% have getUserMedia
-    bluetooth: Math.random() > 0.7, // 30% have bluetooth API
-    usb: Math.random() > 0.8, // 20% have USB API
-  };
-
-  // Generate realistic browser history length
-  const historyLength = Math.floor(Math.random() * 50) + 1;
-
-  // Realistic localStorage/sessionStorage items
-  const storageItems = Math.floor(Math.random() * 10);
-
-  // Generate unique client rects noise
-  const clientRectsNoise = Math.random() * 0.0001;
-
-  return {
-    screen,
-    webgl: webglParams,
-    languages: language,
-    userAgent,
-    platform:
-      platform === "mac"
+    // Return enhanced fingerprint
+    return {
+      visitorId: seed.toString(36),
+      screen,
+      userAgent: realUA,
+      // Add more unique characteristics...
+      sessionId: seed.toString() + "_" + Date.now(),
+      touchSupport: seedRandom(2) > 0.7,
+      colorDepth: [24, 32][Math.floor(seedRandom(3) * 2)],
+      pixelDepth: [24, 32][Math.floor(seedRandom(4) * 2)],
+      hardwareConcurrency: [4, 6, 8, 12, 16][Math.floor(seedRandom(5) * 5)],
+      deviceMemory: [4, 8, 16, 32][Math.floor(seedRandom(6) * 4)],
+      languages: [
+        ["en-US", "en"],
+        ["en-GB", "en"],
+      ][Math.floor(seedRandom(7) * 2)],
+      timezone: ["America/New_York", "America/Los_Angeles", "Europe/London"][
+        Math.floor(seedRandom(8) * 3)
+      ],
+      platform: realUA.includes("Mac")
         ? "MacIntel"
-        : platform === "linux"
-        ? "Linux x86_64"
-        : "Win32",
-    timezone,
-    hardwareConcurrency,
-    deviceMemory,
-    canvas: {
-      ...canvasVariation,
-      // Add more canvas fingerprinting variations
-      globalCompositeOperation: ["source-over", "multiply", "screen"][
-        Math.floor(Math.random() * 3)
-      ],
-      filter: Math.random() > 0.5 ? "none" : `blur(${Math.random() * 0.5}px)`,
-    },
-    audio: {
-      ...audioVariation,
-      // Add more audio fingerprinting variations
-      baseLatency: Math.random() * 0.01 + 0.001,
-      outputLatency: Math.random() * 0.02 + 0.01,
-      sinkId: "",
-    },
-    fonts,
-    plugins,
-    battery,
-    connection,
-    // Enhanced unique identifiers
-    sessionId: Math.random().toString(36).substring(2, 15),
-    touchSupport: Math.random() > 0.7, // 30% chance of touch support
-    colorDepth: [24, 32][Math.floor(Math.random() * 2)],
-    pixelDepth: [24, 32][Math.floor(Math.random() * 2)],
-    mediaDevices,
-    browserFeatures,
-    historyLength,
-    storageItems,
-    clientRectsNoise,
-    // CPU class for Windows
-    cpuClass: platform === "windows" ? "x64" : undefined,
-    // Add screen orientation
-    screenOrientation:
-      Math.random() > 0.8 ? "portrait-primary" : "landscape-primary",
-    // Unique browser window properties
-    innerWidth: screen.width - Math.floor(Math.random() * 200),
-    innerHeight: screen.height - Math.floor(Math.random() * 300) - 100,
-    // Add network information
-    networkInformation: {
-      downlink: Math.floor(Math.random() * 10) + 1,
-      effectiveType: connection,
-      rtt: Math.floor(Math.random() * 200) + 50,
-      saveData: Math.random() > 0.9,
-    },
-    // Permissions state
-    permissions: {
-      geolocation: ["granted", "denied", "prompt"][
-        Math.floor(Math.random() * 3)
-      ],
-      notifications: ["granted", "denied", "prompt"][
-        Math.floor(Math.random() * 3)
-      ],
-      camera: ["granted", "denied", "prompt"][Math.floor(Math.random() * 3)],
-      microphone: ["granted", "denied", "prompt"][
-        Math.floor(Math.random() * 3)
-      ],
-    },
-  };
+        : realUA.includes("Windows")
+        ? "Win32"
+        : "Linux x86_64",
+      // Enhanced canvas fingerprinting
+      canvas: {
+        noise: seedRandom(9) * 0.001,
+        textBaseline: ["top", "bottom", "middle", "alphabetic"][
+          Math.floor(seedRandom(10) * 4)
+        ],
+        fillStyle: `rgba(${Math.floor(seedRandom(11) * 255)}, ${Math.floor(
+          seedRandom(12) * 255
+        )}, ${Math.floor(seedRandom(13) * 255)}, 0.1)`,
+        globalCompositeOperation: ["source-over", "multiply", "screen"][
+          Math.floor(seedRandom(14) * 3)
+        ],
+        shadowBlur: Math.floor(seedRandom(15) * 10),
+        shadowColor: `rgba(${Math.floor(seedRandom(16) * 255)}, ${Math.floor(
+          seedRandom(17) * 255
+        )}, ${Math.floor(seedRandom(18) * 255)}, 0.5)`,
+        lineWidth: seedRandom(19) * 3 + 1,
+        lineCap: ["butt", "round", "square"][Math.floor(seedRandom(20) * 3)],
+        lineJoin: ["miter", "round", "bevel"][Math.floor(seedRandom(21) * 3)],
+      },
+      // Enhanced WebGL fingerprinting
+      webgl: {
+        vendor: "Google Inc. (Intel)",
+        renderer: `ANGLE (Intel, Mesa Intel(R) HD Graphics ${
+          Math.floor(seedRandom(22) * 999) + 500
+        } (Gen8 GT2), OpenGL 4.6)`,
+        maxTextureSize: [4096, 8192, 16384][Math.floor(seedRandom(23) * 3)],
+        maxViewportDims: [16384, 32768][Math.floor(seedRandom(24) * 2)],
+        maxCombinedTextureImageUnits: [32, 64, 80, 96][
+          Math.floor(seedRandom(25) * 4)
+        ],
+        maxVertexTextureImageUnits: [16, 32][Math.floor(seedRandom(26) * 2)],
+        maxTextureImageUnits: [16, 32][Math.floor(seedRandom(27) * 2)],
+        depthBits: [24, 32][Math.floor(seedRandom(28) * 2)],
+        stencilBits: [0, 8][Math.floor(seedRandom(29) * 2)],
+      },
+      // Enhanced unique identifiers
+      clientRectsNoise: seedRandom(30) * 0.0001,
+      cookiesEnabled: true,
+      doNotTrack: ["1", "0", null][Math.floor(seedRandom(31) * 3)],
+      maxTouchPoints:
+        seedRandom(2) > 0.7 ? Math.floor(seedRandom(32) * 5) + 1 : 0,
+      performanceTiming: {
+        navigationStart: Date.now() - Math.floor(seedRandom(33) * 5000),
+        loadEventEnd: Date.now() - Math.floor(seedRandom(34) * 1000),
+      },
+    };
+  } catch (error) {
+    logger?.warn("Enhanced fingerprint generation failed, using fallback", {
+      error: error.message,
+    });
+
+    // Fallback to basic unique fingerprint
+    const fallbackSeed = Date.now() + Math.random() * 1000;
+    return {
+      visitorId: fallbackSeed.toString(36),
+      screen: { width: 1920, height: 1080, deviceScaleFactor: 1 },
+      userAgent: "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
+      sessionId: fallbackSeed.toString() + "_fallback",
+      touchSupport: false,
+      colorDepth: 24,
+      pixelDepth: 24,
+      hardwareConcurrency: 8,
+      deviceMemory: 8,
+      languages: ["en-US", "en"],
+      timezone: "America/New_York",
+      platform: "Win32",
+    };
+  }
 };
 
 // --- Utility Functions ---
@@ -1431,7 +1119,7 @@ class MultiEngineDorker {
     this.userDataDir = null;
     this.proxiesUsed = [];
     this.proxyApiTested = false; // Track if we've tested the API connection yet
-    this.fingerprint = generateRandomFingerprint();
+    this.fingerprint = generateUniqueFingerprint();
     this.currentViewport = {
       width: this.fingerprint.screen.width,
       height: this.fingerprint.screen.height,
@@ -6421,7 +6109,7 @@ class MultiEngineDorker {
       }
 
       // Generate new fingerprint for next search
-      this.fingerprint = generateRandomFingerprint();
+      this.fingerprint = generateUniqueFingerprint();
       this.currentViewport = {
         width: this.fingerprint.screen.width,
         height: this.fingerprint.screen.height,
@@ -7751,7 +7439,7 @@ class MultiEngineDorker {
       // Enhanced fingerprint variation for each search (critical for stealth)
       if (retryCount > 0 || this.captchaCount > 0) {
         // Generate completely new fingerprint for retries or after CAPTCHAs
-        this.fingerprint = generateRandomFingerprint();
+        this.fingerprint = generateUniqueFingerprint();
         this.currentViewport = {
           width: this.fingerprint.screen.width,
           height: this.fingerprint.screen.height,
@@ -7971,11 +7659,8 @@ class MultiEngineDorker {
       // Skip all unnecessary waiting - go straight to results
       logger?.debug("Skipping wait times for faster processing");
 
-      // Skip human simulation completely for maximum speed
-      if (Math.random() > 0.95) {
-        // Only 5% chance
-        await this.simulateHumanBehavior();
-      }
+      // ALWAYS simulate human behavior - critical for avoiding detection
+      await this.simulateHumanBehavior();
 
       // Try to wait for specific result elements to appear
       logger?.debug("Waiting for search results to appear");
