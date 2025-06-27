@@ -3764,7 +3764,30 @@ class MultiEngineDorker {
                   return "manual_required"; // Special return value for this case
                 }
 
-                // Check for reCAPTCHA iframes (most reliable indicator)
+                // PRIORITY: Check for Google's text-based image CAPTCHA first (like the user encountered)
+                const textImageCaptcha =
+                  document.querySelector("#captcha-form") ||
+                  document.querySelector('form img[src*="/sorry/image"]') ||
+                  document.querySelector(
+                    'form:has(img[src*="/sorry/image"])'
+                  ) ||
+                  document.querySelector('img[src*="captcha"]') ||
+                  document.querySelector('input[name="captcha"]') ||
+                  document.querySelector(
+                    'form input[type="text"][name="captcha"]'
+                  ) ||
+                  document.querySelector(
+                    'form img[alt*="Please enable images"]'
+                  );
+
+                if (textImageCaptcha) {
+                  console.log(
+                    "Dorker: Found text-based image CAPTCHA form - prioritizing image CAPTCHA!"
+                  );
+                  return "image_captcha";
+                }
+
+                // Check for reCAPTCHA iframes (secondary priority)
                 const recaptchaFrames = document.querySelectorAll(
                   'iframe[src*="recaptcha"], iframe[title*="reCAPTCHA"]'
                 );
@@ -3785,22 +3808,6 @@ class MultiEngineDorker {
                     "Dorker: Found g-recaptcha element - CAPTCHA detected!"
                   );
                   return true;
-                }
-
-                // Check for image CAPTCHA form
-                const imageCaptcha =
-                  document.querySelector("#captcha-form") ||
-                  document.querySelector('form img[src*="/sorry/image"]') ||
-                  document.querySelector('img[src*="captcha"]') ||
-                  document.querySelector('input[name="captcha"]') ||
-                  document.querySelector(
-                    'form input[type="text"][name="captcha"]'
-                  );
-                if (imageCaptcha) {
-                  console.log(
-                    "Dorker: Found image CAPTCHA form - CAPTCHA detected!"
-                  );
-                  return "image_captcha";
                 }
 
                 // Check for CAPTCHA text indicators
@@ -4053,35 +4060,56 @@ class MultiEngineDorker {
 
       console.log(chalk.green(`✅ AI solved CAPTCHA: "${solution}"`));
 
-      // Input the solution and submit
-      const success = await this.page.evaluate(
-        (data, solution) => {
-          const input = document.querySelector(
-            `input[name="${data.inputSelector}"], #${data.inputSelector}, ${data.inputSelector}`
-          );
-          if (!input) return false;
-
-          input.value = solution;
-          input.dispatchEvent(new Event("input", { bubbles: true }));
-
-          // Submit the form
-          const form = input.closest("form");
-          if (form) {
-            const submitBtn = form.querySelector(
-              'input[type="submit"], button[type="submit"], button'
-            );
-            if (submitBtn) {
-              submitBtn.click();
-            } else {
-              form.submit();
-            }
-            return true;
-          }
-          return false;
-        },
-        captchaData,
-        solution
+      // Input the solution using human-like typing behavior
+      console.log(
+        chalk.blue("📝 Entering CAPTCHA solution with human behavior...")
       );
+
+      // First, focus on the input field
+      const inputSelector = `input[name="${captchaData.inputSelector}"], #${captchaData.inputSelector}, ${captchaData.inputSelector}`;
+      const inputField = await this.page.$(inputSelector).catch(() => null);
+
+      if (!inputField) {
+        console.log(chalk.red("❌ Could not find CAPTCHA input field"));
+        return false;
+      }
+
+      // Clear any existing text and type the solution with human behavior
+      await inputField.click();
+      await sleep(200);
+
+      // Select all existing text (if any) and replace it
+      await this.page.keyboard.down("Control");
+      await this.page.keyboard.press("KeyA");
+      await this.page.keyboard.up("Control");
+      await sleep(100);
+
+      // Type the solution using enhanced human typing
+      await this.typeWithHumanBehavior(solution, inputSelector);
+
+      console.log(chalk.blue("📤 Submitting CAPTCHA solution..."));
+
+      // Add a human-like pause before submitting
+      await sleep(Math.random() * 1000 + 500);
+
+      // Submit the form
+      const success = await this.page.evaluate(() => {
+        const form =
+          document.querySelector("#captcha-form") ||
+          document.querySelector('form:has(input[name="captcha"])');
+        if (form) {
+          const submitBtn = form.querySelector(
+            'input[type="submit"], button[type="submit"], button'
+          );
+          if (submitBtn) {
+            submitBtn.click();
+          } else {
+            form.submit();
+          }
+          return true;
+        }
+        return false;
+      });
 
       if (!success) {
         console.log(chalk.red("❌ Failed to submit CAPTCHA solution"));
@@ -4178,7 +4206,7 @@ class MultiEngineDorker {
               content: [
                 {
                   type: "text",
-                  text: "This is a CAPTCHA image. Please analyze the image and tell me exactly what text/characters are shown. Only respond with the text itself, nothing else. If the text is distorted, do your best to read it.",
+                  text: "This is a CAPTCHA image containing text/characters that I need to read. Please carefully analyze the image and extract the exact text shown. The text may be distorted, have different fonts, colors, or backgrounds, but focus on identifying each character. Respond with ONLY the text/characters you see, nothing else - no explanations, no formatting, just the raw text. Be as accurate as possible.",
                 },
                 {
                   type: "image_url",
