@@ -52,7 +52,23 @@ const logWithDedup = (level, message, color = null) => {
 
   // Always use logger with proper level structure
   if (logger) {
-    logger[level](message);
+    // Map custom levels to winston levels
+    const levelMap = {
+      success: "info",
+      warning: "warn",
+      debug: "debug",
+      info: "info",
+      error: "error",
+      warn: "warn",
+    };
+
+    const mappedLevel = levelMap[level] || "info";
+    if (typeof logger[mappedLevel] === "function") {
+      logger[mappedLevel](message);
+    } else {
+      // Fallback to info if level doesn't exist
+      logger.info(message);
+    }
   }
 
   // Also show to console with color if specified
@@ -1102,8 +1118,8 @@ async function getSettings() {
       type: "number",
       name: "delay",
       message:
-        "Delay between dorks (ms)? (Minimum 8000ms recommended for stealth)",
-      default: 12000,
+        "Delay between dorks (ms)? (Minimum 30000ms recommended for stealth)",
+      default: 45000,
     },
     {
       type: "confirm",
@@ -8345,6 +8361,92 @@ async function main() {
   const dorker = new MultiEngineDorker(options);
   await dorker.initialize();
 
+  // CRITICAL: Enhanced warm-up period to avoid early detection
+  console.log(
+    chalk.blue("🌡️ Starting enhanced warm-up session to avoid detection...")
+  );
+
+  try {
+    // Navigate to Google and simulate normal browsing first
+    await dorker.page.goto("https://www.google.com", {
+      waitUntil: "networkidle0",
+      timeout: 30000,
+    });
+
+    // Handle any consent forms during warm-up
+    await dorker.handleCookieConsent(true);
+
+    // Warm-up human simulation (longer session)
+    console.log(chalk.blue("📚 Simulating natural browsing behavior..."));
+
+    // Simulate reading the Google homepage
+    await sleep(Math.random() * 3000 + 2000);
+    await dorker.simulateHumanBehavior();
+
+    // Do some natural searches (not dorks)
+    const naturalSearches = [
+      "weather today",
+      "news",
+      "how to cook pasta",
+      "time now",
+    ];
+
+    const warmupSearch =
+      naturalSearches[Math.floor(Math.random() * naturalSearches.length)];
+    console.log(chalk.blue(`🔍 Performing warm-up search: "${warmupSearch}"`));
+
+    // Type the search naturally
+    const searchBox =
+      (await dorker.page.$('input[name="q"]')) ||
+      (await dorker.page.$('textarea[name="q"]'));
+    if (searchBox) {
+      await dorker.typeWithHumanBehavior(
+        warmupSearch,
+        'input[name="q"], textarea[name="q"]'
+      );
+      await sleep(Math.random() * 1000 + 500);
+      await dorker.page.keyboard.press("Enter");
+
+      // Wait for results and simulate reading
+      await sleep(Math.random() * 3000 + 2000);
+      await dorker.simulateHumanBehavior();
+
+      // Simulate clicking on a result occasionally
+      if (Math.random() < 0.3) {
+        const results = await dorker.page.$$('a[href^="/url?"]');
+        if (results.length > 0) {
+          const randomResult =
+            results[Math.floor(Math.random() * Math.min(3, results.length))];
+          await randomResult.click();
+          await sleep(Math.random() * 5000 + 3000);
+
+          // Go back to Google
+          await dorker.page.goBack();
+          await sleep(Math.random() * 2000 + 1000);
+        }
+      }
+    }
+
+    // Extended warm-up period with more human simulation
+    console.log(chalk.blue("⏳ Extended warm-up period (30-60 seconds)..."));
+    const warmupTime = Math.random() * 30000 + 30000; // 30-60 seconds
+    const intervals = Math.floor(warmupTime / 10000);
+
+    for (let w = 0; w < intervals; w++) {
+      await sleep(10000);
+      if (Math.random() < 0.4) {
+        await dorker.simulateHumanBehavior();
+      }
+    }
+
+    console.log(
+      chalk.green("✅ Warm-up session completed! Starting actual dorking...")
+    );
+  } catch (warmupError) {
+    console.log(chalk.yellow("⚠️ Warm-up had issues, continuing anyway..."));
+    logger?.warn("Warm-up session had issues", { error: warmupError.message });
+  }
+
   const allResults = {};
   let totalLinksFound = 0;
 
@@ -8399,6 +8501,12 @@ async function main() {
       totalDorks: dorks.length,
     });
 
+    // Pre-search human behavior simulation to avoid pattern detection
+    if (Math.random() < 0.4) {
+      console.log(chalk.gray("🤔 Pre-search thinking pause..."));
+      await sleep(Math.random() * 5000 + 2000);
+    }
+
     const results = await dorker.search(dork);
 
     if (results && results.length > 0) {
@@ -8428,10 +8536,10 @@ async function main() {
 
       progressBar.increment(1, { links: totalLinksFound });
 
-      // Enhanced anti-detection: occasionally restart browser completely
+      // Enhanced anti-detection: occasionally restart browser completely (less frequent)
       const shouldRestartBrowser =
-        (i + 1) % 3 === 0 || // Every 3rd search
-        Math.random() < 0.2; // 20% random chance
+        (i + 1) % 5 === 0 || // Every 5th search (less frequent)
+        Math.random() < 0.1; // 10% random chance (reduced)
 
       if (shouldRestartBrowser && i < dorks.length - 1) {
         console.log(
@@ -8478,20 +8586,40 @@ async function main() {
         }
       }
 
-      // Enhanced human-like delay after successful scraping - significant pause to avoid detection
-      const baseDelay = Math.max(options.delay, 8000); // Minimum 8 seconds between searches
-      const humanVariation = randomDelay(2000, 5000); // Add 2-5 seconds of human variation
-      const thinkingTime = Math.random() * 3000 + 1000; // Additional 1-4 seconds of "thinking"
+      // SIGNIFICANTLY enhanced human-like delay to avoid detection
+      const baseDelay = Math.max(options.delay, 25000); // Minimum 25 seconds between searches
+      const humanVariation = randomDelay(10000, 20000); // Add 10-20 seconds of human variation
+      const thinkingTime = Math.random() * 15000 + 5000; // Additional 5-20 seconds of "thinking"
+      const readingTime = Math.random() * 10000 + 3000; // 3-13 seconds of "reading results"
 
       console.log(
         chalk.blue(
-          `⏳ Human-like pause: ${(
-            (baseDelay + humanVariation + thinkingTime) /
+          `⏳ Enhanced human-like pause: ${(
+            (baseDelay + humanVariation + thinkingTime + readingTime) /
             1000
           ).toFixed(1)}s before next search`
         )
       );
-      await sleep(baseDelay + humanVariation + thinkingTime);
+
+      // Simulate human reading behavior during the delay
+      const totalDelay =
+        baseDelay + humanVariation + thinkingTime + readingTime;
+      const intervals = Math.floor(totalDelay / 5000); // Break into 5-second intervals
+
+      for (let j = 0; j < intervals; j++) {
+        await sleep(5000);
+
+        // Random human-like activities during the wait
+        if (Math.random() < 0.3) {
+          await dorker.simulatePageExploration(2000);
+        }
+        if (Math.random() < 0.2) {
+          await dorker.simulateScrolling();
+        }
+      }
+
+      // Sleep remaining time
+      await sleep(totalDelay % 5000);
     } else {
       logger?.info("Dork completed with no results", {
         dork: dork.substring(0, 100),
@@ -8557,18 +8685,31 @@ async function main() {
       }
 
       // Enhanced delay even for failed searches to maintain consistent timing pattern
-      const baseDelay = Math.max(options.delay, 6000); // Minimum 6 seconds even for failures
-      const humanVariation = randomDelay(1000, 3000); // Add 1-3 seconds of variation
+      const baseDelay = Math.max(options.delay, 20000); // Minimum 20 seconds even for failures
+      const humanVariation = randomDelay(8000, 15000); // Add 8-15 seconds of variation
+      const thinkingTime = Math.random() * 8000 + 3000; // 3-11 seconds of thinking
 
       console.log(
         chalk.blue(
-          `⏳ Pause before next search: ${(
-            (baseDelay + humanVariation) /
+          `⏳ Extended pause before next search: ${(
+            (baseDelay + humanVariation + thinkingTime) /
             1000
           ).toFixed(1)}s`
         )
       );
-      await sleep(baseDelay + humanVariation);
+
+      // Simulate human behavior even during failed search delays
+      const totalDelay = baseDelay + humanVariation + thinkingTime;
+      const intervals = Math.floor(totalDelay / 4000);
+
+      for (let k = 0; k < intervals; k++) {
+        await sleep(4000);
+        if (Math.random() < 0.25) {
+          await dorker.simulateHumanBehavior();
+        }
+      }
+
+      await sleep(totalDelay % 4000);
     }
   }
 
