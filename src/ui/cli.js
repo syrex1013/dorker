@@ -530,14 +530,18 @@ function displayError(message, error = null) {
 }
 
 /**
- * Create a spinner for long-running operations
+ * Create a spinner for long-running operations with console coordination
  */
 function createSpinner(text, color = "cyan") {
-  return ora({
+  const spinner = ora({
     text: chalk[color](text),
     spinner: "dots12",
     color: color,
+    indent: 0,
+    discardStdin: false,
   });
+
+  return spinner;
 }
 
 /**

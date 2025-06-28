@@ -128,13 +128,15 @@ async function detectCaptcha(page, logger = null) {
  * @param {Object} config - Configuration object
  * @param {Object} logger - Winston logger instance
  * @param {Function} switchProxyCallback - Callback to switch proxy
+ * @param {Object} dashboard - Dashboard instance for live updates
  * @returns {Promise<boolean>} True if CAPTCHA was handled successfully
  */
 async function handleCaptcha(
   page,
   config,
   logger = null,
-  switchProxyCallback = null
+  switchProxyCallback = null,
+  dashboard = null
 ) {
   try {
     const isCaptchaPresent = await detectCaptcha(page, logger);
@@ -146,8 +148,27 @@ async function handleCaptcha(
     logWithDedup("warning", "🚨 CAPTCHA detected!", chalk.red, logger);
     logger?.warn("CAPTCHA detection confirmed");
 
+    // Update dashboard
+    if (dashboard) {
+      dashboard.addLog("warning", "🚨 CAPTCHA detected!");
+      const currentStats = dashboard.stats;
+      dashboard.setCaptchaStats(
+        currentStats.captchaEncounters + 1,
+        currentStats.captchaSolved
+      );
+    }
+
     if (config.manualCaptchaMode) {
-      return await handleManualCaptcha(page, logger);
+      const solved = await handleManualCaptcha(page, logger);
+      if (solved && dashboard) {
+        const currentStats = dashboard.stats;
+        dashboard.setCaptchaStats(
+          currentStats.captchaEncounters,
+          currentStats.captchaSolved + 1
+        );
+        dashboard.addLog("success", "✅ CAPTCHA solved manually");
+      }
+      return solved;
     } else {
       // Automatic CAPTCHA handling
       logWithDedup(
@@ -157,11 +178,27 @@ async function handleCaptcha(
         logger
       );
 
-      const solved = await handleAutomaticCaptcha(
-        page,
-        logger,
-        switchProxyCallback
-      );
+      if (dashboard) {
+        dashboard.addLog("info", "🤖 Attempting automatic CAPTCHA solving...");
+      }
+
+      // First try simple challenge solving
+      const simpleSolved = await solveSimpleChallenge(page, logger);
+      if (simpleSolved) {
+        logWithDedup(
+          "success",
+          "✅ Simple challenge solved!",
+          chalk.green,
+          logger
+        );
+        if (dashboard) {
+          dashboard.addLog("success", "✅ Simple challenge solved!");
+        }
+        return true;
+      }
+
+      // If simple challenge didn't work, try audio CAPTCHA
+      const solved = await handleAutomaticCaptcha(page, logger, dashboard);
 
       if (!solved && switchProxyCallback) {
         logWithDedup(
@@ -171,9 +208,23 @@ async function handleCaptcha(
           logger
         );
 
+        if (dashboard) {
+          dashboard.addLog(
+            "warning",
+            "🔄 CAPTCHA solving failed, switching proxy..."
+          );
+        }
+
         // Try switching proxy and attempting again
         const proxyChanged = await switchProxyCallback();
         if (proxyChanged) {
+          if (dashboard) {
+            dashboard.addLog(
+              "info",
+              "🌍 Proxy switched successfully, retrying..."
+            );
+          }
+
           // Wait for page to reload with new proxy
           await sleep(5000);
 
@@ -186,6 +237,16 @@ async function handleCaptcha(
               chalk.green,
               logger
             );
+
+            if (dashboard) {
+              dashboard.addLog("success", "✅ Proxy switch resolved CAPTCHA!");
+              const currentStats = dashboard.stats;
+              dashboard.setCaptchaStats(
+                currentStats.captchaEncounters,
+                currentStats.captchaSolved + 1
+              );
+            }
+
             return true;
           } else {
             // Try solving again with new proxy
@@ -195,15 +256,46 @@ async function handleCaptcha(
               chalk.cyan,
               logger
             );
-            return await handleAutomaticCaptcha(page, logger);
+
+            if (dashboard) {
+              dashboard.addLog(
+                "info",
+                "🔄 Retrying CAPTCHA solving with new proxy..."
+              );
+            }
+
+            const retrySolved = await handleAutomaticCaptcha(
+              page,
+              logger,
+              dashboard
+            );
+            if (retrySolved && dashboard) {
+              const currentStats = dashboard.stats;
+              dashboard.setCaptchaStats(
+                currentStats.captchaEncounters,
+                currentStats.captchaSolved + 1
+              );
+            }
+            return retrySolved;
           }
         }
+      }
+
+      if (solved && dashboard) {
+        const currentStats = dashboard.stats;
+        dashboard.setCaptchaStats(
+          currentStats.captchaEncounters,
+          currentStats.captchaSolved + 1
+        );
       }
 
       return solved;
     }
   } catch (error) {
     logger?.error("Error handling CAPTCHA", { error: error.message });
+    if (dashboard) {
+      dashboard.addLog("error", `CAPTCHA handling error: ${error.message}`);
+    }
     return false;
   }
 }
@@ -212,9 +304,10 @@ async function handleCaptcha(
  * Handle CAPTCHA automatically using audio solving
  * @param {Object} page - Puppeteer page
  * @param {Object} logger - Winston logger instance
+ * @param {Object} dashboard - Dashboard instance for live updates
  * @returns {Promise<boolean>} True if CAPTCHA was solved
  */
-async function handleAutomaticCaptcha(page, logger = null) {
+async function handleAutomaticCaptcha(page, logger = null, dashboard = null) {
   try {
     // First, try to find and click the audio challenge button
     const audioButtonSelectors = [
@@ -287,6 +380,9 @@ async function handleAutomaticCaptcha(page, logger = null) {
         chalk.yellow,
         logger
       );
+      if (dashboard) {
+        dashboard.addLog("warning", "⚠️ Could not find audio CAPTCHA button");
+      }
       return false;
     }
 
@@ -384,6 +480,12 @@ async function handleAutomaticCaptcha(page, logger = null) {
         chalk.yellow,
         logger
       );
+      if (dashboard) {
+        dashboard.addLog(
+          "warning",
+          "⚠️ Could not find audio source for CAPTCHA"
+        );
+      }
       return false;
     }
 
@@ -406,6 +508,9 @@ async function handleAutomaticCaptcha(page, logger = null) {
         chalk.yellow,
         logger
       );
+      if (dashboard) {
+        dashboard.addLog("warning", "⚠️ Could not find CAPTCHA input field");
+      }
       return false;
     }
 
@@ -433,6 +538,9 @@ async function handleAutomaticCaptcha(page, logger = null) {
         chalk.green,
         logger
       );
+      if (dashboard) {
+        dashboard.addLog("success", "✅ Audio CAPTCHA solved successfully!");
+      }
     } else {
       logWithDedup(
         "warning",
@@ -440,6 +548,9 @@ async function handleAutomaticCaptcha(page, logger = null) {
         chalk.yellow,
         logger
       );
+      if (dashboard) {
+        dashboard.addLog("warning", "⚠️ Audio CAPTCHA solution was incorrect");
+      }
     }
 
     return solved;
@@ -453,7 +564,122 @@ async function handleAutomaticCaptcha(page, logger = null) {
       chalk.red,
       logger
     );
+    if (dashboard) {
+      dashboard.addLog("error", "❌ Automatic CAPTCHA solving failed");
+    }
     return false;
+  }
+}
+
+/**
+ * Solve simple CAPTCHA challenges (math, text, etc.)
+ * @param {Object} page - Puppeteer page
+ * @param {Object} logger - Winston logger instance
+ * @returns {Promise<boolean>} True if challenge was solved
+ */
+async function solveSimpleChallenge(page, logger = null) {
+  try {
+    logger?.info("Attempting to solve simple CAPTCHA challenge");
+
+    // Check for math challenges
+    const mathChallengeText = await page.evaluate(() => {
+      const text = document.body.innerText;
+      const mathPattern = /(\d+)\s*[+\-*/]\s*(\d+)\s*=\s*\?/;
+      const match = text.match(mathPattern);
+      return match ? match[0] : null;
+    });
+
+    if (mathChallengeText) {
+      const solution = solveMathChallenge(mathChallengeText);
+      if (solution !== null) {
+        // Find input field and enter solution
+        const inputField =
+          (await page.$('input[type="text"]')) ||
+          (await page.$('input[type="number"]')) ||
+          (await page.$('input[name*="answer"]')) ||
+          (await page.$('input[name*="captcha"]'));
+
+        if (inputField) {
+          await inputField.type(solution.toString());
+          await sleep(1000);
+
+          // Find and click submit button
+          const submitButton =
+            (await page.$('button[type="submit"]')) ||
+            (await page.$('input[type="submit"]')) ||
+            (await page.$('button:contains("Submit")')) ||
+            (await page.$('button:contains("Continue")'));
+
+          if (submitButton) {
+            await submitButton.click();
+            await sleep(3000);
+            logger?.info(
+              `Math challenge solved: ${mathChallengeText} = ${solution}`
+            );
+            return true;
+          }
+        }
+      }
+    }
+
+    // Check for simple "I'm not a robot" checkboxes
+    const robotCheckboxSelectors = [
+      'input[type="checkbox"][name*="robot"]',
+      ".recaptcha-checkbox",
+      "#robot-checkbox",
+      'input[value*="human"]',
+    ];
+
+    for (const selector of robotCheckboxSelectors) {
+      const checkbox = await page.$(selector);
+      if (checkbox) {
+        const isChecked = await page.evaluate((el) => el.checked, checkbox);
+        if (!isChecked) {
+          await checkbox.click();
+          await sleep(2000);
+          logger?.info("Clicked 'I'm not a robot' checkbox");
+          return true;
+        }
+      }
+    }
+
+    return false;
+  } catch (error) {
+    logger?.error("Error solving simple challenge", { error: error.message });
+    return false;
+  }
+}
+
+/**
+ * Solve math challenge
+ * @param {string} challengeText - Math challenge text
+ * @returns {number|null} Solution or null if unsolvable
+ */
+function solveMathChallenge(challengeText) {
+  try {
+    const mathPattern = /(\d+)\s*([+\-*/])\s*(\d+)\s*=\s*\?/;
+    const match = challengeText.match(mathPattern);
+
+    if (!match) return null;
+
+    const num1 = parseInt(match[1]);
+    const operator = match[2];
+    const num2 = parseInt(match[3]);
+
+    switch (operator) {
+      case "+":
+        return num1 + num2;
+      case "-":
+        return num1 - num2;
+      case "*":
+        return num1 * num2;
+      case "/":
+        return Math.floor(num1 / num2);
+      default:
+        return null;
+    }
+  } catch (error) {
+    return null;
   }
 }
 
@@ -583,4 +809,5 @@ export {
   isOnSorryPage,
   handleAutomaticCaptcha,
   solveAudioCaptcha,
+  solveSimpleChallenge,
 };

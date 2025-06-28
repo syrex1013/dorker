@@ -35,11 +35,9 @@ async function launchBrowser(config, logger = null) {
       "--disable-renderer-backgrounding",
       "--disable-features=TranslateUI",
       "--disable-ipc-flooding-protection",
-      "--disable-web-security",
       "--disable-features=VizDisplayCompositor",
       "--disable-extensions",
       "--disable-plugins",
-      "--disable-images",
       "--disable-javascript-harmony-shipping",
       "--disable-background-networking",
       "--disable-default-apps",
@@ -49,6 +47,16 @@ async function launchBrowser(config, logger = null) {
       "--no-pings",
       "--password-store=basic",
       "--use-mock-keychain",
+      // Better iframe and security handling
+      "--disable-features=VizDisplayCompositor,VizServiceDisplayCompositor",
+      "--disable-blink-features=AutomationControlled",
+      "--disable-features=site-per-process",
+      "--allow-running-insecure-content",
+      "--ignore-certificate-errors",
+      "--ignore-ssl-errors",
+      "--ignore-certificate-errors-spki-list",
+      "--disable-site-isolation-trials",
+      "--disable-features=UserAgentClientHint",
       `--user-agent=${config.userAgent || fingerprint.userAgent}`,
       "--window-size=1366,768",
     ];
@@ -97,7 +105,7 @@ async function createPage(browser, config, logger = null) {
     const page = await browser.newPage();
     pageInstance = page;
 
-    // Enable stealth mode
+    // Enable stealth mode and security configuration
     await page.evaluateOnNewDocument(() => {
       // Remove webdriver property
       Object.defineProperty(navigator, "webdriver", {
@@ -112,6 +120,185 @@ async function createPage(browser, config, logger = null) {
       Object.defineProperty(navigator, "plugins", {
         get: () => [1, 2, 3, 4, 5],
       });
+
+      // Better iframe handling
+      window.solveSimpleChallenge = function (challengeType) {
+        console.log("Simple challenge handler called:", challengeType);
+        return true;
+      };
+
+      // Mock Google's internal objects to prevent CQ errors
+      window.google = window.google || {};
+      window.google.search = window.google.search || {};
+      window.google.search.CQ = window.google.search.CQ || {};
+      window.google.search.csi = window.google.search.csi || {};
+
+      // Mock mobile search objects
+      window.mhp_ = window.mhp_ || {};
+      window.mhp_.CQ = window.mhp_.CQ || {};
+      window.mhp_.Qz =
+        window.mhp_.Qz ||
+        function () {
+          return {};
+        };
+      window.mhp_0td =
+        window.mhp_0td ||
+        function () {
+          return {};
+        };
+
+      // Override console methods to suppress Google's internal errors
+      const originalConsoleError = console.error;
+      const originalConsoleWarn = console.warn;
+
+      console.error = function (...args) {
+        const message = args.join(" ");
+        // Suppress Google's internal script errors
+        if (
+          message.includes(
+            "Cannot read properties of undefined (reading 'CQ')"
+          ) ||
+          message.includes("mhp_") ||
+          message.includes("sb_mobh") ||
+          message.includes("hjsa") ||
+          message.includes("TypeError: Cannot read properties of undefined") ||
+          message.includes("google.search") ||
+          message.includes("mobile search")
+        ) {
+          return; // Suppress these errors
+        }
+        return originalConsoleError.apply(console, args);
+      };
+
+      console.warn = function (...args) {
+        const message = args.join(" ");
+        if (
+          (message.includes("iframe") && message.includes("sandbox")) ||
+          message.includes("mhp_") ||
+          message.includes("sb_mobh")
+        ) {
+          return; // Suppress iframe sandbox warnings and mobile search warnings
+        }
+        return originalConsoleWarn.apply(console, args);
+      };
+
+      // Suppress uncaught exceptions from Google's scripts
+      window.addEventListener(
+        "error",
+        function (event) {
+          const message = event.message || "";
+          const filename = event.filename || "";
+
+          if (
+            message.includes(
+              "Cannot read properties of undefined (reading 'CQ')"
+            ) ||
+            message.includes("mhp_") ||
+            filename.includes("sb_mobh") ||
+            filename.includes("hjsa") ||
+            message.includes("google.search")
+          ) {
+            event.preventDefault();
+            event.stopPropagation();
+            return false;
+          }
+        },
+        true
+      );
+
+      // Enhance iframe security handling
+      const originalCreateElement = document.createElement;
+      document.createElement = function (tagName) {
+        const element = originalCreateElement.call(document, tagName);
+        if (tagName.toLowerCase() === "iframe") {
+          // Better sandbox attribute handling
+          const originalSetAttribute = element.setAttribute;
+          element.setAttribute = function (name, value) {
+            if (name === "sandbox") {
+              // Modify sandbox to be more secure while allowing functionality
+              const safeSandbox = value
+                .replace(/allow-same-origin/g, "")
+                .replace(/allow-scripts/g, "allow-scripts")
+                .trim();
+              return originalSetAttribute.call(
+                this,
+                name,
+                safeSandbox + " allow-forms"
+              );
+            }
+            return originalSetAttribute.call(this, name, value);
+          };
+        }
+        return element;
+      };
+    });
+
+    // Improve page performance and security
+    await page.setRequestInterception(true);
+    page.on("request", (request) => {
+      const resourceType = request.resourceType();
+      const url = request.url();
+
+      // Allow CSS and essential resources while blocking unnecessary ones
+      if (
+        resourceType === "stylesheet" ||
+        resourceType === "document" ||
+        resourceType === "script" ||
+        url.includes("recaptcha") ||
+        url.includes("gstatic") ||
+        url.includes("google.com")
+      ) {
+        request.continue();
+      } else if (resourceType === "image" && !config.loadImages) {
+        request.abort();
+      } else {
+        request.continue();
+      }
+    });
+
+    // Handle console errors and warnings
+    page.on("console", (msg) => {
+      const text = msg.text();
+
+      // Ignore various Google internal errors and warnings
+      if (
+        (text.includes("iframe") && text.includes("sandbox")) ||
+        text.includes("Cannot read properties of undefined (reading 'CQ')") ||
+        text.includes("mhp_") ||
+        text.includes("sb_mobh") ||
+        text.includes("hjsa") ||
+        text.includes("google.search") ||
+        text.includes("mobile search") ||
+        text.includes("net::ERR_BLOCKED_BY_CLIENT")
+      ) {
+        // Ignore these common Google internal errors
+        return;
+      }
+
+      if (msg.type() === "error") {
+        logger?.debug("Page console error:", text);
+      }
+    });
+
+    // Handle page errors gracefully
+    page.on("pageerror", (error) => {
+      const errorMessage = error.message || "";
+
+      // Ignore Google's internal script errors
+      if (
+        errorMessage.includes("solveSimpleChallenge") ||
+        errorMessage.includes(
+          "Cannot read properties of undefined (reading 'CQ')"
+        ) ||
+        errorMessage.includes("mhp_") ||
+        errorMessage.includes("sb_mobh") ||
+        errorMessage.includes("hjsa") ||
+        errorMessage.includes("google.search")
+      ) {
+        return; // Ignore these errors
+      }
+
+      logger?.debug("Page error:", errorMessage);
     });
 
     // Set proxy authentication if needed
@@ -134,7 +321,60 @@ async function createPage(browser, config, logger = null) {
 }
 
 /**
- * Perform warm-up browsing session
+ * Check for consent forms dynamically and handle them
+ * @param {Object} page - Puppeteer page
+ * @param {Object} cursor - Ghost cursor
+ * @param {Object} logger - Winston logger instance
+ * @returns {Promise<boolean>} True if consent was found and handled
+ */
+async function checkAndHandleConsentDynamic(page, cursor, logger = null) {
+  try {
+    // Quick check for consent indicators without waiting
+    const isConsentPage = await page.evaluate(() => {
+      const indicators = [
+        "Before you continue to Google",
+        "Zanim przejdziesz do Google",
+        "We use cookies and data",
+        "Używamy plików cookie",
+        "Accept all",
+        "Zaakceptuj wszystkie",
+        "Reject all",
+        "Odrzuć wszystkie",
+        "consent.google.com",
+        "Zaakceptuj wszystko",
+        "Zgadzam się",
+        "containerGm3",
+        "boxGm3",
+        "saveButtonContainer",
+      ];
+
+      const pageText = document.body.textContent || "";
+      const pageHTML = document.body.innerHTML || "";
+      const currentUrl = window.location.href;
+
+      return indicators.some(
+        (indicator) =>
+          pageText.includes(indicator) ||
+          pageHTML.includes(indicator) ||
+          currentUrl.includes("consent.google")
+      );
+    });
+
+    if (isConsentPage) {
+      logger?.info("Dynamic consent form detected during warmup, handling...");
+      await handleConsent(page, cursor, logger);
+      return true;
+    }
+
+    return false;
+  } catch (error) {
+    logger?.debug("Error checking for dynamic consent:", error.message);
+    return false;
+  }
+}
+
+/**
+ * Perform warm-up browsing session with dynamic consent monitoring
  * @param {Object} pageData - Page and cursor data
  * @param {Object} logger - Winston logger instance
  */
@@ -151,49 +391,104 @@ async function performWarmup(pageData, logger = null) {
 
     // Navigate to Google
     await page.goto("https://www.google.com", { waitUntil: "networkidle0" });
-    await sleep(2000 + Math.random() * 3000);
+    await sleep(
+      2000 + Math.random() * 3000,
+      "after initial Google navigation",
+      logger
+    );
 
-    // Handle consent if present
+    // Handle initial consent if present
     await handleConsent(page, cursor, logger);
 
-    // Perform some natural searches
-    const warmupSearches = [
-      "weather today",
-      "news",
-      "latest technology trends",
-      "best restaurants nearby",
-    ];
+    // Start consent monitoring interval during warmup
+    const consentCheckInterval = setInterval(async () => {
+      try {
+        await checkAndHandleConsentDynamic(page, cursor, logger);
+      } catch (error) {
+        logger?.debug("Error in consent monitoring interval:", error.message);
+      }
+    }, 3000); // Check every 3 seconds
 
-    const searchQuery =
-      warmupSearches[Math.floor(Math.random() * warmupSearches.length)];
-    logger?.info(`Performing warm-up search: ${searchQuery}`);
+    try {
+      // Perform some natural searches
+      const warmupSearches = [
+        "weather today",
+        "news",
+        "latest technology trends",
+        "best restaurants nearby",
+      ];
 
-    // Find and use search box
-    const searchBox = await page.$('input[name="q"]');
-    if (searchBox) {
-      await cursor.click(searchBox);
-      await sleep(500 + Math.random() * 1000);
+      const searchQuery =
+        warmupSearches[Math.floor(Math.random() * warmupSearches.length)];
+      logger?.info(`Performing warm-up search: ${searchQuery}`);
 
-      // Type with human-like delays
-      await page.type('input[name="q"]', searchQuery, {
-        delay: 50 + Math.random() * 100,
-      });
-      await sleep(1000 + Math.random() * 2000);
+      // Check for consent before searching
+      await checkAndHandleConsentDynamic(page, cursor, logger);
 
-      // Press Enter
-      await page.keyboard.press("Enter");
-      await page.waitForNavigation({
-        waitUntil: "networkidle0",
-        timeout: 30000,
-      });
+      // Find and use search box
+      const searchBox = await page.$('input[name="q"]');
+      if (searchBox) {
+        logger?.debug(`Ghost cursor clicking search box`);
+        await cursor.click(searchBox);
+        logger?.debug(`Click completed on search box`);
+        const sleepTime = 500 + Math.random() * 1000;
+        await sleep(sleepTime, "after search box click", logger);
 
-      // Scroll and interact naturally
-      await simulateHumanBrowsing(
-        page,
-        cursor,
-        10000 + Math.random() * 10000,
-        logger
-      );
+        // Check for consent after clicking search box
+        await checkAndHandleConsentDynamic(page, cursor, logger);
+
+        // Type with human-like delays
+        const typeDelay = 50 + Math.random() * 100;
+        logger?.debug(
+          `Typing search query: "${searchQuery}" with ${Math.round(
+            typeDelay
+          )}ms delay between keystrokes`
+        );
+        await page.type('input[name="q"]', searchQuery, {
+          delay: typeDelay,
+        });
+        logger?.debug(`Finished typing search query`);
+        const postTypeDelay = 1000 + Math.random() * 2000;
+        await sleep(postTypeDelay, "after typing query", logger);
+
+        // Check for consent before submitting search
+        await checkAndHandleConsentDynamic(page, cursor, logger);
+
+        // Press Enter
+        logger?.debug(`Pressing Enter to submit warmup search`);
+        await page.keyboard.press("Enter");
+        logger?.debug(`Enter key pressed, waiting for navigation`);
+        await page.waitForNavigation({
+          waitUntil: "networkidle0",
+          timeout: 30000,
+        });
+        logger?.debug(`Navigation completed for warmup search`);
+
+        // Check for consent after navigation
+        await checkAndHandleConsentDynamic(page, cursor, logger);
+
+        // Scroll and interact naturally with periodic consent checks
+        const browsingStartTime = Date.now();
+        const browsingDuration = 10000 + Math.random() * 10000;
+
+        while (Date.now() - browsingStartTime < browsingDuration) {
+          // Check for consent every few seconds during browsing
+          await checkAndHandleConsentDynamic(page, cursor, logger);
+
+          // Perform a short browsing action
+          await simulateHumanBrowsing(page, cursor, 2000, logger);
+
+          // Small delay before next consent check
+          await sleep(1000, "between browsing actions", logger);
+        }
+      }
+
+      // Final consent check before completing warmup
+      await checkAndHandleConsentDynamic(page, cursor, logger);
+    } finally {
+      // Always clear the consent monitoring interval
+      clearInterval(consentCheckInterval);
+      logger?.debug("Consent monitoring interval cleared");
     }
 
     logWithDedup("info", "✅ Warm-up session completed", chalk.green, logger);
@@ -220,7 +515,7 @@ async function performWarmup(pageData, logger = null) {
 async function handleConsent(page, cursor, logger = null) {
   try {
     // Wait for potential consent form
-    await sleep(3000);
+    await sleep(3000, "waiting for potential consent form", logger);
 
     // Get current URL to determine consent page type
     const currentUrl = page.url();
@@ -281,9 +576,13 @@ async function handleConsent(page, cursor, logger = null) {
             if (el) el.scrollIntoView({ behavior: "smooth", block: "center" });
           }, acceptButton);
 
-          await sleep(1000);
+          await sleep(1000, "before consent button click", logger);
+          logger?.debug(
+            `Ghost cursor clicking Accept all button on consent.google.com`
+          );
           await cursor.click(acceptButton);
-          await sleep(3000);
+          logger?.debug(`Click completed on Accept all button`);
+          await sleep(3000, "after consent button click", logger);
 
           // Verify we left the consent page
           const newUrl = page.url();
@@ -426,10 +725,14 @@ async function handleConsent(page, cursor, logger = null) {
             if (el) el.scrollIntoView({ behavior: "smooth", block: "center" });
           }, element);
 
-          await sleep(1000);
+          await sleep(1000, "before consent element click", logger);
 
           // Click using ghost cursor for human-like interaction
+          logger?.debug(
+            `Ghost cursor clicking consent element with selector: ${selector}`
+          );
           await cursor.click(element);
+          logger?.debug(`Click completed on consent element`);
 
           // Wait for navigation or page change
           await sleep(3000);
@@ -569,7 +872,9 @@ async function simulateHumanBrowsing(page, cursor, duration, logger = null) {
             const x = Math.random() * (maxX - 200) + 100;
             const y = Math.random() * (maxY - 200) + 100;
 
+            logger?.debug(`Ghost cursor moving to position: (${x}, ${y})`);
             await cursor.move(x, y);
+            logger?.debug(`Cursor movement completed`);
           } catch (moveError) {
             logger?.debug("Cursor move failed", { error: moveError.message });
           }

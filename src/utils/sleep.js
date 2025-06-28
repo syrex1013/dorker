@@ -1,9 +1,16 @@
 /**
  * Sleep for a specified number of milliseconds
  * @param {number} ms - Milliseconds to sleep
+ * @param {string} context - Context for logging (optional)
+ * @param {Object} logger - Logger instance (optional)
  * @returns {Promise} Promise that resolves after the delay
  */
-const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+const sleep = (ms, context = "", logger = null) => {
+  if (logger) {
+    logger.debug(`Sleep: ${ms}ms${context ? ` (${context})` : ""}`);
+  }
+  return new Promise((resolve) => setTimeout(resolve, ms));
+};
 
 /**
  * Generate a random delay between min and max milliseconds
@@ -21,7 +28,7 @@ const randomDelay = (min = 500, max = 2000) => {
  * @param {number} maxPause - Maximum pause length in milliseconds
  * @param {Object} logger - Logger instance
  */
-const humanDelay = async (baseDelay, maxPause, _logger = null) => {
+const humanDelay = async (baseDelay, maxPause, logger = null) => {
   const humanVariation = randomDelay(5000, 15000);
   const thinkingTime = Math.random() * 8000 + 3000;
 
@@ -29,6 +36,16 @@ const humanDelay = async (baseDelay, maxPause, _logger = null) => {
 
   if (totalDelay > maxPause) {
     totalDelay = maxPause;
+  }
+
+  if (logger) {
+    logger.debug(
+      `Human delay: ${Math.round(
+        totalDelay / 1000
+      )}s (base: ${baseDelay}ms, variation: ${humanVariation}ms, thinking: ${Math.round(
+        thinkingTime
+      )}ms)`
+    );
   }
 
   await sleep(totalDelay);

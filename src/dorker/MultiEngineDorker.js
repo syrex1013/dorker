@@ -20,9 +20,10 @@ import {
  * Multi-Engine Dorker class for performing Google dorking with anti-detection
  */
 class MultiEngineDorker {
-  constructor(config, logger = null) {
+  constructor(config, logger = null, dashboard = null) {
     this.config = config;
     this.logger = logger;
+    this.dashboard = dashboard;
     this.browser = null;
     this.pageData = null;
     this.currentProxy = null;
@@ -232,7 +233,8 @@ class MultiEngineDorker {
         page,
         this.config,
         this.logger,
-        switchProxyCallback
+        switchProxyCallback,
+        this.dashboard
       );
       if (!captchaHandled) {
         logWithDedup(
@@ -281,7 +283,7 @@ class MultiEngineDorker {
         await handleConsent(page, cursor, this.logger);
 
         // Wait for page to settle after consent
-        await sleep(3000);
+        await sleep(3000, "after consent handling", this.logger);
 
         // Check if we're still on consent page
         const stillOnConsent = await page.evaluate(() => {
@@ -303,7 +305,7 @@ class MultiEngineDorker {
 
           // Try consent handling one more time
           await handleConsent(page, cursor, this.logger);
-          await sleep(2000);
+          await sleep(2000, "after consent retry", this.logger);
         }
 
         // Navigate back to Google if needed
@@ -312,7 +314,7 @@ class MultiEngineDorker {
           !page.url().includes("google.com/?")
         ) {
           await navigateToGoogle(this.pageData, this.logger);
-          await sleep(2000);
+          await sleep(2000, "after navigating back to Google", this.logger);
         }
       }
 
@@ -325,7 +327,7 @@ class MultiEngineDorker {
           chalk.gray,
           this.logger
         );
-        await sleep(thinkTime);
+        await sleep(thinkTime, "pre-search thinking pause", this.logger);
       }
 
       // Find search box with multiple selectors and retries
@@ -344,7 +346,7 @@ class MultiEngineDorker {
       for (let attempt = 0; attempt < 3 && !searchBox; attempt++) {
         if (attempt > 0) {
           this.logger?.debug(`Search box attempt ${attempt + 1}/3`);
-          await sleep(2000);
+          await sleep(2000, "between search box attempts", this.logger);
         }
 
         for (const selector of searchBoxSelectors) {
@@ -375,12 +377,16 @@ class MultiEngineDorker {
               "../browser/browserManager.js"
             );
             await handleConsent(page, cursor, this.logger);
-            await sleep(3000);
+            await sleep(
+              3000,
+              "after handling consent on search retry",
+              this.logger
+            );
           } else {
             // Try refreshing or navigating to Google
             this.logger?.info("Search box not found, refreshing page...");
             await page.reload({ waitUntil: "networkidle0" });
-            await sleep(3000);
+            await sleep(3000, "after page refresh", this.logger);
           }
         }
       }
@@ -393,12 +399,12 @@ class MultiEngineDorker {
         await page.goto("https://www.google.com", {
           waitUntil: "networkidle0",
         });
-        await sleep(3000);
+        await sleep(3000, "after navigating to Google homepage", this.logger);
 
         // Handle consent one more time if needed
         const { handleConsent } = await import("../browser/browserManager.js");
         await handleConsent(page, cursor, this.logger);
-        await sleep(2000);
+        await sleep(2000, "after final consent handling", this.logger);
 
         // Try to find search box one final time
         for (const selector of searchBoxSelectors) {
@@ -414,23 +420,37 @@ class MultiEngineDorker {
       }
 
       // Clear search box and enter dork
+      this.logger?.debug(`Clicking search box to clear it (triple click)`);
       await searchBox.click({ clickCount: 3 });
+      this.logger?.debug(`Triple click completed, pressing Backspace`);
       await page.keyboard.press("Backspace");
-      await sleep(500 + Math.random() * 1000);
+      const clearDelay = 500 + Math.random() * 1000;
+      await sleep(clearDelay, "after clearing search box", this.logger);
 
       // Type dork with human-like delays
+      const dorkTypeDelay = 50 + Math.random() * 100;
+      this.logger?.debug(
+        `Typing dork query: "${dork.substring(0, 50)}${
+          dork.length > 50 ? "..." : ""
+        }" with ${Math.round(dorkTypeDelay)}ms delay between keystrokes`
+      );
       await page.type('input[name="q"]', dork, {
-        delay: 50 + Math.random() * 100,
+        delay: dorkTypeDelay,
       });
+      this.logger?.debug(`Finished typing dork query`);
 
-      await sleep(1000 + Math.random() * 2000);
+      const postDorkDelay = 1000 + Math.random() * 2000;
+      await sleep(postDorkDelay, "after typing dork", this.logger);
 
       // Submit search
+      this.logger?.debug(`Pressing Enter to submit search`);
       await page.keyboard.press("Enter");
+      this.logger?.debug(`Enter key pressed, waiting for navigation`);
       await page.waitForNavigation({
         waitUntil: "networkidle0",
         timeout: 30000,
       });
+      this.logger?.debug(`Navigation completed`);
 
       // Check if we landed on consent page after search
       const postSearchPageInfo = await page.evaluate(() => {
@@ -457,7 +477,11 @@ class MultiEngineDorker {
         await handleConsent(page, cursor, this.logger);
 
         // Wait for navigation back to results
-        await sleep(5000);
+        await sleep(
+          5000,
+          "waiting for navigation back to results",
+          this.logger
+        );
 
         // Verify we're now on results page
         const finalUrl = page.url();
@@ -483,7 +507,8 @@ class MultiEngineDorker {
           page,
           this.config,
           this.logger,
-          switchProxyCallback
+          switchProxyCallback,
+          this.dashboard
         );
         if (!handled) {
           return [];
@@ -533,7 +558,7 @@ class MultiEngineDorker {
       this.logger?.debug("Extracting search results", { maxResults });
 
       // Wait for results to load
-      await sleep(2000);
+      await sleep(2000, "waiting for results to load", this.logger);
 
       // Extract results using multiple strategies
       const results = await page.evaluate((max) => {
@@ -762,7 +787,7 @@ class MultiEngineDorker {
     if (this.config.humanLike) {
       await humanDelay(baseDelay, maxPause, this.logger);
     } else {
-      await sleep(baseDelay);
+      await sleep(baseDelay, "delay between searches", this.logger);
     }
   }
 

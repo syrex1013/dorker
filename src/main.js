@@ -6,13 +6,9 @@ import {
   displayBanner,
   getConfiguration,
   askSaveUrls,
-  displayProgress,
-  displayResults,
   displayFinalSummary,
   createSpinner,
-  displaySuccess,
   displayError,
-  displayWarning,
 } from "./ui/cli.js";
 import {
   loadDorks,
@@ -21,6 +17,27 @@ import {
   saveUrlsToFile,
 } from "./utils/fileOperations.js";
 import MultiEngineDorker from "./dorker/MultiEngineDorker.js";
+import DashboardServer from "./web/dashboard.js";
+import boxen from "boxen";
+
+// Global dashboard instance
+let dashboard = null;
+
+/**
+ * Display section separator
+ */
+function displaySection(title, color = "cyan") {
+  console.log("\n" + "─".repeat(80));
+  console.log(chalk[color].bold(`🔧 ${title}`));
+  console.log("─".repeat(80) + "\n");
+}
+
+/**
+ * Display clean status message
+ */
+function displayStatus(message, icon = "ℹ️", color = "blue") {
+  console.log(chalk[color](`${icon} ${message}`));
+}
 
 /**
  * Main application entry point
@@ -37,71 +54,167 @@ async function main() {
     // Get user configuration
     const config = await getConfiguration();
 
+    displaySection("System Initialization", "magenta");
+
+    // Start dashboard server
+    displayStatus("Starting live dashboard server...", "🌐", "magenta");
+
+    dashboard = new DashboardServer(3000);
+    await dashboard.start();
+
+    displayStatus(
+      "✅ Dashboard started at http://localhost:3000",
+      "✓",
+      "green"
+    );
+    displayStatus(
+      "📊 Open the URL above to monitor live progress",
+      "💡",
+      "cyan"
+    );
+
     // Create logger with log clearing enabled by default
-    const logSpinner = createSpinner("Initializing logging system...", "cyan");
-    logSpinner.start();
+    displayStatus("Initializing logging system...", "📝", "cyan");
 
     logger = await createLogger(true); // Always clear logs on startup
     logger.info("Starting Dorker application", { config });
+    dashboard.addLog("info", "Logging system initialized");
 
-    logSpinner.succeed(chalk.cyan("Logging system initialized"));
+    displayStatus("✅ Logging system ready", "✓", "green");
 
     // Load dorks from file
-    const dorkSpinner = createSpinner("Loading dorks from file...", "blue");
-    dorkSpinner.start();
+    displayStatus(`Loading dorks from ${config.dorkFile}...`, "📁", "blue");
 
     const dorks = await loadDorks(config.dorkFile, logger);
     if (dorks.length === 0) {
-      dorkSpinner.fail();
       displayError("No dorks found in file", null);
+      dashboard.addLog("error", "No dorks found in file");
       process.exit(1);
     }
 
-    dorkSpinner.succeed(chalk.blue(`Loaded ${dorks.length} dorks from file`));
+    dashboard.addLog("info", `Loaded ${dorks.length} dorks from file`);
+    displayStatus(`✅ Loaded ${dorks.length} dorks successfully`, "✓", "green");
 
     // Initialize dorker
-    const initSpinner = createSpinner(
+    displayStatus(
       "Initializing browser and security systems...",
+      "🔒",
       "magenta"
     );
-    initSpinner.start();
 
-    dorker = new MultiEngineDorker(config, logger);
+    dorker = new MultiEngineDorker(config, logger, dashboard);
     await dorker.initialize();
 
-    initSpinner.succeed(chalk.magenta("Browser and security systems ready"));
+    dashboard.addLog("info", "Browser and security systems initialized");
+    displayStatus("✅ Browser and security systems ready", "✓", "green");
+
+    displaySection("Dorking Process", "cyan");
 
     // Results storage
     const allResults = {};
 
-    displaySuccess(`Starting dorking process with ${dorks.length} dorks`);
+    // Start dashboard session
+    dashboard.startSession(dorks.length);
+    dashboard.setStatus("running");
+
+    const sessionBox = boxen(
+      `${chalk.bold.cyan("🚀 Dorking Session Started")}\n\n` +
+        `${chalk.gray("Total Dorks:")} ${chalk.white(dorks.length)}\n` +
+        `${chalk.gray("Results per Search:")} ${chalk.white(
+          config.resultCount
+        )}\n` +
+        `${chalk.gray("Delay between Searches:")} ${chalk.white(
+          config.delay
+        )}s\n` +
+        `${chalk.gray("Dashboard URL:")} ${chalk.white(
+          "http://localhost:3000"
+        )}`,
+      {
+        padding: 1,
+        margin: 1,
+        borderStyle: "double",
+        borderColor: "cyan",
+      }
+    );
+
+    console.log(sessionBox);
 
     // Process each dork
     for (let i = 0; i < dorks.length; i++) {
       const dork = dorks[i];
 
       try {
-        // Display progress
-        displayProgress(i + 1, dorks.length, dork);
+        console.log("\n" + "─".repeat(40));
+        console.log(chalk.bold.cyan(`📍 Dork ${i + 1}/${dorks.length}`));
+        console.log("─".repeat(40));
+
+        // Update dashboard with current dork
+        dashboard.setCurrentDork(dork);
+        dashboard.addLog(
+          "info",
+          `Processing dork ${i + 1}/${dorks.length}: ${dork.substring(
+            0,
+            50
+          )}...`
+        );
+
+        // Display current dork info
+        console.log(
+          chalk.gray("🔍 Query:"),
+          chalk.white(dork.substring(0, 80))
+        );
+        if (dork.length > 80) {
+          console.log(chalk.gray("   ...") + chalk.white(dork.substring(80)));
+        }
 
         // Create search spinner
-        const searchSpinner = createSpinner(
-          `Searching: ${dork.substring(0, 50)}...`,
-          "green"
-        );
+        console.log(chalk.gray("\n⏳ Searching..."));
+        const searchSpinner = createSpinner(`Executing search query`, "green");
         searchSpinner.start();
 
         // Perform search
         const results = await dorker.performSearch(dork, config.resultCount);
 
-        if (results && results.length > 0) {
-          searchSpinner.succeed(chalk.green(`Found ${results.length} results`));
-        } else {
-          searchSpinner.warn(chalk.yellow("No results found"));
-        }
+        // Stop spinner and show results
+        searchSpinner.stop();
 
-        // Display results
-        displayResults(results, dork);
+        // Update dashboard with results
+        dashboard.incrementProcessed();
+
+        if (results && results.length > 0) {
+          console.log(chalk.green(`✅ Found ${results.length} results`));
+          dashboard.incrementSuccessful();
+          dashboard.addToTotalResults(results.length);
+          dashboard.addResult(dork, results);
+          dashboard.addLog(
+            "success",
+            `Found ${results.length} results for dork`
+          );
+
+          // Show quick preview
+          if (results.length > 0) {
+            console.log(chalk.gray("📋 Quick Preview:"));
+            results.slice(0, 3).forEach((result, idx) => {
+              const title = result.title
+                ? result.title.substring(0, 60)
+                : "No title";
+              console.log(
+                chalk.gray(
+                  `   ${idx + 1}. ${title}${title.length >= 60 ? "..." : ""}`
+                )
+              );
+            });
+            if (results.length > 3) {
+              console.log(
+                chalk.gray(`   ... and ${results.length - 3} more results`)
+              );
+            }
+          }
+        } else {
+          console.log(chalk.yellow("⚠️ No results found"));
+          dashboard.incrementFailed();
+          dashboard.addLog("warning", "No results found for dork");
+        }
 
         // Store results
         allResults[dork] = results;
@@ -117,17 +230,40 @@ async function main() {
           );
         }
 
+        // Clear previous lines and display progress bar
+        if (i > 0) {
+          // Move cursor up to overwrite previous progress bar
+          process.stdout.write("\x1B[1A\x1B[2K");
+        }
+        const percentage = Math.round(((i + 1) / dorks.length) * 100);
+        const progressBar = "█".repeat(Math.floor(percentage / 2));
+        const emptyBar = "░".repeat(50 - Math.floor(percentage / 2));
+        console.log(
+          chalk.gray(
+            `📊 Progress: [${chalk.cyan(
+              progressBar
+            )}${emptyBar}] ${percentage}%`
+          )
+        );
+
         // Delay between searches (except for last dork)
         if (i < dorks.length - 1) {
-          const delaySpinner = createSpinner(
-            `Waiting ${config.delay}s before next search...`,
-            "yellow"
+          console.log(
+            chalk.gray(`⏱️ Waiting ${config.delay}s before next search...`)
           );
+
+          dashboard.addLog(
+            "info",
+            `Waiting ${config.delay}s before next search...`
+          );
+
+          const delaySpinner = createSpinner(`Delay in progress`, "yellow");
           delaySpinner.start();
 
           await dorker.delayBetweenSearches();
 
-          delaySpinner.succeed(chalk.yellow("Delay completed"));
+          delaySpinner.stop();
+          console.log(chalk.green("✅ Delay completed"));
         }
       } catch (error) {
         logger.error("Error processing dork", {
@@ -136,24 +272,35 @@ async function main() {
           index: i + 1,
         });
 
-        displayError(
-          `Failed to process dork: ${dork.substring(0, 60)}...`,
-          error
-        );
+        dashboard.incrementProcessed();
+        dashboard.incrementFailed();
+        dashboard.addLog("error", `Failed to process dork: ${error.message}`);
+
+        console.log(chalk.red(`❌ Error processing dork: ${error.message}`));
 
         // Store empty results for failed dork
         allResults[dork] = [];
       }
     }
 
+    displaySection("Session Complete", "green");
+
+    // Mark session as completed
+    dashboard.endSession();
+    dashboard.addLog("success", "All dorks processed successfully");
+
     // Save final results
     if (config.outputFile) {
-      const saveSpinner = createSpinner("Saving final results...", "cyan");
-      saveSpinner.start();
+      displayStatus(
+        `Saving final results to ${config.outputFile}...`,
+        "💾",
+        "cyan"
+      );
 
       await saveResults(allResults, config.outputFile, logger);
 
-      saveSpinner.succeed(chalk.cyan(`Results saved to ${config.outputFile}`));
+      dashboard.addLog("info", `Results saved to ${config.outputFile}`);
+      displayStatus(`✅ Results saved to ${config.outputFile}`, "✓", "green");
     }
 
     // Display final summary
@@ -162,15 +309,31 @@ async function main() {
     // Ask if user wants to save URLs to result.txt
     const shouldSaveUrls = await askSaveUrls(allResults);
     if (shouldSaveUrls) {
-      const urlSpinner = createSpinner("Saving URLs to result.txt...", "blue");
-      urlSpinner.start();
+      displayStatus("Saving URLs to result.txt...", "🔗", "blue");
 
       await saveUrlsToFile(allResults, "result.txt", logger);
 
-      urlSpinner.succeed(chalk.blue("URLs saved to result.txt"));
+      dashboard.addLog("info", "URLs saved to result.txt");
+      displayStatus("✅ URLs saved to result.txt", "✓", "green");
     }
 
-    displaySuccess("Dorking process completed successfully!");
+    const completionBox = boxen(
+      `${chalk.bold.green("🎉 Dorking Process Completed Successfully!")}\n\n` +
+        `${chalk.gray("Dashboard:")} ${chalk.white(
+          "http://localhost:3000"
+        )}\n` +
+        `${chalk.gray(
+          "Note:"
+        )} Dashboard will remain active for result viewing`,
+      {
+        padding: 1,
+        margin: 1,
+        borderStyle: "double",
+        borderColor: "green",
+      }
+    );
+
+    console.log(completionBox);
   } catch (error) {
     if (logger) {
       logger.error("Fatal error in main process", {
@@ -178,43 +341,106 @@ async function main() {
         stack: error.stack,
       });
     }
+
+    if (dashboard) {
+      dashboard.addLog("error", `Fatal error: ${error.message}`);
+      dashboard.setStatus("error");
+    }
+
     displayError("Fatal application error", error);
     process.exit(1);
   } finally {
     // Cleanup resources
     if (dorker) {
-      const cleanupSpinner = createSpinner("Cleaning up resources...", "gray");
-      cleanupSpinner.start();
+      displayStatus("Cleaning up browser resources...", "🧹", "gray");
 
       await dorker.cleanup();
 
-      cleanupSpinner.succeed(chalk.gray("Cleanup completed"));
+      if (dashboard) {
+        dashboard.addLog("info", "Browser resources cleaned up");
+      }
+
+      displayStatus("✅ Cleanup completed", "✓", "green");
     }
 
     if (logger) {
       logger.info("Application shutdown completed");
+    }
+
+    // Keep dashboard running for viewing results
+    if (dashboard) {
+      dashboard.addLog(
+        "info",
+        "Dashboard remains available for viewing results"
+      );
+
+      const dashboardNotice = boxen(
+        `${chalk.bold.cyan("📊 Dashboard Active")}\n\n` +
+          `${chalk.gray("URL:")} ${chalk.white("http://localhost:3000")}\n` +
+          `${chalk.gray("Status:")} ${chalk.green("Running")}\n\n` +
+          `${chalk.yellow("Press Ctrl+C to shut down the dashboard")}`,
+        {
+          padding: 1,
+          margin: 1,
+          borderStyle: "round",
+          borderColor: "cyan",
+        }
+      );
+
+      console.log("\n" + dashboardNotice);
     }
   }
 }
 
 // Handle graceful shutdown
 process.on("SIGINT", async () => {
-  displayWarning("Received interrupt signal. Shutting down gracefully...");
+  console.log("\n" + "─".repeat(80));
+  console.log(chalk.yellow.bold("⚠️ Received interrupt signal"));
+  console.log("─".repeat(80));
+
+  displayStatus("Shutting down gracefully...", "🛑", "yellow");
+
+  if (dashboard) {
+    dashboard.addLog("warning", "Shutting down dashboard...");
+    await dashboard.stop();
+    displayStatus("✅ Dashboard stopped", "✓", "green");
+  }
+
+  console.log(chalk.green("\n👋 Goodbye!"));
   process.exit(0);
 });
 
 process.on("SIGTERM", async () => {
-  displayWarning("Received termination signal. Shutting down gracefully...");
+  console.log("\n" + "─".repeat(80));
+  console.log(chalk.yellow.bold("⚠️ Received termination signal"));
+  console.log("─".repeat(80));
+
+  displayStatus("Shutting down gracefully...", "🛑", "yellow");
+
+  if (dashboard) {
+    dashboard.addLog("warning", "Shutting down dashboard...");
+    await dashboard.stop();
+    displayStatus("✅ Dashboard stopped", "✓", "green");
+  }
+
   process.exit(0);
 });
 
 // Handle uncaught exceptions
 process.on("uncaughtException", (error) => {
+  if (dashboard) {
+    dashboard.addLog("error", `Uncaught Exception: ${error.message}`);
+  }
+
   displayError("Uncaught Exception", error);
   process.exit(1);
 });
 
 process.on("unhandledRejection", (reason, _promise) => {
+  if (dashboard) {
+    dashboard.addLog("error", `Unhandled Promise Rejection: ${reason}`);
+  }
+
   displayError("Unhandled Promise Rejection", new Error(reason));
   process.exit(1);
 });

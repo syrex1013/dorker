@@ -8,7 +8,16 @@ import { CONSOLE_LOG_CACHE_CONFIG } from "../config/index.js";
 const CONSOLE_LOG_CACHE = new Set();
 
 // Enhanced console logging with deduplication
-const logWithDedup = (level, message, color = null, logger = null) => {
+// Global flag to prevent console output when spinners are active
+let consoleSuppressed = false;
+
+const logWithDedup = (
+  level,
+  message,
+  color = null,
+  logger = null,
+  forceConsole = false
+) => {
   const logKey = `${level}:${message}`;
   if (CONSOLE_LOG_CACHE.has(logKey)) {
     return; // Skip duplicate log
@@ -43,11 +52,13 @@ const logWithDedup = (level, message, color = null, logger = null) => {
     }
   }
 
-  // Also show to console with color if specified
-  if (color) {
-    console.log(color(`[${level.toUpperCase()}] ${message}`));
-  } else {
-    console.log(`[${level.toUpperCase()}] ${message}`);
+  // Only show to console if not suppressed OR if forced
+  if (!consoleSuppressed || forceConsole) {
+    if (color) {
+      console.log(color(`[${level.toUpperCase()}] ${message}`));
+    } else {
+      console.log(`[${level.toUpperCase()}] ${message}`);
+    }
   }
 };
 
@@ -173,4 +184,25 @@ const createLogger = async (clearLogs = true) => {
   }
 };
 
-export { createLogger, logWithDedup, CONSOLE_LOG_CACHE, clearPreviousLogs };
+// Console control functions
+const suppressConsoleOutput = () => {
+  consoleSuppressed = true;
+};
+
+const resumeConsoleOutput = () => {
+  consoleSuppressed = false;
+};
+
+const isConsoleSuppressed = () => {
+  return consoleSuppressed;
+};
+
+export {
+  createLogger,
+  logWithDedup,
+  CONSOLE_LOG_CACHE,
+  clearPreviousLogs,
+  suppressConsoleOutput,
+  resumeConsoleOutput,
+  isConsoleSuppressed,
+};
