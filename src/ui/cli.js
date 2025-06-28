@@ -166,8 +166,8 @@ async function getConfiguration() {
           defaultValue: "45",
           validate: (value) => {
             const num = parseInt(value);
-            if (isNaN(num) || num < 5) {
-              return "Must be at least 5 seconds";
+            if (isNaN(num) || num < 5 || num > 60) {
+              return "Must be between 5 and 60 seconds";
             }
           },
         }),
@@ -175,12 +175,12 @@ async function getConfiguration() {
       maxPause: () =>
         p.text({
           message: "⏸️ Maximum pause length (seconds)",
-          placeholder: "120",
-          defaultValue: "120",
+          placeholder: "60",
+          defaultValue: "60",
           validate: (value) => {
             const num = parseInt(value);
-            if (isNaN(num) || num < 30) {
-              return "Must be at least 30 seconds";
+            if (isNaN(num) || num < 30 || num > 60) {
+              return "Must be between 30 and 60 seconds";
             }
           },
         }),
@@ -239,8 +239,8 @@ async function getConfiguration() {
     dorkFile: config.dorkFile || "dorks.txt",
     outputFile: config.outputFile || "results.json",
     resultCount: parseInt(config.resultCount) || 30,
-    delay: parseInt(config.delay) || 45,
-    maxPause: parseInt(config.maxPause) || 120,
+    delay: Math.min(parseInt(config.delay) || 45, 60),
+    maxPause: Math.min(parseInt(config.maxPause) || 60, 60),
     headless: config.headless,
     userAgent: config.userAgent?.trim() || null,
     manualCaptchaMode: config.manualCaptchaMode,

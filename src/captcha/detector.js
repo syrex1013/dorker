@@ -149,8 +149,11 @@ async function handleCaptcha(
     logger?.warn("CAPTCHA detection confirmed");
 
     // Update dashboard
-    if (dashboard) {
+    if (dashboard && dashboard.addLog) {
       dashboard.addLog("warning", "🚨 CAPTCHA detected!");
+    }
+
+    if (dashboard && dashboard.setCaptchaStats && dashboard.stats) {
       const currentStats = dashboard.stats;
       dashboard.setCaptchaStats(
         currentStats.captchaEncounters + 1,
@@ -160,12 +163,14 @@ async function handleCaptcha(
 
     if (config.manualCaptchaMode) {
       const solved = await handleManualCaptcha(page, logger);
-      if (solved && dashboard) {
+      if (solved && dashboard && dashboard.setCaptchaStats && dashboard.stats) {
         const currentStats = dashboard.stats;
         dashboard.setCaptchaStats(
           currentStats.captchaEncounters,
           currentStats.captchaSolved + 1
         );
+      }
+      if (solved && dashboard && dashboard.addLog) {
         dashboard.addLog("success", "✅ CAPTCHA solved manually");
       }
       return solved;
@@ -178,7 +183,7 @@ async function handleCaptcha(
         logger
       );
 
-      if (dashboard) {
+      if (dashboard && dashboard.addLog) {
         dashboard.addLog("info", "🤖 Attempting automatic CAPTCHA solving...");
       }
 
@@ -191,7 +196,7 @@ async function handleCaptcha(
           chalk.green,
           logger
         );
-        if (dashboard) {
+        if (dashboard && dashboard.addLog) {
           dashboard.addLog("success", "✅ Simple challenge solved!");
         }
         return true;
@@ -208,7 +213,7 @@ async function handleCaptcha(
           logger
         );
 
-        if (dashboard) {
+        if (dashboard && dashboard.addLog) {
           dashboard.addLog(
             "warning",
             "🔄 CAPTCHA solving failed, switching proxy..."
@@ -218,7 +223,7 @@ async function handleCaptcha(
         // Try switching proxy and attempting again
         const proxyChanged = await switchProxyCallback();
         if (proxyChanged) {
-          if (dashboard) {
+          if (dashboard && dashboard.addLog) {
             dashboard.addLog(
               "info",
               "🌍 Proxy switched successfully, retrying..."
@@ -238,8 +243,10 @@ async function handleCaptcha(
               logger
             );
 
-            if (dashboard) {
+            if (dashboard && dashboard.addLog) {
               dashboard.addLog("success", "✅ Proxy switch resolved CAPTCHA!");
+            }
+            if (dashboard && dashboard.setCaptchaStats && dashboard.stats) {
               const currentStats = dashboard.stats;
               dashboard.setCaptchaStats(
                 currentStats.captchaEncounters,
@@ -257,7 +264,7 @@ async function handleCaptcha(
               logger
             );
 
-            if (dashboard) {
+            if (dashboard && dashboard.addLog) {
               dashboard.addLog(
                 "info",
                 "🔄 Retrying CAPTCHA solving with new proxy..."
@@ -269,7 +276,12 @@ async function handleCaptcha(
               logger,
               dashboard
             );
-            if (retrySolved && dashboard) {
+            if (
+              retrySolved &&
+              dashboard &&
+              dashboard.setCaptchaStats &&
+              dashboard.stats
+            ) {
               const currentStats = dashboard.stats;
               dashboard.setCaptchaStats(
                 currentStats.captchaEncounters,
@@ -281,7 +293,7 @@ async function handleCaptcha(
         }
       }
 
-      if (solved && dashboard) {
+      if (solved && dashboard && dashboard.setCaptchaStats && dashboard.stats) {
         const currentStats = dashboard.stats;
         dashboard.setCaptchaStats(
           currentStats.captchaEncounters,
@@ -293,7 +305,7 @@ async function handleCaptcha(
     }
   } catch (error) {
     logger?.error("Error handling CAPTCHA", { error: error.message });
-    if (dashboard) {
+    if (dashboard && dashboard.addLog) {
       dashboard.addLog("error", `CAPTCHA handling error: ${error.message}`);
     }
     return false;
@@ -380,7 +392,7 @@ async function handleAutomaticCaptcha(page, logger = null, dashboard = null) {
         chalk.yellow,
         logger
       );
-      if (dashboard) {
+      if (dashboard && dashboard.addLog) {
         dashboard.addLog("warning", "⚠️ Could not find audio CAPTCHA button");
       }
       return false;
@@ -480,7 +492,7 @@ async function handleAutomaticCaptcha(page, logger = null, dashboard = null) {
         chalk.yellow,
         logger
       );
-      if (dashboard) {
+      if (dashboard && dashboard.addLog) {
         dashboard.addLog(
           "warning",
           "⚠️ Could not find audio source for CAPTCHA"
@@ -508,7 +520,7 @@ async function handleAutomaticCaptcha(page, logger = null, dashboard = null) {
         chalk.yellow,
         logger
       );
-      if (dashboard) {
+      if (dashboard && dashboard.addLog) {
         dashboard.addLog("warning", "⚠️ Could not find CAPTCHA input field");
       }
       return false;
@@ -538,7 +550,7 @@ async function handleAutomaticCaptcha(page, logger = null, dashboard = null) {
         chalk.green,
         logger
       );
-      if (dashboard) {
+      if (dashboard && dashboard.addLog) {
         dashboard.addLog("success", "✅ Audio CAPTCHA solved successfully!");
       }
     } else {
@@ -548,7 +560,7 @@ async function handleAutomaticCaptcha(page, logger = null, dashboard = null) {
         chalk.yellow,
         logger
       );
-      if (dashboard) {
+      if (dashboard && dashboard.addLog) {
         dashboard.addLog("warning", "⚠️ Audio CAPTCHA solution was incorrect");
       }
     }
@@ -564,7 +576,7 @@ async function handleAutomaticCaptcha(page, logger = null, dashboard = null) {
       chalk.red,
       logger
     );
-    if (dashboard) {
+    if (dashboard && dashboard.addLog) {
       dashboard.addLog("error", "❌ Automatic CAPTCHA solving failed");
     }
     return false;

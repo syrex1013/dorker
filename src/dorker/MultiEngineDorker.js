@@ -15,6 +15,7 @@ import {
   closeBrowser,
   simulateHumanBrowsing,
 } from "../browser/browserManager.js";
+import BackgroundCaptchaMonitor from "../captcha/backgroundMonitor.js";
 
 /**
  * Multi-Engine Dorker class for performing Google dorking with anti-detection
@@ -29,6 +30,7 @@ class MultiEngineDorker {
     this.currentProxy = null;
     this.searchCount = 0;
     this.restartThreshold = 5; // Restart browser every 5 searches
+    this.backgroundMonitor = null; // Background CAPTCHA monitor
   }
 
   /**
@@ -82,6 +84,18 @@ class MultiEngineDorker {
         await navigateToGoogle(this.pageData, this.logger);
       }
 
+      // Initialize background CAPTCHA monitor
+      this.backgroundMonitor = new BackgroundCaptchaMonitor(
+        this.pageData,
+        this.config,
+        this.logger,
+        this.dashboard,
+        async () => await this.switchProxy() // Proxy switch callback
+      );
+
+      // Start background monitoring
+      this.backgroundMonitor.start();
+
       this.logger?.info("Browser instance launched successfully");
     } catch (error) {
       this.logger?.error("Failed to launch browser instance", {
@@ -103,6 +117,12 @@ class MultiEngineDorker {
         chalk.blue,
         this.logger
       );
+
+      // Stop background monitor
+      if (this.backgroundMonitor) {
+        this.backgroundMonitor.stop();
+        this.backgroundMonitor = null;
+      }
 
       // Close current browser
       if (this.browser) {
@@ -596,12 +616,19 @@ class MultiEngineDorker {
           return text ? text.trim().replace(/\s+/g, " ") : "";
         }
 
-        // Strategy 1: Look for all links that look like search results
-        const allLinks = Array.from(
-          document.querySelectorAll('a[href*="/url?q="], a[href^="http"]')
+        // Strategy 1: Modern Google results (2024+ format) - Priority search
+        console.log("Trying modern Google results extraction...");
+
+        // Look for modern result containers
+        const modernContainers = Array.from(
+          document.querySelectorAll(
+            'div[data-ved] a[href*="/url?q="], a[href*="/url?q="][data-ved]'
+          )
         );
 
-        for (const link of allLinks) {
+        console.log(`Found ${modernContainers.length} modern result links`);
+
+        for (const link of modernContainers) {
           if (results.length >= max) break;
 
           const url = extractRealUrl(link.href);
@@ -613,77 +640,196 @@ class MultiEngineDorker {
             url.includes("gstatic.com") ||
             url.includes("googleusercontent.com") ||
             url.includes("youtube.com") ||
-            url.includes("accounts.google.com")
+            url.includes("accounts.google.com") ||
+            url.includes("maps.google.com") ||
+            url.includes("translate.google.com")
           ) {
             continue;
           }
 
-          // Try to find title from various places
           let title = "";
+          let description = "";
 
-          // Check if link has h3 parent or child
-          const h3Element =
-            link.querySelector("h3") ||
-            link.closest("h3") ||
-            link.parentElement?.querySelector("h3") ||
-            link.parentElement?.parentElement?.querySelector("h3");
+          // Modern title extraction - look for various title classes
+          const titleSelectors = [
+            "h3.zBAuLc",
+            "h3.l97dzf",
+            "h3.LC20lb", // Common modern title classes
+            ".zBAuLc",
+            ".l97dzf",
+            ".LC20lb", // Without h3 tag
+            "h3", // Fallback to any h3
+            ".ilUpNd",
+            ".UFvD1",
+            ".aSRlid",
+            ".IwSnJ", // Additional modern classes
+          ];
 
-          if (h3Element) {
-            title = cleanText(h3Element.textContent);
-          } else {
-            // Fallback to link text or nearby text
+          // Try to find title in link or its container
+          const container =
+            link.closest(
+              "div[data-ved], div.g, div.Gx5Zad, div.kvH3mc, div.MjjYud"
+            ) || link;
+
+          for (const selector of titleSelectors) {
+            const titleElement =
+              container.querySelector(selector) || link.querySelector(selector);
+            if (titleElement && titleElement.textContent.trim()) {
+              title = cleanText(titleElement.textContent);
+              break;
+            }
+          }
+
+          // If no title found in selectors, try link text or aria-label
+          if (!title) {
             title =
               cleanText(link.textContent) ||
               cleanText(link.getAttribute("aria-label")) ||
               "No title";
           }
 
-          // Try to find description
-          let description = "";
+          // Modern description extraction
+          const descSelectors = [
+            ".VwiC3b",
+            ".s",
+            ".st", // Classic description classes
+            ".sCuL3",
+            ".BamJPe",
+            ".XR4uSe", // Modern description classes
+            ".lEBKkf",
+            ".hgKElc",
+            ".YUQM0", // Additional modern classes
+            'span[style*="color"]',
+            'div[style*="color"]',
+            ".f",
+            ".fG8Fp",
+            ".aCOpRe",
+            ".IsZvec",
+            ".ygGdYc",
+            ".lyLwlc", // More modern classes
+          ];
 
-          // Look for description in common Google result classes
-          const container =
-            link.closest("div.g, div[data-ved], .rc, div") ||
-            link.parentElement;
-          if (container) {
-            const descSelectors = [
-              ".VwiC3b",
-              ".s",
-              ".st",
-              'span[style*="color"]',
-              'div[style*="color"]',
-              ".f",
-              ".fG8Fp",
-              ".aCOpRe",
-            ];
-
-            for (const selector of descSelectors) {
-              const descElement = container.querySelector(selector);
-              if (descElement && descElement.textContent.trim()) {
-                description = cleanText(descElement.textContent);
-                break;
-              }
+          for (const selector of descSelectors) {
+            const descElement = container.querySelector(selector);
+            if (descElement && descElement.textContent.trim()) {
+              description = cleanText(descElement.textContent);
+              break;
             }
           }
 
-          if (title && title !== "No title") {
+          if (title && title !== "No title" && title.length > 0) {
             seenUrls.add(url);
             results.push({
               title: title,
               url: url,
               description: description,
             });
+            console.log(`Extracted result: ${title} -> ${url}`);
           }
         }
 
-        // Strategy 2: Traditional container-based extraction (fallback)
+        // Strategy 2: Fallback - Look for all links that look like search results
         if (results.length === 0) {
+          console.log("No modern results found, trying fallback extraction...");
+
+          const allLinks = Array.from(
+            document.querySelectorAll('a[href*="/url?q="], a[href^="http"]')
+          );
+
+          console.log(`Found ${allLinks.length} potential result links`);
+
+          for (const link of allLinks) {
+            if (results.length >= max) break;
+
+            const url = extractRealUrl(link.href);
+            if (!url || seenUrls.has(url)) continue;
+
+            // Skip Google internal URLs
+            if (
+              url.includes("google.com") ||
+              url.includes("gstatic.com") ||
+              url.includes("googleusercontent.com") ||
+              url.includes("youtube.com") ||
+              url.includes("accounts.google.com")
+            ) {
+              continue;
+            }
+
+            // Try to find title from various places
+            let title = "";
+
+            // Check if link has h3 parent or child
+            const h3Element =
+              link.querySelector("h3") ||
+              link.closest("h3") ||
+              link.parentElement?.querySelector("h3") ||
+              link.parentElement?.parentElement?.querySelector("h3");
+
+            if (h3Element) {
+              title = cleanText(h3Element.textContent);
+            } else {
+              // Fallback to link text or nearby text
+              title =
+                cleanText(link.textContent) ||
+                cleanText(link.getAttribute("aria-label")) ||
+                "No title";
+            }
+
+            // Try to find description
+            let description = "";
+
+            // Look for description in common Google result classes
+            const container =
+              link.closest("div.g, div[data-ved], .rc, div") ||
+              link.parentElement;
+            if (container) {
+              const descSelectors = [
+                ".VwiC3b",
+                ".s",
+                ".st",
+                'span[style*="color"]',
+                'div[style*="color"]',
+                ".f",
+                ".fG8Fp",
+                ".aCOpRe",
+              ];
+
+              for (const selector of descSelectors) {
+                const descElement = container.querySelector(selector);
+                if (descElement && descElement.textContent.trim()) {
+                  description = cleanText(descElement.textContent);
+                  break;
+                }
+              }
+            }
+
+            if (title && title !== "No title") {
+              seenUrls.add(url);
+              results.push({
+                title: title,
+                url: url,
+                description: description,
+              });
+            }
+          }
+        }
+
+        // Strategy 3: Traditional container-based extraction (final fallback)
+        if (results.length === 0) {
+          console.log(
+            "No results from link extraction, trying container-based extraction..."
+          );
+
           const containerSelectors = [
             "div.g", // Standard Google result
             "div[data-ved]", // Alternative result selector
             ".rc", // Classic result container
             "div.Gx5Zad", // Another Google container
             "div.Wt5Tfe", // Mobile result container
+            "div.MjjYud", // Modern result container
+            "div.kvH3mc", // Another modern container
+            "div.N54PNb", // Additional modern container
+            "div.Jb0Zif", // More modern containers
           ];
 
           for (const selector of containerSelectors) {
@@ -712,25 +858,66 @@ class MultiEngineDorker {
                 continue;
               }
 
-              // Extract title
-              const titleElement =
-                element.querySelector("h3") ||
-                element.querySelector("a h3") ||
-                linkElement;
-              const title = titleElement
-                ? cleanText(titleElement.textContent)
-                : "No title";
+              // Extract title with modern selectors
+              const titleSelectors = [
+                "h3.zBAuLc",
+                "h3.l97dzf",
+                "h3.LC20lb", // Modern title classes
+                "h3",
+                "a h3", // Classic title selectors
+                ".zBAuLc",
+                ".l97dzf",
+                ".LC20lb", // Modern classes without h3
+                ".ilUpNd",
+                ".UFvD1",
+                ".aSRlid",
+                ".IwSnJ", // Additional modern classes
+              ];
 
-              // Extract description
-              const descElement =
-                element.querySelector(".VwiC3b") ||
-                element.querySelector(".s") ||
-                element.querySelector(".st") ||
-                element.querySelector('span[style*="color"]') ||
-                element.querySelector('div[style*="color"]');
-              const description = descElement
-                ? cleanText(descElement.textContent)
-                : "";
+              let title = "";
+              for (const selector of titleSelectors) {
+                const titleElement = element.querySelector(selector);
+                if (titleElement && titleElement.textContent.trim()) {
+                  title = cleanText(titleElement.textContent);
+                  break;
+                }
+              }
+
+              if (!title) {
+                title = linkElement
+                  ? cleanText(linkElement.textContent)
+                  : "No title";
+              }
+
+              // Extract description with modern selectors
+              const descSelectors = [
+                ".VwiC3b",
+                ".s",
+                ".st", // Classic description classes
+                ".sCuL3",
+                ".BamJPe",
+                ".XR4uSe", // Modern description classes
+                ".lEBKkf",
+                ".hgKElc",
+                ".YUQM0", // Additional modern classes
+                'span[style*="color"]',
+                'div[style*="color"]',
+                ".f",
+                ".fG8Fp",
+                ".aCOpRe",
+                ".IsZvec",
+                ".ygGdYc",
+                ".lyLwlc", // More modern classes
+              ];
+
+              let description = "";
+              for (const selector of descSelectors) {
+                const descElement = element.querySelector(selector);
+                if (descElement && descElement.textContent.trim()) {
+                  description = cleanText(descElement.textContent);
+                  break;
+                }
+              }
 
               if (title && title !== "No title") {
                 seenUrls.add(url);
@@ -741,6 +928,52 @@ class MultiEngineDorker {
                 });
               }
             }
+          }
+        }
+
+        // Final debugging
+        console.log(`Final results count: ${results.length}`);
+        if (results.length > 0) {
+          console.log("Sample result:", results[0]);
+        } else {
+          console.log("No results extracted - analyzing page structure...");
+
+          // Debug: Check what elements are available
+          const debugInfo = {
+            dataVedLinks: document.querySelectorAll(
+              'a[href*="/url?q="][data-ved]'
+            ).length,
+            urlLinks: document.querySelectorAll('a[href*="/url?q="]').length,
+            allLinks: document.querySelectorAll("a[href]").length,
+            containers: {
+              "div.g": document.querySelectorAll("div.g").length,
+              "div[data-ved]":
+                document.querySelectorAll("div[data-ved]").length,
+              "div.MjjYud": document.querySelectorAll("div.MjjYud").length,
+              "div.kvH3mc": document.querySelectorAll("div.kvH3mc").length,
+            },
+            titles: {
+              "h3.zBAuLc": document.querySelectorAll("h3.zBAuLc").length,
+              "h3.l97dzf": document.querySelectorAll("h3.l97dzf").length,
+              "h3.LC20lb": document.querySelectorAll("h3.LC20lb").length,
+              h3: document.querySelectorAll("h3").length,
+            },
+          };
+          console.log("Debug info:", debugInfo);
+
+          // Sample some actual HTML structure
+          const sampleLink = document.querySelector('a[href*="/url?q="]');
+          if (sampleLink) {
+            console.log(
+              "Sample link HTML:",
+              sampleLink.outerHTML.substring(0, 500)
+            );
+            console.log(
+              "Sample link container:",
+              sampleLink
+                .closest("div[data-ved], div.g, div.MjjYud")
+                ?.outerHTML.substring(0, 300)
+            );
           }
         }
 
@@ -761,10 +994,18 @@ class MultiEngineDorker {
         const hasLinks = await page.evaluate(() => {
           const allLinks = document.querySelectorAll("a[href]");
           const redirectLinks = document.querySelectorAll('a[href*="/url?q="]');
+          const modernLinks = document.querySelectorAll(
+            'a[href*="/url?q="][data-ved]'
+          );
+
           return {
             totalLinks: allLinks.length,
             redirectLinks: redirectLinks.length,
+            modernLinks: modernLinks.length,
             pageText: document.body.textContent.slice(0, 200) + "...",
+            currentUrl: window.location.href,
+            hasSearchResults:
+              document.querySelector("#search, #rso, #res") !== null,
           };
         });
         this.logger?.debug("Page analysis:", hasLinks);
@@ -797,6 +1038,12 @@ class MultiEngineDorker {
   async cleanup() {
     try {
       this.logger?.info("Cleaning up MultiEngineDorker resources");
+
+      // Stop background monitor
+      if (this.backgroundMonitor) {
+        this.backgroundMonitor.stop();
+        this.backgroundMonitor = null;
+      }
 
       if (this.browser) {
         await closeBrowser(this.browser, this.logger);

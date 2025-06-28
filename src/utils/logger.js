@@ -103,9 +103,7 @@ const createLogger = async (clearLogs = true) => {
 
     // Add startup log entry
     const startupTime = new Date().toISOString();
-    const startupMessage = `\n${"=".repeat(
-      80
-    )}\n🚀 DORKER SESSION STARTED - ${startupTime}\n${"=".repeat(80)}\n`;
+    const startupMessage = `DORKER SESSION STARTED - ${startupTime}`;
 
     // Winston logger configuration
     const logger = winston.createLogger({
@@ -116,7 +114,19 @@ const createLogger = async (clearLogs = true) => {
         }),
         winston.format.errors({ stack: true }),
         winston.format.splat(),
-        winston.format.json()
+        winston.format.printf(
+          ({ level, message, timestamp, service, ...meta }) => {
+            // Ensure level comes first in JSON
+            const logObject = {
+              level,
+              message,
+              timestamp,
+              service: service || "dorker",
+              ...meta,
+            };
+            return JSON.stringify(logObject);
+          }
+        )
       ),
       defaultMeta: { service: "dorker" },
       transports: [

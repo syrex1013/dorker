@@ -22,6 +22,7 @@
   "license": "MIT",
   "dependencies": {
     "@clack/prompts": "^0.11.0",
+    "@elevenlabs/elevenlabs-js": "^2.4.1",
     "@inquirer/confirm": "^5.1.12",
     "@inquirer/input": "^4.1.12",
     "@inquirer/number": "^3.0.15",
@@ -47,6 +48,7 @@
     "https-proxy-agent": "^7.0.4",
     "inquirer": "^9.2.0",
     "nanospinner": "^1.2.2",
+    "node-fetch": "^3.3.2",
     "ora": "^8.2.0",
     "proxy-chain": "^2.5.9",
     "puppeteer": "^22.9.0",

@@ -25,21 +25,12 @@ async function launchBrowser(config, logger = null) {
       "--no-sandbox",
       "--disable-setuid-sandbox",
       "--disable-dev-shm-usage",
-      "--disable-accelerated-2d-canvas",
       "--no-first-run",
-      "--no-zygote",
-      "--single-process",
-      "--disable-gpu",
       "--disable-background-timer-throttling",
       "--disable-backgrounding-occluded-windows",
       "--disable-renderer-backgrounding",
       "--disable-features=TranslateUI",
-      "--disable-ipc-flooding-protection",
-      "--disable-features=VizDisplayCompositor",
       "--disable-extensions",
-      "--disable-plugins",
-      "--disable-javascript-harmony-shipping",
-      "--disable-background-networking",
       "--disable-default-apps",
       "--disable-sync",
       "--disable-translate",
@@ -47,18 +38,20 @@ async function launchBrowser(config, logger = null) {
       "--no-pings",
       "--password-store=basic",
       "--use-mock-keychain",
-      // Better iframe and security handling
-      "--disable-features=VizDisplayCompositor,VizServiceDisplayCompositor",
+      // Anti-detection
       "--disable-blink-features=AutomationControlled",
-      "--disable-features=site-per-process",
+      "--disable-features=UserAgentClientHint",
       "--allow-running-insecure-content",
       "--ignore-certificate-errors",
       "--ignore-ssl-errors",
       "--ignore-certificate-errors-spki-list",
-      "--disable-site-isolation-trials",
-      "--disable-features=UserAgentClientHint",
       `--user-agent=${config.userAgent || fingerprint.userAgent}`,
       "--window-size=1366,768",
+      // Enable rendering for proper page display
+      "--enable-webgl",
+      "--enable-accelerated-2d-canvas",
+      "--enable-gpu-rasterization",
+      "--force-color-profile=srgb",
     ];
 
     // Add proxy configuration if available
@@ -239,17 +232,28 @@ async function createPage(browser, config, logger = null) {
       const resourceType = request.resourceType();
       const url = request.url();
 
-      // Allow CSS and essential resources while blocking unnecessary ones
+      // Allow essential resources for proper page rendering
       if (
         resourceType === "stylesheet" ||
         resourceType === "document" ||
         resourceType === "script" ||
+        resourceType === "font" ||
         url.includes("recaptcha") ||
         url.includes("gstatic") ||
-        url.includes("google.com")
+        url.includes("google.com") ||
+        url.includes("googleusercontent.com") ||
+        url.includes("googleapis.com")
       ) {
         request.continue();
-      } else if (resourceType === "image" && !config.loadImages) {
+      } else if (resourceType === "image") {
+        // Allow some images for proper rendering, but limit size
+        if (config.loadImages !== false) {
+          request.continue();
+        } else {
+          request.abort();
+        }
+      } else if (resourceType === "media" || resourceType === "other") {
+        // Block media and other non-essential resources
         request.abort();
       } else {
         request.continue();
@@ -368,7 +372,9 @@ async function checkAndHandleConsentDynamic(page, cursor, logger = null) {
 
     return false;
   } catch (error) {
-    logger?.debug("Error checking for dynamic consent:", error.message);
+    logger?.debug("Error checking for dynamic consent:", {
+      error: error.message,
+    });
     return false;
   }
 }
@@ -385,17 +391,15 @@ async function performWarmup(pageData, logger = null) {
     logger?.info("Starting warm-up browsing session");
     logWithDedup("info", "🔥 Starting warm-up session...", chalk.blue, logger);
 
-    // Generate warm-up time (30-60 seconds)
-    const warmupTime = Math.floor(Math.random() * 30000) + 30000;
+    // Generate warm-up time (30-60 seconds maximum, capped at 60s)
+    const warmupTime = Math.min(
+      Math.floor(Math.random() * 30000) + 30000,
+      60000
+    );
     logger?.info(`Warm-up session duration: ${warmupTime}ms`);
 
-    // Navigate to Google
-    await page.goto("https://www.google.com", { waitUntil: "networkidle0" });
-    await sleep(
-      2000 + Math.random() * 3000,
-      "after initial Google navigation",
-      logger
-    );
+    // Navigate to Google with proper loading detection
+    await navigateToGoogle(pageData, logger);
 
     // Handle initial consent if present
     await handleConsent(page, cursor, logger);
@@ -405,7 +409,9 @@ async function performWarmup(pageData, logger = null) {
       try {
         await checkAndHandleConsentDynamic(page, cursor, logger);
       } catch (error) {
-        logger?.debug("Error in consent monitoring interval:", error.message);
+        logger?.debug("Error in consent monitoring interval:", {
+          error: error.message,
+        });
       }
     }, 3000); // Check every 3 seconds
 
@@ -429,8 +435,16 @@ async function performWarmup(pageData, logger = null) {
       const searchBox = await page.$('input[name="q"]');
       if (searchBox) {
         logger?.debug(`Ghost cursor clicking search box`);
-        await cursor.click(searchBox);
-        logger?.debug(`Click completed on search box`);
+        try {
+          await cursor.click(searchBox);
+          logger?.debug(`Click completed on search box`);
+        } catch (cursorError) {
+          logger?.debug(
+            `Cursor click failed, using fallback: ${cursorError.message}`
+          );
+          await searchBox.click();
+          logger?.debug(`Fallback click completed on search box`);
+        }
         const sleepTime = 500 + Math.random() * 1000;
         await sleep(sleepTime, "after search box click", logger);
 
@@ -467,9 +481,9 @@ async function performWarmup(pageData, logger = null) {
         // Check for consent after navigation
         await checkAndHandleConsentDynamic(page, cursor, logger);
 
-        // Scroll and interact naturally with periodic consent checks
+        // Scroll and interact naturally with periodic consent checks (max 15 seconds)
         const browsingStartTime = Date.now();
-        const browsingDuration = 10000 + Math.random() * 10000;
+        const browsingDuration = 10000 + Math.random() * 5000; // 10-15 seconds max
 
         while (Date.now() - browsingStartTime < browsingDuration) {
           // Check for consent every few seconds during browsing
@@ -580,8 +594,16 @@ async function handleConsent(page, cursor, logger = null) {
           logger?.debug(
             `Ghost cursor clicking Accept all button on consent.google.com`
           );
-          await cursor.click(acceptButton);
-          logger?.debug(`Click completed on Accept all button`);
+          try {
+            await cursor.click(acceptButton);
+            logger?.debug(`Click completed on Accept all button`);
+          } catch (cursorError) {
+            logger?.debug(
+              `Cursor click failed, using fallback: ${cursorError.message}`
+            );
+            await page.evaluate((el) => el.click(), acceptButton);
+            logger?.debug(`Fallback click completed on Accept all button`);
+          }
           await sleep(3000, "after consent button click", logger);
 
           // Verify we left the consent page
@@ -600,7 +622,9 @@ async function handleConsent(page, cursor, logger = null) {
           );
         }
       } catch (error) {
-        logger?.warn("Error handling consent.google.com page:", error.message);
+        logger?.warn("Error handling consent.google.com page:", {
+          error: error.message,
+        });
       }
     }
 
@@ -731,8 +755,16 @@ async function handleConsent(page, cursor, logger = null) {
           logger?.debug(
             `Ghost cursor clicking consent element with selector: ${selector}`
           );
-          await cursor.click(element);
-          logger?.debug(`Click completed on consent element`);
+          try {
+            await cursor.click(element);
+            logger?.debug(`Click completed on consent element`);
+          } catch (cursorError) {
+            logger?.debug(
+              `Cursor click failed, using fallback: ${cursorError.message}`
+            );
+            await page.evaluate((el) => el.click(), element);
+            logger?.debug(`Fallback click completed on consent element`);
+          }
 
           // Wait for navigation or page change
           await sleep(3000);
@@ -818,7 +850,9 @@ async function handleConsent(page, cursor, logger = null) {
       await sleep(3000);
       logger?.info("Attempted JavaScript consent handling");
     } catch (jsError) {
-      logger?.warn("JavaScript consent handling failed:", jsError.message);
+      logger?.warn("JavaScript consent handling failed:", {
+        error: jsError.message,
+      });
     }
 
     logger?.warn(
@@ -873,10 +907,23 @@ async function simulateHumanBrowsing(page, cursor, duration, logger = null) {
             const y = Math.random() * (maxY - 200) + 100;
 
             logger?.debug(`Ghost cursor moving to position: (${x}, ${y})`);
-            await cursor.move(x, y);
-            logger?.debug(`Cursor movement completed`);
+            try {
+              await cursor.move(x, y);
+              logger?.debug(`Cursor movement completed`);
+            } catch (cursorError) {
+              logger?.debug(`Cursor move failed: ${cursorError.message}`);
+              try {
+                // Fallback: just move the mouse without ghost-cursor
+                await page.mouse.move(x, y);
+                logger?.debug(`Fallback mouse movement completed`);
+              } catch (fallbackError) {
+                logger?.debug(
+                  `Both cursor and fallback move failed: ${fallbackError.message}`
+                );
+              }
+            }
           } catch (moveError) {
-            logger?.debug("Cursor move failed", { error: moveError.message });
+            logger?.debug("Move action failed", { error: moveError.message });
           }
           break;
         }
@@ -923,7 +970,46 @@ async function simulateHumanBrowsing(page, cursor, duration, logger = null) {
 }
 
 /**
- * Navigate to Google search with human-like behavior
+ * Check if page has loaded properly (not white/blank)
+ * @param {Object} page - Puppeteer page
+ * @param {Object} logger - Winston logger instance
+ * @returns {Promise<boolean>} True if page loaded properly
+ */
+async function isPageLoaded(page, logger = null) {
+  try {
+    const pageInfo = await page.evaluate(() => {
+      const body = document.body;
+      const hasContent = body && body.innerHTML.trim().length > 100;
+      const hasTitle = document.title && document.title.trim().length > 0;
+      const hasGoogleElements =
+        document.querySelector('input[name="q"]') ||
+        document.querySelector(".RNNXgb") ||
+        document.querySelector("#searchform") ||
+        document.querySelector('[role="search"]');
+
+      return {
+        hasContent,
+        hasTitle,
+        hasGoogleElements,
+        bodyLength: body ? body.innerHTML.length : 0,
+        title: document.title,
+        url: window.location.href,
+      };
+    });
+
+    logger?.debug("Page load check:", pageInfo);
+
+    return (
+      pageInfo.hasContent && (pageInfo.hasTitle || pageInfo.hasGoogleElements)
+    );
+  } catch (error) {
+    logger?.debug("Error checking page load:", { error: error.message });
+    return false;
+  }
+}
+
+/**
+ * Navigate to Google search with human-like behavior and proper loading detection
  * @param {Object} pageData - Page and cursor data
  * @param {Object} logger - Winston logger instance
  */
@@ -932,18 +1018,81 @@ async function navigateToGoogle(pageData, logger = null) {
 
   try {
     logger?.info("Navigating to Google");
-    await page.goto("https://www.google.com", {
-      waitUntil: "networkidle0",
-      timeout: 30000,
-    });
 
-    await sleep(2000 + Math.random() * 3000);
+    // Try multiple navigation strategies if needed
+    for (let attempt = 1; attempt <= 3; attempt++) {
+      try {
+        logger?.debug(`Navigation attempt ${attempt}/3`);
+
+        // Navigate with different wait strategies
+        if (attempt === 1) {
+          await page.goto("https://www.google.com", {
+            waitUntil: "domcontentloaded",
+            timeout: 30000,
+          });
+        } else if (attempt === 2) {
+          await page.goto("https://www.google.com", {
+            waitUntil: "networkidle2",
+            timeout: 30000,
+          });
+        } else {
+          // Last attempt with minimal wait
+          await page.goto("https://www.google.com", {
+            waitUntil: "load",
+            timeout: 30000,
+          });
+        }
+
+        // Wait for initial page load
+        await sleep(3000, `after navigation attempt ${attempt}`, logger);
+
+        // Check if page loaded properly
+        const pageLoaded = await isPageLoaded(page, logger);
+
+        if (pageLoaded) {
+          logger?.info(`Page loaded successfully on attempt ${attempt}`);
+          break;
+        } else if (attempt < 3) {
+          logger?.warn(`Page appears blank on attempt ${attempt}, retrying...`);
+
+          // Try refreshing the page
+          await page.reload({ waitUntil: "domcontentloaded", timeout: 15000 });
+          await sleep(2000, "after page refresh", logger);
+
+          const reloadCheck = await isPageLoaded(page, logger);
+          if (reloadCheck) {
+            logger?.info("Page loaded after refresh");
+            break;
+          }
+        } else {
+          logger?.warn("Page still appears blank after all attempts");
+
+          // Try one final reload
+          await page.reload({ waitUntil: "load", timeout: 15000 });
+          await sleep(3000, "after final reload", logger);
+        }
+      } catch (navError) {
+        logger?.warn(`Navigation attempt ${attempt} failed:`, {
+          error: navError.message,
+        });
+        if (attempt === 3) {
+          throw navError;
+        }
+        await sleep(2000, `before retry attempt ${attempt + 1}`, logger);
+      }
+    }
 
     // Always check and handle consent after navigation
     await handleConsent(page, pageData.cursor, logger);
 
+    // Final verification that page is ready
+    const finalCheck = await isPageLoaded(page, logger);
+    if (!finalCheck) {
+      logger?.warn("Page may not have loaded properly, but continuing...");
+    }
+
     // Additional wait to ensure page is ready after consent
-    await sleep(1000);
+    await sleep(1000, "final page ready wait", logger);
 
     logger?.info("Successfully navigated to Google");
   } catch (error) {
@@ -988,6 +1137,7 @@ export {
   handleConsent,
   simulateHumanBrowsing,
   navigateToGoogle,
+  isPageLoaded,
   closeBrowser,
   getCurrentInstances,
 };
