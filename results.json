@@ -1,0 +1,29 @@
+{
+  "!Host=*.* intext:enc_UserPassword=* ext:pcf": [
+    {
+      "title": "usc.csci/config_files/usc_vpn.pcf at master · alghanmi/usc ... - GitHub github.com › alghanmi › usc.csci › blob › master › config_files › usc_vpn",
+      "url": "https://github.com/alghanmi/usc.csci/blob/master/config_files/usc_vpn.pcf",
+      "description": ""
+    },
+    {
+      "title": "kiss/vpn/RWTH Full Tunnel.pcf - Explore projects git.fsmpi.rwth-aachen.de › osak › lipstick",
+      "url": "https://git.fsmpi.rwth-aachen.de/osak/lipstick/blob/3d4515082b57dc42578416ce132bd2a1cba58ae5/kiss/vpn/RWTH Full Tunnel.pcf",
+      "description": ""
+    },
+    {
+      "title": "https://people.well.com/user/pjm/London.pcf people.well.com › user › pjm › London",
+      "url": "https://people.well.com/user/pjm/London.pcf",
+      "description": ""
+    },
+    {
+      "title": "sample.pcf - hohle/iphone-cisco-vpn-settings - GitHub github.com › hohle › iphone-cisco-vpn-settings › blob › master › sample",
+      "url": "https://github.com/hohle/iphone-cisco-vpn-settings/blob/master/sample.pcf",
+      "description": ""
+    },
+    {
+      "title": "Openswan: contrib/cisco/sample.pcf - Fossies fossies.org › linux › Openswan › contrib › cisco › sample",
+      "url": "https://fossies.org/linux/Openswan/contrib/cisco/sample.pcf",
+      "description": ""
+    }
+  ]
+}
