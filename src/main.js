@@ -104,14 +104,20 @@ async function serverMode(port = 3000) {
  */
 async function handleStartDorking(config) {
   try {
-    const startMessage = "Starting dorking session from web interface";
+    // START SESSION IMMEDIATELY when user clicks start
+    const startMessage = "🚀 Dorking session started - initializing...";
     dashboard.addLog("info", startMessage);
     console.log(chalk.bold.magenta(`\n🌐 ${startMessage}`));
     console.log("─".repeat(50));
 
+    // Set status to initializing immediately
+    dashboard.setStatus("initializing");
+
     // Load dorks from file
+    dashboard.addLog("info", `📁 Loading dorks from ${config.dorkFile}...`);
     console.log(chalk.blue(`📁 Loading dorks from ${config.dorkFile}...`));
     const dorks = await loadDorks(config.dorkFile, logger);
+
     if (dorks.length === 0) {
       const errorMessage = "No dorks found in file";
       dashboard.addLog("error", errorMessage);
@@ -120,18 +126,27 @@ async function handleStartDorking(config) {
       return { success: false, error: errorMessage };
     }
 
-    const loadMessage = `Loaded ${dorks.length} dorks from file`;
-    dashboard.addLog("info", loadMessage);
-    console.log(chalk.green(`✅ ${loadMessage}`));
+    // START DASHBOARD SESSION IMMEDIATELY after loading dorks
+    dashboard.startSession(dorks.length);
 
-    // Initialize dorker
+    const loadMessage = `✅ Loaded ${dorks.length} dorks from file`;
+    dashboard.addLog("success", loadMessage);
+    console.log(chalk.green(loadMessage));
+
+    // Initialize dorker with live logging
+    dashboard.addLog("info", "🔧 Initializing browser and security systems...");
     console.log(chalk.blue("🔧 Initializing browser and security systems..."));
+
     dorker = new MultiEngineDorker(config, logger, dashboard);
     await dorker.initialize();
 
-    const initMessage = "Browser and security systems initialized";
-    dashboard.addLog("info", initMessage);
-    console.log(chalk.green(`✅ ${initMessage}`));
+    const initMessage = "✅ Browser and security systems initialized";
+    dashboard.addLog("success", initMessage);
+    console.log(chalk.green(initMessage));
+
+    // Set status to running before starting dorking
+    dashboard.setStatus("running");
+    dashboard.addLog("info", "🎯 Starting dorking process...");
 
     // Start dorking process
     await performDorking(dorks, config);
@@ -139,9 +154,9 @@ async function handleStartDorking(config) {
     return { success: true };
   } catch (error) {
     logger.error("Error starting dorking session", { error: error.message });
-    const errorMessage = `Failed to start dorking: ${error.message}`;
+    const errorMessage = `❌ Failed to start dorking: ${error.message}`;
     dashboard.addLog("error", errorMessage);
-    console.log(chalk.red(`❌ ${errorMessage}`));
+    console.log(chalk.red(errorMessage));
     dashboard.setStatus("error");
     return { success: false, error: error.message };
   }
@@ -186,11 +201,8 @@ async function handleStopDorking() {
 async function performDorking(dorks, config) {
   const allResults = {};
 
-  // Start dashboard session
-  dashboard.startSession(dorks.length);
-  dashboard.setStatus("running");
-
-  console.log(chalk.bold.cyan("\n🚀 Starting Dorking Session"));
+  // Session already started in handleStartDorking - just log the start
+  console.log(chalk.bold.cyan("\n🚀 Beginning Dork Processing"));
   console.log(chalk.gray(`Total dorks: ${dorks.length}`));
   console.log("─".repeat(50));
 

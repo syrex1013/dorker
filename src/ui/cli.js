@@ -72,7 +72,13 @@ function displayConfig(config) {
       config.resultCount.toString(),
       getStatusIcon(true, "number"),
     ],
-    ["⏱️ Search Delay", `${config.delay}s`, getStatusIcon(true, "number")],
+    [
+      "⏱️ Delay Range",
+      `${config.minDelay || config.delay || 10}-${
+        config.maxDelay || config.delay || 45
+      }s`,
+      getStatusIcon(true, "number"),
+    ],
     ["⏸️ Max Pause", `${config.maxPause}s`, getStatusIcon(true, "number")],
     [
       "👁️ Headless Mode",
@@ -160,15 +166,28 @@ async function getConfiguration() {
           },
         }),
 
-      delay: () =>
+      minDelay: () =>
         p.text({
-          message: "⏱️ Delay between searches (seconds)",
-          placeholder: "45",
-          defaultValue: "45",
+          message: "⏱️ Minimum delay between searches (seconds)",
+          placeholder: "10",
+          defaultValue: "10",
           validate: (value) => {
             const num = parseInt(value);
             if (isNaN(num) || num < 5 || num > 60) {
               return "Must be between 5 and 60 seconds";
+            }
+          },
+        }),
+
+      maxDelay: () =>
+        p.text({
+          message: "⏰ Maximum delay between searches (seconds)",
+          placeholder: "45",
+          defaultValue: "45",
+          validate: (value) => {
+            const num = parseInt(value);
+            if (isNaN(num) || num < 5 || num > 120) {
+              return "Must be between 5 and 120 seconds";
             }
           },
         }),
@@ -236,11 +255,21 @@ async function getConfiguration() {
   );
 
   // Process the configuration
+  const minDelay = parseInt(config.minDelay) || 10;
+  const maxDelay = parseInt(config.maxDelay) || 45;
+
+  // Validate delay range
+  if (maxDelay <= minDelay) {
+    p.cancel("Maximum delay must be greater than minimum delay");
+    process.exit(1);
+  }
+
   const processedConfig = {
     dorkFile: config.dorkFile || "dorks.txt",
     outputFile: config.outputFile || "results.json",
     resultCount: parseInt(config.resultCount) || 30,
-    delay: Math.min(parseInt(config.delay) || 45, 60),
+    minDelay: Math.max(minDelay, 5),
+    maxDelay: Math.min(maxDelay, 120),
     maxPause: Math.min(parseInt(config.maxPause) || 60, 60),
     headless: config.headless,
     userAgent: config.userAgent?.trim() || null,

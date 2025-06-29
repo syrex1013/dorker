@@ -130,6 +130,13 @@
         border-color: var(--text-accent);
       }
 
+      .detailed-status {
+        display: flex;
+        flex-direction: column;
+        align-items: flex-end;
+        gap: 0.25rem;
+      }
+
       .status-pill {
         padding: 0.25rem 0.75rem;
         border-radius: 20px;
@@ -137,11 +144,45 @@
         font-weight: 600;
         text-transform: uppercase;
         letter-spacing: 0.05em;
+        transition: all 0.3s ease;
+      }
+
+      .status-details {
+        font-size: 0.75rem;
+        color: var(--text-secondary);
+        text-align: right;
+        max-width: 200px;
+        word-wrap: break-word;
+        line-height: 1.2;
       }
 
       .status-idle {
         background: var(--bg-tertiary);
         color: var(--text-secondary);
+      }
+
+      .status-initializing {
+        background: linear-gradient(45deg, #3b82f6, #06b6d4);
+        color: white;
+        animation: statusPulse 2s infinite;
+      }
+
+      .status-warming-up {
+        background: linear-gradient(45deg, #f59e0b, #eab308);
+        color: white;
+        animation: statusPulse 1.5s infinite;
+      }
+
+      .status-searching {
+        background: linear-gradient(45deg, #10b981, #059669);
+        color: white;
+        animation: statusPulse 2s infinite;
+      }
+
+      .status-captcha {
+        background: linear-gradient(45deg, #ef4444, #dc2626);
+        color: white;
+        animation: statusPulse 1s infinite;
       }
 
       .status-running {
@@ -397,6 +438,157 @@
         word-break: break-word;
       }
 
+      .important-log {
+        background: var(--bg-secondary);
+        border-left: 3px solid var(--text-accent);
+      }
+
+      .important-log .log-message {
+        font-weight: 500;
+      }
+
+      /* Live Status Section */
+      .status-container {
+        display: flex;
+        flex-direction: column;
+        gap: 1.5rem;
+      }
+
+      .main-status {
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        gap: 1rem;
+        padding: 1rem;
+        background: var(--bg-secondary);
+        border-radius: 12px;
+        border: 2px solid var(--border-color);
+      }
+
+      .main-status-pill {
+        display: flex;
+        align-items: center;
+        gap: 0.75rem;
+        padding: 1rem 2rem;
+        border-radius: 2rem;
+        font-size: 1.1rem;
+        font-weight: 700;
+        text-transform: uppercase;
+        letter-spacing: 0.1em;
+        transition: all 0.3s ease;
+        min-width: 200px;
+        justify-content: center;
+        box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
+      }
+
+      .main-status-pill i {
+        font-size: 1.3rem;
+      }
+
+      .main-status-text {
+        font-size: 1rem;
+        color: var(--text-secondary);
+        text-align: center;
+        font-weight: 500;
+      }
+
+      .status-metrics {
+        display: grid;
+        grid-template-columns: repeat(3, 1fr);
+        gap: 1rem;
+        width: 100%;
+      }
+
+      .status-metric {
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        padding: 1rem;
+        background: var(--bg-secondary);
+        border-radius: 8px;
+        border: 1px solid var(--border-color);
+        transition: var(--transition);
+      }
+
+      .status-metric:hover {
+        background: var(--bg-tertiary);
+        transform: translateY(-2px);
+      }
+
+      .metric-label {
+        font-size: 0.75rem;
+        color: var(--text-secondary);
+        text-transform: uppercase;
+        letter-spacing: 0.05em;
+        margin-bottom: 0.5rem;
+        font-weight: 600;
+      }
+
+      .metric-value {
+        font-size: 1.25rem;
+        font-weight: 700;
+        color: var(--text-primary);
+        font-variant-numeric: tabular-nums;
+      }
+
+      /* Enhanced status pill variants */
+      .main-status-pill.status-idle {
+        background: linear-gradient(135deg, #6b7280, #9ca3af);
+        color: white;
+      }
+
+      .main-status-pill.status-initializing {
+        background: linear-gradient(135deg, #3b82f6, #06b6d4);
+        color: white;
+        animation: statusPulse 2s infinite;
+      }
+
+      .main-status-pill.status-warming-up {
+        background: linear-gradient(135deg, #f59e0b, #eab308);
+        color: white;
+        animation: statusPulse 1.5s infinite;
+      }
+
+      .main-status-pill.status-searching {
+        background: linear-gradient(135deg, #10b981, #059669);
+        color: white;
+        animation: statusPulse 2s infinite;
+      }
+
+      .main-status-pill.status-captcha {
+        background: linear-gradient(135deg, #ef4444, #dc2626);
+        color: white;
+        animation: statusPulse 1s infinite;
+      }
+
+      .main-status-pill.status-running {
+        background: linear-gradient(135deg, #10b981, #059669);
+        color: white;
+        animation: statusPulse 2s infinite;
+      }
+
+      .main-status-pill.status-completed {
+        background: linear-gradient(135deg, #8b5cf6, #7c3aed);
+        color: white;
+      }
+
+      .main-status-pill.status-error {
+        background: linear-gradient(135deg, #ef4444, #dc2626);
+        color: white;
+      }
+
+      @media (max-width: 768px) {
+        .status-metrics {
+          grid-template-columns: 1fr;
+        }
+
+        .main-status-pill {
+          min-width: 150px;
+          padding: 0.75rem 1.5rem;
+          font-size: 1rem;
+        }
+      }
+
       /* Results */
       .result-card {
         background: var(--bg-secondary);
@@ -435,22 +627,39 @@
         gap: 0.5rem;
       }
 
-      .result-url {
-        color: var(--text-accent);
-        text-decoration: none;
-        padding: 0.5rem;
+      .result-url-container {
         background: var(--bg-primary);
         border-radius: 6px;
         border: 1px solid var(--border-color);
+        padding: 0.75rem;
         transition: var(--transition);
+      }
+
+      .result-url-container:hover {
+        background: var(--bg-tertiary);
+        transform: translateX(4px);
+      }
+
+      .result-url-title {
         font-size: 0.875rem;
+        font-weight: 600;
+        color: var(--text-primary);
+        margin-bottom: 0.5rem;
+        word-break: break-word;
+      }
+
+      .result-url {
+        color: var(--text-accent);
+        text-decoration: none;
+        font-size: 0.75rem;
         display: block;
         word-break: break-all;
+        font-family: "JetBrains Mono", monospace;
+        line-height: 1.4;
       }
 
       .result-url:hover {
-        background: var(--bg-tertiary);
-        transform: translateX(4px);
+        text-decoration: underline;
       }
 
       /* Animation */
@@ -463,6 +672,37 @@
         50% {
           opacity: 0.8;
           transform: scale(1.05);
+        }
+      }
+
+      /* Live stats animations */
+      .live-update {
+        animation: liveUpdate 0.5s ease-in-out;
+      }
+
+      @keyframes liveUpdate {
+        0% {
+          background-color: rgba(59, 130, 246, 0.1);
+        }
+        50% {
+          background-color: rgba(59, 130, 246, 0.2);
+        }
+        100% {
+          background-color: transparent;
+        }
+      }
+
+      .status-pulse {
+        animation: statusPulse 2s infinite;
+      }
+
+      @keyframes statusPulse {
+        0%,
+        100% {
+          box-shadow: 0 0 0 0 rgba(34, 197, 94, 0.4);
+        }
+        50% {
+          box-shadow: 0 0 0 8px rgba(34, 197, 94, 0);
         }
       }
 
@@ -639,7 +879,24 @@
         </div>
 
         <div class="header-controls">
-          <div id="status-indicator" class="status-pill status-idle">Idle</div>
+          <div id="detailed-status" class="detailed-status">
+            <div id="status-indicator" class="status-pill status-idle">
+              Idle
+            </div>
+            <div id="status-details" class="status-details">Ready to start</div>
+          </div>
+          <button class="btn" id="start-stop-btn" style="display: none">
+            <i class="fas fa-play"></i>
+            Start
+          </button>
+          <button
+            class="btn btn-primary"
+            id="export-urls-btn"
+            style="display: none"
+          >
+            <i class="fas fa-link"></i>
+            Export URLs
+          </button>
           <button class="btn" id="theme-toggle-btn">
             <i class="fas fa-moon" id="theme-icon"></i>
           </button>
@@ -648,7 +905,7 @@
           </button>
           <button class="btn btn-primary" id="export-data-btn">
             <i class="fas fa-download"></i>
-            Export
+            Export All
           </button>
         </div>
       </div>
@@ -793,6 +1050,45 @@
                 >Proxy:</span
               >
               <span style="font-weight: 600" id="current-proxy">None</span>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Live Status Section -->
+      <div class="card wide-section">
+        <div class="section-header">
+          <div class="section-title">
+            <i class="fas fa-heartbeat"></i>
+            Live Status
+          </div>
+          <div class="live-indicator">
+            <div class="live-dot"></div>
+            LIVE
+          </div>
+        </div>
+        <div class="status-container">
+          <div class="main-status">
+            <div id="main-status-pill" class="main-status-pill status-idle">
+              <i class="fas fa-pause-circle"></i>
+              <span>Idle</span>
+            </div>
+            <div id="main-status-text" class="main-status-text">
+              Ready to start dorking session
+            </div>
+          </div>
+          <div class="status-metrics">
+            <div class="status-metric">
+              <span class="metric-label">Progress</span>
+              <span class="metric-value" id="live-progress">0 / 0</span>
+            </div>
+            <div class="status-metric">
+              <span class="metric-label">Results</span>
+              <span class="metric-value" id="live-results">0</span>
+            </div>
+            <div class="status-metric">
+              <span class="metric-label">Runtime</span>
+              <span class="metric-value" id="live-runtime">00:00:00</span>
             </div>
           </div>
         </div>
@@ -978,15 +1274,39 @@
             <div style="margin-bottom: 1rem">
               <label
                 style="display: block; margin-bottom: 0.5rem; font-weight: 500"
-                >⏱️ Delay between Searches (seconds)</label
+                >⏱️ Minimum Delay between Searches (seconds)</label
               >
               <input
                 type="number"
-                id="delay"
-                name="delay"
-                value="45"
+                id="min-delay"
+                name="minDelay"
+                value="10"
                 min="5"
                 max="60"
+                required
+                style="
+                  width: 100%;
+                  padding: 0.5rem;
+                  border: 1px solid var(--border-color);
+                  border-radius: 6px;
+                  background: var(--bg-primary);
+                  color: var(--text-primary);
+                "
+              />
+            </div>
+
+            <div style="margin-bottom: 1rem">
+              <label
+                style="display: block; margin-bottom: 0.5rem; font-weight: 500"
+                >⏰ Maximum Delay between Searches (seconds)</label
+              >
+              <input
+                type="number"
+                id="max-delay"
+                name="maxDelay"
+                value="45"
+                min="5"
+                max="120"
                 required
                 style="
                   width: 100%;
@@ -1217,14 +1537,13 @@
           performanceData: [],
         };
 
-        // Force clear all UI elements and reset stats
-        clearResults();
-        clearLogs();
+        console.log("🎯 Session started! Live stats now active:", stats);
 
-        // Reset all displayed stats to zero
+        // Update all stats immediately with real data
         document.getElementById("progress-percentage").textContent = "0%";
         document.getElementById("processed-count").textContent = "0";
-        document.getElementById("total-count").textContent = stats.totalDorks;
+        document.getElementById("total-count").textContent =
+          stats.totalDorks || 0;
         document.getElementById("success-rate").textContent = "0%";
         document.getElementById("successful-count").textContent = "0";
         document.getElementById("total-results").textContent = "0";
@@ -1234,41 +1553,174 @@
         document.getElementById("captcha-rate").innerHTML =
           "<span>0%</span> solve rate";
 
-        // Reset progress ring
+        // Update status and progress
+        updateStatus(stats.status || "running");
         updateProgressRing(0);
 
-        // Reset start time display
+        // Set start time display
         document.getElementById("start-time").textContent =
           startTime.toLocaleTimeString();
+        document.getElementById("runtime").textContent = "00:00:00";
 
-        // Clear performance chart
+        // Update current session info
+        document.getElementById("current-dork").textContent =
+          stats.currentDork || "Waiting for first dork...";
+        document.getElementById("current-proxy").textContent = stats.proxy
+          ? `${stats.proxy.host}:${stats.proxy.port}`
+          : "None";
+
+        // Clear and reset containers for live data
+        const resultsContainer = document.getElementById("results-container");
+        resultsContainer.innerHTML = `
+          <div style="text-align: center; padding: 3rem; color: var(--text-secondary);">
+            <i class="fas fa-search" style="font-size: 2rem; margin-bottom: 1rem; opacity: 0.5;"></i>
+            <div>🔍 Session active - waiting for results...</div>
+          </div>
+        `;
+
+        const logsContainer = document.getElementById("logs-container");
+        logsContainer.innerHTML = `
+          <div style="text-align: center; padding: 3rem; color: var(--text-secondary);">
+            <i class="fas fa-terminal" style="font-size: 2rem; margin-bottom: 1rem; opacity: 0.5;"></i>
+            <div>📋 Session active - waiting for logs...</div>
+          </div>
+        `;
+
+        // Reset performance chart
         if (performanceChart) {
           performanceChart.data.labels = [];
           performanceChart.data.datasets[0].data = [];
           performanceChart.update();
         }
 
-        if (!runtimeInterval) {
-          runtimeInterval = setInterval(updateRuntime, 1000);
+        // Start runtime timer
+        if (runtimeInterval) {
+          clearInterval(runtimeInterval);
         }
+        runtimeInterval = setInterval(updateRuntime, 1000);
 
-        showNotification("New session started", "success");
+        showNotification(
+          "🚀 Session started - live stats now active!",
+          "success"
+        );
       });
 
       socket.on("newResult", (result) => {
         addResult(result);
         sessionData.results.unshift(result);
-        showNotification(`Found ${result.count} results for dork`, "success");
+
+        // Show notification with more detail
+        const dorkPreview =
+          result.dork.length > 30
+            ? result.dork.substring(0, 30) + "..."
+            : result.dork;
+        showNotification(
+          `🎯 Found ${result.count} results for: ${dorkPreview}`,
+          "success"
+        );
+
+        console.log("🎯 New result received:", result);
       });
 
       socket.on("newLog", (log) => {
         addLog(log);
         sessionData.logs.unshift(log);
+
+        // Enhanced status detection from log messages
+        const message = log.message.toLowerCase();
+
+        if (message.includes("warming up") || message.includes("warm-up")) {
+          updateStatus("warming-up", "Browser warming up session...");
+        } else if (
+          message.includes("captcha") &&
+          message.includes("detected")
+        ) {
+          updateStatus("captcha", "CAPTCHA challenge detected - solving...");
+        } else if (message.includes("captcha") && message.includes("solved")) {
+          updateStatus("searching", "CAPTCHA solved - resuming search...");
+        } else if (
+          message.includes("testing asocks") ||
+          message.includes("api connection")
+        ) {
+          updateStatus("initializing", "Testing proxy connections...");
+        } else if (
+          message.includes("proxy switch") ||
+          message.includes("switching proxy")
+        ) {
+          updateStatus("initializing", "Switching to new proxy...");
+        } else if (
+          message.includes("performing search") ||
+          message.includes("searching")
+        ) {
+          updateStatus("searching", "Performing search query...");
+        } else if (message.includes("extracting results")) {
+          updateStatus("searching", "Extracting search results...");
+        } else if (message.includes("delaying") && message.includes("search")) {
+          updateStatus("searching", "Waiting between searches...");
+        }
+
+        // Show important logs as notifications
+        if (log.level === "error") {
+          showNotification(`⚠️ ${log.message}`, "warning");
+        } else if (
+          message.includes("captcha") ||
+          message.includes("proxy") ||
+          message.includes("warm")
+        ) {
+          showNotification(`📋 ${log.message}`, "info");
+        }
+
+        console.log("📋 New log:", log);
       });
 
-      // Update functions
+      socket.on("sessionEnd", (data) => {
+        console.log("🏁 Session ended:", data);
+
+        // Clear runtime interval
+        if (runtimeInterval) {
+          clearInterval(runtimeInterval);
+          runtimeInterval = null;
+        }
+
+        // Update UI back to idle state
+        updateStatus("idle");
+
+        // Show completion notification
+        if (data.success) {
+          showNotification(
+            "✅ Dorking session completed successfully!",
+            "success"
+          );
+        } else {
+          showNotification("⚠️ Dorking session ended", "warning");
+        }
+
+        // Switch back to start mode
+        setTimeout(() => {
+          const startStopBtn = document.getElementById("start-stop-btn");
+          startStopBtn.innerHTML = '<i class="fas fa-play"></i> Start';
+          startStopBtn.className = "btn btn-primary";
+          startStopBtn.style.borderColor = "";
+          startStopBtn.style.color = "";
+
+          // Keep export URLs button visible if there are results
+          const exportUrlsBtn = document.getElementById("export-urls-btn");
+          if (sessionData.results && sessionData.results.length > 0) {
+            exportUrlsBtn.style.display = "inline-flex";
+          }
+        }, 1000);
+      });
+
+      socket.on("error", (error) => {
+        console.error("❌ Socket error:", error);
+        showNotification(`❌ Connection error: ${error.message}`, "error");
+      });
+
+      // Update functions - Enhanced for real-time live stats
       function updateStats(stats) {
-        // Progress
+        console.log("📊 Live stats update:", stats);
+
+        // Progress with live animation
         const progress =
           stats.totalDorks > 0
             ? (stats.processedDorks / stats.totalDorks) * 100
@@ -1276,33 +1728,59 @@
         document.getElementById("progress-percentage").textContent =
           Math.round(progress) + "%";
         document.getElementById("processed-count").textContent =
-          stats.processedDorks;
-        document.getElementById("total-count").textContent = stats.totalDorks;
+          stats.processedDorks || 0;
+        document.getElementById("total-count").textContent =
+          stats.totalDorks || 0;
         updateProgressRing(progress);
 
-        // Success rate
+        // Success rate with trend indication
         const successRate =
           stats.processedDorks > 0
             ? Math.round((stats.successfulDorks / stats.processedDorks) * 100)
             : 0;
         document.getElementById("success-rate").textContent = successRate + "%";
         document.getElementById("successful-count").textContent =
-          stats.successfulDorks;
+          stats.successfulDorks || 0;
 
-        // Results
+        // Results metrics
         document.getElementById("total-results").textContent =
-          stats.totalResults;
+          stats.totalResults || 0;
         const avgResults =
           stats.successfulDorks > 0
             ? Math.round(stats.totalResults / stats.successfulDorks)
             : 0;
         document.getElementById("avg-results").textContent = avgResults;
 
-        // Security
+        // Update live status metrics
+        const liveProgress = document.getElementById("live-progress");
+        const liveResults = document.getElementById("live-results");
+        const liveRuntime = document.getElementById("live-runtime");
+
+        if (liveProgress) {
+          liveProgress.textContent = `${stats.processedDorks || 0} / ${
+            stats.totalDorks || 0
+          }`;
+        }
+        if (liveResults) {
+          liveResults.textContent = stats.totalResults || 0;
+        }
+        if (liveRuntime && startTime) {
+          const now = new Date();
+          const diff = now - startTime;
+          const hours = Math.floor(diff / (1000 * 60 * 60));
+          const minutes = Math.floor((diff % (1000 * 60 * 60)) / (1000 * 60));
+          const seconds = Math.floor((diff % (1000 * 60)) / 1000);
+          const runtime = `${hours.toString().padStart(2, "0")}:${minutes
+            .toString()
+            .padStart(2, "0")}:${seconds.toString().padStart(2, "0")}`;
+          liveRuntime.textContent = runtime;
+        }
+
+        // Security metrics
         document.getElementById("captcha-encounters").textContent =
-          stats.captchaEncounters;
+          stats.captchaEncounters || 0;
         document.getElementById("captcha-solved").textContent =
-          stats.captchaSolved;
+          stats.captchaSolved || 0;
         const captchaRate =
           stats.captchaEncounters > 0
             ? Math.round((stats.captchaSolved / stats.captchaEncounters) * 100)
@@ -1311,20 +1789,20 @@
           "captcha-rate"
         ).innerHTML = `<span>${captchaRate}%</span> solve rate`;
 
-        // Status
-        updateStatus(stats.status);
+        // Live status updates
+        updateStatus(stats.status || "running");
 
-        // Current dork
-        document.getElementById("current-dork").textContent =
-          stats.currentDork || "No dork currently being processed";
+        // Current activity - show what's happening right now
+        const currentDorkText = stats.currentDork || "Waiting for next dork...";
+        document.getElementById("current-dork").textContent = currentDorkText;
 
-        // Proxy
+        // Proxy information
         const proxyText = stats.proxy
           ? `${stats.proxy.host}:${stats.proxy.port}`
-          : "None";
+          : "Direct connection";
         document.getElementById("current-proxy").textContent = proxyText;
 
-        // Start time and runtime
+        // Initialize start time if not set
         if (stats.startTime && !startTime) {
           startTime = new Date(stats.startTime);
           document.getElementById("start-time").textContent =
@@ -1334,12 +1812,88 @@
             runtimeInterval = setInterval(updateRuntime, 1000);
           }
         }
+
+        // Add visual feedback for active updates
+        const statusEl = document.getElementById("status-indicator");
+        if (statusEl && stats.status === "running") {
+          statusEl.style.animation = "pulse 2s infinite";
+          setTimeout(() => {
+            if (statusEl) statusEl.style.animation = "";
+          }, 1000);
+        }
       }
 
-      function updateStatus(status) {
+      function updateStatus(status, details = null) {
         const statusEl = document.getElementById("status-indicator");
+        const detailsEl = document.getElementById("status-details");
+        const mainStatusPill = document.getElementById("main-status-pill");
+        const mainStatusText = document.getElementById("main-status-text");
+
+        // Update header status pill
         statusEl.textContent = status.charAt(0).toUpperCase() + status.slice(1);
-        statusEl.className = `status-pill status-${status}`;
+        statusEl.className = `status-pill status-${status.replace(
+          /[^a-z-]/gi,
+          ""
+        )}`;
+
+        // Update main status pill
+        const statusIcons = {
+          idle: "fas fa-pause-circle",
+          initializing: "fas fa-cog fa-spin",
+          "warming-up": "fas fa-fire",
+          searching: "fas fa-search",
+          captcha: "fas fa-lock",
+          running: "fas fa-play-circle",
+          completed: "fas fa-check-circle",
+          error: "fas fa-exclamation-circle",
+        };
+
+        const icon = statusIcons[status] || "fas fa-question-circle";
+        const cleanStatus = status.replace(/[^a-z-]/gi, "");
+
+        if (mainStatusPill) {
+          mainStatusPill.className = `main-status-pill status-${cleanStatus}`;
+          mainStatusPill.innerHTML = `
+            <i class="${icon}"></i>
+            <span>${status.charAt(0).toUpperCase() + status.slice(1)}</span>
+          `;
+        }
+
+        // Update status details/text
+        const statusText = details || getDefaultStatusText(status);
+        detailsEl.textContent = statusText;
+        if (mainStatusText) {
+          mainStatusText.textContent = statusText;
+        }
+
+        if (details) {
+          detailsEl.style.display = "block";
+        }
+
+        console.log(`🔄 Status updated: ${status} - ${statusText}`);
+      }
+
+      function getDefaultStatusText(status) {
+        switch (status) {
+          case "idle":
+            return "Ready to start dorking session";
+          case "initializing":
+            return "Setting up browser and connections...";
+          case "warming-up":
+            return "Warming up browser session...";
+          case "searching":
+            return "Actively searching for results...";
+          case "captcha":
+            return "Solving CAPTCHA challenge...";
+          case "running":
+            return "Session active and processing dorks";
+          case "completed":
+            return "Session completed successfully";
+          case "error":
+            return "An error occurred during processing";
+          default:
+            return status;
+        }
       }
 
       function updateProgressRing(progress) {
@@ -1443,11 +1997,16 @@
           .slice(0, 5)
           .map(
             (url) =>
-              `<a href="${
+              `<div class="result-url-container">
+                 <div class="result-url-title">${escapeHtml(
+                   url.title || "No title"
+                 )}</div>
+                 <a href="${
+                   url.url
+                 }" target="_blank" class="result-url">${escapeHtml(
                 url.url
-              }" target="_blank" class="result-url">${escapeHtml(
-                url.title || url.url
-              )}</a>`
+              )}</a>
+               </div>`
           )
           .join("");
 
@@ -1482,15 +2041,39 @@
           container.innerHTML = "";
         }
 
+        // Filter for important logs
+        const isImportantLog = isLogImportant(log);
+
         const logEl = document.createElement("div");
-        logEl.className = "log-entry";
+        logEl.className = isImportantLog
+          ? "log-entry important-log"
+          : "log-entry";
 
         const time = new Date(log.timestamp).toLocaleTimeString();
+
+        // Add icons for important log types
+        let logIcon = "";
+        const message = log.message.toLowerCase();
+        if (message.includes("captcha")) {
+          logIcon = "🔒 ";
+        } else if (message.includes("proxy")) {
+          logIcon = "🌍 ";
+        } else if (message.includes("warm")) {
+          logIcon = "🔥 ";
+        } else if (message.includes("search") || message.includes("dork")) {
+          logIcon = "🔍 ";
+        } else if (message.includes("result")) {
+          logIcon = "📊 ";
+        } else if (log.level === "error") {
+          logIcon = "❌ ";
+        } else if (log.level === "success") {
+          logIcon = "✅ ";
+        }
 
         logEl.innerHTML = `
           <span class="log-time">${time}</span>
           <span class="log-level ${log.level}">${log.level}</span>
-          <span class="log-message">${escapeHtml(log.message)}</span>
+          <span class="log-message">${logIcon}${escapeHtml(log.message)}</span>
         `;
 
         container.insertBefore(logEl, container.firstChild);
@@ -1499,6 +2082,32 @@
         while (container.children.length > 100) {
           container.removeChild(container.lastChild);
         }
+      }
+
+      function isLogImportant(log) {
+        const message = log.message.toLowerCase();
+        const importantKeywords = [
+          "captcha",
+          "proxy",
+          "warm",
+          "error",
+          "failed",
+          "success",
+          "completed",
+          "started",
+          "api",
+          "connection",
+          "browser",
+          "result",
+          "found",
+          "extracted",
+        ];
+
+        return (
+          log.level === "error" ||
+          log.level === "success" ||
+          importantKeywords.some((keyword) => message.includes(keyword))
+        );
       }
 
       function showNotification(message, type = "info") {
@@ -1539,6 +2148,12 @@
         socket.emit("requestData");
 
         // Header control buttons
+        document
+          .getElementById("start-stop-btn")
+          .addEventListener("click", handleStartStopClick);
+        document
+          .getElementById("export-urls-btn")
+          .addEventListener("click", exportURLs);
         document
           .getElementById("theme-toggle-btn")
           .addEventListener("click", toggleTheme);
@@ -1618,6 +2233,64 @@
         } else {
           document.exitFullscreen();
         }
+      }
+
+      function handleStartStopClick() {
+        const btn = document.getElementById("start-stop-btn");
+        const icon = btn.querySelector("i");
+
+        if (btn.textContent.trim().includes("Start")) {
+          // Start dorking
+          showConfigModal();
+        } else {
+          // Stop dorking
+          stopDorking();
+        }
+      }
+
+      function exportURLs() {
+        if (!sessionData.results || sessionData.results.length === 0) {
+          showNotification("⚠️ No results to export", "warning");
+          return;
+        }
+
+        // Collect all URLs from all results
+        const allUrls = [];
+        sessionData.results.forEach((result) => {
+          if (result.results && Array.isArray(result.results)) {
+            result.results.forEach((url) => {
+              if (url.url) {
+                allUrls.push(url.url);
+              }
+            });
+          }
+        });
+
+        if (allUrls.length === 0) {
+          showNotification("⚠️ No URLs found to export", "warning");
+          return;
+        }
+
+        // Remove duplicates
+        const uniqueUrls = [...new Set(allUrls)];
+
+        // Create and download file
+        const urlsText = uniqueUrls.join("\n");
+        const blob = new Blob([urlsText], { type: "text/plain" });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement("a");
+        a.href = url;
+        a.download = `dorker-urls-${
+          new Date().toISOString().split("T")[0]
+        }.txt`;
+        a.click();
+        URL.revokeObjectURL(url);
+
+        showNotification(
+          `📎 Exported ${uniqueUrls.length} unique URLs`,
+          "success"
+        );
+        console.log(`📎 Exported ${uniqueUrls.length} URLs to file`);
       }
 
       function exportData() {
@@ -1701,34 +2374,30 @@
       }
 
       function setupServerModeUI(serverModeData) {
-        // Add configuration button to header if in server mode
-        const headerControls = document.querySelector(".header-controls");
+        const startStopBtn = document.getElementById("start-stop-btn");
+        const exportUrlsBtn = document.getElementById("export-urls-btn");
+
+        // Show start/stop button
+        startStopBtn.style.display = "inline-flex";
 
         // Check if server mode and can start
         if (serverModeData.canStart) {
-          const configBtn = document.createElement("button");
-          configBtn.className = "btn btn-primary";
-          configBtn.id = "config-btn";
-          configBtn.innerHTML = '<i class="fas fa-cog"></i> Configure & Start';
-          configBtn.addEventListener("click", showConfigModal);
-          headerControls.insertBefore(configBtn, headerControls.firstChild);
+          startStopBtn.innerHTML = '<i class="fas fa-play"></i> Start';
+          startStopBtn.className = "btn btn-primary";
         }
 
-        // Add stop button if running
+        // Update for running state
         if (serverModeData.status === "running") {
-          const stopBtn = document.createElement("button");
-          stopBtn.className = "btn";
-          stopBtn.style.borderColor = "var(--error-color)";
-          stopBtn.style.color = "var(--error-color)";
-          stopBtn.id = "stop-btn";
-          stopBtn.innerHTML = '<i class="fas fa-stop"></i> Stop Dorking';
-          stopBtn.addEventListener("click", stopDorking);
-          headerControls.insertBefore(stopBtn, headerControls.firstChild);
+          startStopBtn.innerHTML = '<i class="fas fa-stop"></i> Stop';
+          startStopBtn.className = "btn";
+          startStopBtn.style.borderColor = "var(--error-color)";
+          startStopBtn.style.color = "var(--error-color)";
+          exportUrlsBtn.style.display = "inline-flex";
         }
 
         // Show server mode indicator
         showNotification(
-          "Server mode active - configure from web interface",
+          "🌐 Server mode active - enhanced controls available",
           "info"
         );
       }
@@ -1741,25 +2410,36 @@
         const configModal = document.getElementById("config-modal");
         configModal.classList.remove("show");
 
-        // Ensure modal is properly hidden
-        setTimeout(() => {
-          if (!configModal.classList.contains("show")) {
-            configModal.style.visibility = "hidden";
-            configModal.style.opacity = "0";
-            configModal.style.pointerEvents = "none";
-          }
-        }, 300);
+        // Immediately hide the modal for better UX
+        configModal.style.opacity = "0";
+        configModal.style.visibility = "hidden";
+        configModal.style.pointerEvents = "none";
+
+        console.log("⚙️ Configuration modal closed");
       }
 
       async function startDorkingWithConfig() {
         const form = document.getElementById("config-form");
         const formData = new FormData(form);
 
+        const minDelay = parseInt(formData.get("minDelay"));
+        const maxDelay = parseInt(formData.get("maxDelay"));
+
+        // Validate delay range
+        if (maxDelay <= minDelay) {
+          showNotification(
+            "Maximum delay must be greater than minimum delay",
+            "error"
+          );
+          return;
+        }
+
         const config = {
           dorkFile: formData.get("dorkFile"),
           outputFile: formData.get("outputFile"),
           resultCount: parseInt(formData.get("resultCount")),
-          delay: parseInt(formData.get("delay")),
+          minDelay: minDelay,
+          maxDelay: maxDelay,
           maxPause: parseInt(formData.get("maxPause")),
           headless: formData.get("headless") === "on",
           userAgent: formData.get("userAgent") || null,
@@ -1770,8 +2450,18 @@
           verbose: true,
         };
 
+        // IMMEDIATELY close the modal before making the request
+        const configModal = document.getElementById("config-modal");
+        configModal.classList.remove("show");
+        configModal.style.opacity = "0";
+        configModal.style.visibility = "hidden";
+        configModal.style.pointerEvents = "none";
+
+        // Prepare UI for live stats immediately
+        initializeLiveStatsDisplay();
+
         try {
-          showNotification("Starting dorking session...", "info");
+          showNotification("🚀 Starting dorking session...", "info");
 
           const response = await fetch("/api/start-dorking", {
             method: "POST",
@@ -1785,44 +2475,120 @@
 
           if (result.success) {
             showNotification(
-              "Dorking session started successfully!",
+              "✅ Dorking session started successfully!",
               "success"
             );
 
-            // Force close the configuration modal
-            const configModal = document.getElementById("config-modal");
-            configModal.classList.remove("show");
-
-            // Double-check modal is closed
-            setTimeout(() => {
-              configModal.style.display = "none";
-              setTimeout(() => {
-                configModal.style.display = "";
-              }, 100);
-            }, 500);
-
-            // Remove config button and add stop button
-            const configBtn = document.getElementById("config-btn");
-            if (configBtn) configBtn.remove();
-
-            const headerControls = document.querySelector(".header-controls");
-            const stopBtn = document.createElement("button");
-            stopBtn.className = "btn";
-            stopBtn.style.borderColor = "var(--error-color)";
-            stopBtn.style.color = "var(--error-color)";
-            stopBtn.id = "stop-btn";
-            stopBtn.innerHTML = '<i class="fas fa-stop"></i> Stop Dorking';
-            stopBtn.addEventListener("click", stopDorking);
-            headerControls.insertBefore(stopBtn, headerControls.firstChild);
+            // Update UI for running state
+            updateUIForRunningState();
           } else {
             showNotification(
-              `Failed to start dorking: ${result.error}`,
+              `❌ Failed to start dorking: ${result.error}`,
               "error"
             );
+            // Re-show modal if there was an error
+            configModal.classList.add("show");
+            configModal.style.opacity = "1";
+            configModal.style.visibility = "visible";
+            configModal.style.pointerEvents = "all";
           }
         } catch (error) {
-          showNotification(`Error starting dorking: ${error.message}`, "error");
+          showNotification(
+            `❌ Error starting dorking: ${error.message}`,
+            "error"
+          );
+          // Re-show modal if there was an error
+          configModal.classList.add("show");
+          configModal.style.opacity = "1";
+          configModal.style.visibility = "visible";
+          configModal.style.pointerEvents = "all";
         }
+      }
+
+      // Initialize the UI for live stats display
+      function initializeLiveStatsDisplay() {
+        // Reset all stats to show "0" but make them visible
+        document.getElementById("progress-percentage").textContent = "0%";
+        document.getElementById("processed-count").textContent = "0";
+        document.getElementById("total-count").textContent = "0";
+        document.getElementById("success-rate").textContent = "0%";
+        document.getElementById("successful-count").textContent = "0";
+        document.getElementById("total-results").textContent = "0";
+        document.getElementById("avg-results").textContent = "0";
+        document.getElementById("captcha-encounters").textContent = "0";
+        document.getElementById("captcha-solved").textContent = "0";
+        document.getElementById("captcha-rate").innerHTML =
+          "<span>0%</span> solve rate";
+
+        // Set status to "initializing"
+        updateStatus("initializing", "Preparing to start dorking session...");
+
+        // Reset progress ring
+        updateProgressRing(0);
+
+        // Clear results and logs containers but show "waiting" state
+        const resultsContainer = document.getElementById("results-container");
+        resultsContainer.innerHTML = `
+          <div style="text-align: center; padding: 3rem; color: var(--text-secondary);">
+            <i class="fas fa-search" style="font-size: 2rem; margin-bottom: 1rem; opacity: 0.5;"></i>
+            <div>🔍 Session starting... waiting for results...</div>
+          </div>
+        `;
+
+        const logsContainer = document.getElementById("logs-container");
+        logsContainer.innerHTML = `
+          <div style="text-align: center; padding: 3rem; color: var(--text-secondary);">
+            <i class="fas fa-terminal" style="font-size: 2rem; margin-bottom: 1rem; opacity: 0.5;"></i>
+            <div>📋 Session starting... waiting for logs...</div>
+          </div>
+        `;
+
+        // Reset performance chart
+        if (performanceChart) {
+          performanceChart.data.labels = [];
+          performanceChart.data.datasets[0].data = [];
+          performanceChart.update();
+        }
+
+        // Reset session data
+        sessionData = {
+          results: [],
+          logs: [],
+          stats: {},
+          performanceData: [],
+        };
+
+        // Set current dork to waiting state
+        document.getElementById("current-dork").textContent =
+          "Initializing session...";
+        document.getElementById("current-proxy").textContent = "None";
+        document.getElementById("start-time").textContent = "Starting...";
+        document.getElementById("runtime").textContent = "00:00:00";
+
+        console.log(
+          "🎯 Live stats display initialized - ready for real-time updates"
+        );
+      }
+
+      // Update UI elements for running state
+      function updateUIForRunningState() {
+        const startStopBtn = document.getElementById("start-stop-btn");
+        const exportUrlsBtn = document.getElementById("export-urls-btn");
+
+        // Update start/stop button to stop mode
+        startStopBtn.innerHTML = '<i class="fas fa-stop"></i> Stop';
+        startStopBtn.className = "btn";
+        startStopBtn.style.borderColor = "var(--error-color)";
+        startStopBtn.style.color = "var(--error-color)";
+        startStopBtn.style.display = "inline-flex";
+
+        // Show export URLs button
+        exportUrlsBtn.style.display = "inline-flex";
+
+        // Set status to running
+        updateStatus("running", "Session active - monitoring progress...");
+
+        console.log("🏃 UI updated for running state - live stats active");
       }
 
       async function stopDorking() {

@@ -656,29 +656,51 @@ class MultiEngineDorker {
         const seenUrls = new Set();
         const seenTitles = new Set(); // Also track titles to prevent exact duplicates
 
-        // Helper function to decode URL from Google redirect
+        // Helper function to decode URL from Google redirect - handles multiple patterns
         function extractRealUrl(href) {
           if (!href) return null;
 
-          // Handle Google redirect URLs (/url?q=...)
-          if (href.includes("/url?q=")) {
+          // Handle Google redirect URLs with different patterns
+          if (href.includes("/url?")) {
             try {
               const urlPart = href.split("/url?")[1];
               const urlParams = new URLSearchParams(urlPart);
-              const realUrl = urlParams.get("q");
+
+              // Try different parameter names where the real URL might be stored
+              let realUrl = urlParams.get("q") || urlParams.get("url");
+
               if (realUrl) {
                 const decoded = decodeURIComponent(realUrl);
-                // Normalize URL to prevent duplicates
-                return normalizeUrl(decoded);
+
+                // Skip Google internal URLs and policies/TOS pages
+                if (
+                  decoded.includes("google.com") ||
+                  decoded.includes("gstatic.com") ||
+                  decoded.includes("googleusercontent.com") ||
+                  decoded.includes("youtube.com") ||
+                  decoded.includes("accounts.google.com") ||
+                  decoded.includes("maps.google.com") ||
+                  decoded.includes("translate.google.com") ||
+                  decoded.includes("policies.google.com") ||
+                  decoded.includes("support.google.com") ||
+                  decoded.includes("/policies/") ||
+                  decoded.includes("/terms") ||
+                  decoded.includes("/privacy")
+                ) {
+                  return null;
+                }
+
+                // Only return valid HTTP/HTTPS URLs
+                if (
+                  decoded.startsWith("http://") ||
+                  decoded.startsWith("https://")
+                ) {
+                  return normalizeUrl(decoded);
+                }
               }
             } catch (e) {
               console.log("Error parsing redirect URL:", e);
             }
-          }
-
-          // Handle direct URLs
-          if (href.startsWith("http")) {
-            return normalizeUrl(href);
           }
 
           return null;
@@ -742,36 +764,23 @@ class MultiEngineDorker {
           return text ? text.trim().replace(/\s+/g, " ") : "";
         }
 
-        // Strategy 1: Modern Google results (2024+ format) - Priority search
-        console.log("Trying modern Google results extraction...");
+        // Strategy 1: Google result links (multiple patterns)
+        console.log("Trying Google result link extraction...");
 
-        // Look for modern result containers
-        const modernContainers = Array.from(
-          document.querySelectorAll(
-            'div[data-ved] a[href*="/url?q="], a[href*="/url?q="][data-ved]'
-          )
+        // Look for Google result links with different URL patterns
+        const resultLinks = Array.from(
+          document.querySelectorAll('a[href*="/url?"][data-ved]')
         );
 
-        console.log(`Found ${modernContainers.length} modern result links`);
+        console.log(`Found ${resultLinks.length} result links`);
 
-        for (const link of modernContainers) {
+        for (const link of resultLinks) {
           if (results.length >= max) break;
 
           const url = extractRealUrl(link.href);
           if (!url || seenUrls.has(url)) continue;
 
-          // Skip Google internal URLs
-          if (
-            url.includes("google.com") ||
-            url.includes("gstatic.com") ||
-            url.includes("googleusercontent.com") ||
-            url.includes("youtube.com") ||
-            url.includes("accounts.google.com") ||
-            url.includes("maps.google.com") ||
-            url.includes("translate.google.com")
-          ) {
-            continue;
-          }
+          // URL filtering is now handled in extractRealUrl function
 
           let title = "";
           let description = "";
@@ -860,79 +869,35 @@ class MultiEngineDorker {
           }
         }
 
-        // Strategy 2: Fallback - Look for all links that look like search results
+        // Strategy 2: Simplified fallback - Broader href patterns
         if (results.length === 0) {
-          console.log("No modern results found, trying fallback extraction...");
+          console.log("No results found, trying simplified fallback...");
 
-          const allLinks = Array.from(
-            document.querySelectorAll('a[href*="/url?q="], a[href^="http"]')
+          const fallbackLinks = Array.from(
+            document.querySelectorAll('a[href*="/url?"]')
           );
 
-          console.log(`Found ${allLinks.length} potential result links`);
+          console.log(`Found ${fallbackLinks.length} fallback result links`);
 
-          for (const link of allLinks) {
+          for (const link of fallbackLinks) {
             if (results.length >= max) break;
 
             const url = extractRealUrl(link.href);
             if (!url || seenUrls.has(url)) continue;
 
-            // Skip Google internal URLs
-            if (
-              url.includes("google.com") ||
-              url.includes("gstatic.com") ||
-              url.includes("googleusercontent.com") ||
-              url.includes("youtube.com") ||
-              url.includes("accounts.google.com")
-            ) {
-              continue;
-            }
+            // URL filtering is now handled in extractRealUrl function
 
-            // Try to find title from various places
+            // Try to find title from h3 elements only
             let title = "";
-
-            // Check if link has h3 parent or child
             const h3Element =
               link.querySelector("h3") ||
-              link.closest("h3") ||
-              link.parentElement?.querySelector("h3") ||
-              link.parentElement?.parentElement?.querySelector("h3");
+              link.closest("div").querySelector("h3") ||
+              link.parentElement?.querySelector("h3");
 
             if (h3Element) {
               title = cleanText(h3Element.textContent);
             } else {
-              // Fallback to link text or nearby text
-              title =
-                cleanText(link.textContent) ||
-                cleanText(link.getAttribute("aria-label")) ||
-                "No title";
-            }
-
-            // Try to find description
-            let description = "";
-
-            // Look for description in common Google result classes
-            const container =
-              link.closest("div.g, div[data-ved], .rc, div") ||
-              link.parentElement;
-            if (container) {
-              const descSelectors = [
-                ".VwiC3b",
-                ".s",
-                ".st",
-                'span[style*="color"]',
-                'div[style*="color"]',
-                ".f",
-                ".fG8Fp",
-                ".aCOpRe",
-              ];
-
-              for (const selector of descSelectors) {
-                const descElement = container.querySelector(selector);
-                if (descElement && descElement.textContent.trim()) {
-                  description = cleanText(descElement.textContent);
-                  break;
-                }
-              }
+              title = "No title";
             }
 
             if (title && title !== "No title" && !seenTitles.has(title)) {
@@ -941,126 +906,52 @@ class MultiEngineDorker {
               results.push({
                 title: title,
                 url: url,
-                description: description,
+                description: "",
               });
+              console.log(`Extracted fallback result: ${title} -> ${url}`);
             }
           }
         }
 
-        // Strategy 3: Traditional container-based extraction (final fallback)
+        // Strategy 3: Container-based extraction (for all /url? links)
         if (results.length === 0) {
-          console.log(
-            "No results from link extraction, trying container-based extraction..."
+          console.log("Trying container-based extraction for /url? links...");
+
+          // Only look for containers that have /url? links
+          const containers = Array.from(
+            document.querySelectorAll("div.g, div[data-ved], div.MjjYud")
           );
 
-          const containerSelectors = [
-            "div.g", // Standard Google result
-            "div[data-ved]", // Alternative result selector
-            ".rc", // Classic result container
-            "div.Gx5Zad", // Another Google container
-            "div.Wt5Tfe", // Mobile result container
-            "div.MjjYud", // Modern result container
-            "div.kvH3mc", // Another modern container
-            "div.N54PNb", // Additional modern container
-            "div.Jb0Zif", // More modern containers
-          ];
-
-          for (const selector of containerSelectors) {
+          for (const container of containers) {
             if (results.length >= max) break;
 
-            const elements = document.querySelectorAll(selector);
+            // Only get /url? links from this container
+            const linkElement = container.querySelector('a[href*="/url?"]');
+            if (!linkElement) continue;
 
-            for (let i = 0; i < Math.min(elements.length, max); i++) {
-              if (results.length >= max) break;
+            const url = extractRealUrl(linkElement.href);
+            if (!url || seenUrls.has(url)) continue;
 
-              const element = elements[i];
+            // URL filtering is now handled in extractRealUrl function
 
-              // Try to find link
-              const linkElement =
-                element.querySelector("a[href]") ||
-                element.querySelector("a[data-ved]") ||
-                element.querySelector("h3 a");
+            // Extract title from h3 only
+            let title = "";
+            const h3Element = container.querySelector("h3");
+            if (h3Element) {
+              title = cleanText(h3Element.textContent);
+            } else {
+              title = "No title";
+            }
 
-              if (!linkElement) continue;
-
-              const url = extractRealUrl(linkElement.href);
-              if (!url || seenUrls.has(url)) continue;
-
-              // Skip Google internal URLs
-              if (url.includes("google.com") || url.includes("gstatic.com")) {
-                continue;
-              }
-
-              // Extract title with modern selectors
-              const titleSelectors = [
-                "h3.zBAuLc",
-                "h3.l97dzf",
-                "h3.LC20lb", // Modern title classes
-                "h3",
-                "a h3", // Classic title selectors
-                ".zBAuLc",
-                ".l97dzf",
-                ".LC20lb", // Modern classes without h3
-                ".ilUpNd",
-                ".UFvD1",
-                ".aSRlid",
-                ".IwSnJ", // Additional modern classes
-              ];
-
-              let title = "";
-              for (const selector of titleSelectors) {
-                const titleElement = element.querySelector(selector);
-                if (titleElement && titleElement.textContent.trim()) {
-                  title = cleanText(titleElement.textContent);
-                  break;
-                }
-              }
-
-              if (!title) {
-                title = linkElement
-                  ? cleanText(linkElement.textContent)
-                  : "No title";
-              }
-
-              // Extract description with modern selectors
-              const descSelectors = [
-                ".VwiC3b",
-                ".s",
-                ".st", // Classic description classes
-                ".sCuL3",
-                ".BamJPe",
-                ".XR4uSe", // Modern description classes
-                ".lEBKkf",
-                ".hgKElc",
-                ".YUQM0", // Additional modern classes
-                'span[style*="color"]',
-                'div[style*="color"]',
-                ".f",
-                ".fG8Fp",
-                ".aCOpRe",
-                ".IsZvec",
-                ".ygGdYc",
-                ".lyLwlc", // More modern classes
-              ];
-
-              let description = "";
-              for (const selector of descSelectors) {
-                const descElement = element.querySelector(selector);
-                if (descElement && descElement.textContent.trim()) {
-                  description = cleanText(descElement.textContent);
-                  break;
-                }
-              }
-
-              if (title && title !== "No title" && !seenTitles.has(title)) {
-                seenUrls.add(url);
-                seenTitles.add(title);
-                results.push({
-                  title: title,
-                  url: url,
-                  description: description,
-                });
-              }
+            if (title && title !== "No title" && !seenTitles.has(title)) {
+              seenUrls.add(url);
+              seenTitles.add(title);
+              results.push({
+                title: title,
+                url: url,
+                description: "",
+              });
+              console.log(`Extracted container result: ${title} -> ${url}`);
             }
           }
         }
@@ -1153,16 +1044,28 @@ class MultiEngineDorker {
   }
 
   /**
-   * Perform delay between searches
+   * Perform delay between searches with random timing
    */
   async delayBetweenSearches() {
-    const baseDelay = this.config.delay * 1000;
+    // Use new delay range if available, fallback to old single delay for backward compatibility
+    const minDelay = (this.config.minDelay || this.config.delay || 10) * 1000;
+    const maxDelay = (this.config.maxDelay || this.config.delay || 45) * 1000;
+
+    // Generate random delay within the specified range
+    const randomDelay =
+      Math.floor(Math.random() * (maxDelay - minDelay + 1)) + minDelay;
+
     const maxPause = this.config.maxPause * 1000;
 
+    this.logger?.info(`Delaying ${randomDelay / 1000}s before next search`, {
+      range: `${minDelay / 1000}-${maxDelay / 1000}s`,
+      selected: `${randomDelay / 1000}s`,
+    });
+
     if (this.config.humanLike) {
-      await humanDelay(baseDelay, maxPause, this.logger);
+      await humanDelay(randomDelay, maxPause, this.logger);
     } else {
-      await sleep(baseDelay, "delay between searches", this.logger);
+      await sleep(randomDelay, "delay between searches", this.logger);
     }
   }
 
