@@ -7,6 +7,8 @@
   "scripts": {
     "start": "npm run lint && node index.js",
     "dev": "node index.js",
+    "server": "node index.js --server",
+    "server:port": "node index.js --server --port",
     "interactive": "node index.js --interactive",
     "lint": "eslint index.js --fix",
     "lint:check": "eslint index.js",

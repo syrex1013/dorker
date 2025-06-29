@@ -40,6 +40,13 @@ class DashboardServer {
     this.connectedClients = 0;
     this.notifications = [];
 
+    // Server mode handlers
+    this.serverModeHandlers = {
+      onStartDorking: null,
+      onStopDorking: null,
+    };
+    this.isServerMode = false;
+
     this.setupMiddleware();
     this.setupRoutes();
     this.setupSocketIO();
@@ -105,7 +112,61 @@ class DashboardServer {
         connectedClients: this.connectedClients,
         memoryUsage: process.memoryUsage(),
         lastUpdate: new Date().toISOString(),
+        serverMode: this.isServerMode,
       });
+    });
+
+    // Server mode endpoints
+    this.app.get("/api/server-mode", (req, res) => {
+      res.json({
+        enabled: this.isServerMode,
+        status: this.stats.status,
+        canStart:
+          this.stats.status === "idle" ||
+          this.stats.status === "completed" ||
+          this.stats.status === "error",
+      });
+    });
+
+    this.app.post("/api/start-dorking", async (req, res) => {
+      if (!this.isServerMode) {
+        return res.status(400).json({ error: "Server mode not enabled" });
+      }
+
+      if (!this.serverModeHandlers.onStartDorking) {
+        return res.status(500).json({ error: "Start handler not configured" });
+      }
+
+      if (this.stats.status === "running") {
+        return res
+          .status(400)
+          .json({ error: "Dorking session already running" });
+      }
+
+      try {
+        const config = req.body;
+        const result = await this.serverModeHandlers.onStartDorking(config);
+        res.json(result);
+      } catch (error) {
+        res.status(500).json({ error: error.message });
+      }
+    });
+
+    this.app.post("/api/stop-dorking", async (req, res) => {
+      if (!this.isServerMode) {
+        return res.status(400).json({ error: "Server mode not enabled" });
+      }
+
+      if (!this.serverModeHandlers.onStopDorking) {
+        return res.status(500).json({ error: "Stop handler not configured" });
+      }
+
+      try {
+        const result = await this.serverModeHandlers.onStopDorking();
+        res.json(result);
+      } catch (error) {
+        res.status(500).json({ error: error.message });
+      }
     });
   }
 
@@ -594,6 +655,16 @@ class DashboardServer {
   // Proxy management with enhanced logging
   updateProxy(proxy) {
     this.setProxy(proxy);
+  }
+
+  // Server mode methods
+  setupServerMode(handlers) {
+    this.isServerMode = true;
+    this.serverModeHandlers = {
+      onStartDorking: handlers.onStartDorking || null,
+      onStopDorking: handlers.onStopDorking || null,
+    };
+    this.addLog("info", "Server mode enabled - ready for web configuration");
   }
 }
 

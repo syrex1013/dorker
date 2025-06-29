@@ -5,6 +5,7 @@ import ora from "ora";
 import Table from "cli-table3";
 import boxen from "boxen";
 import gradient from "gradient-string";
+import { Command } from "commander";
 
 /**
  * Display application banner with gradient colors
@@ -572,6 +573,34 @@ function displayWarning(message) {
   console.log(warningBox);
 }
 
+/**
+ * Parse command line arguments
+ */
+function parseCommandLineArgs() {
+  const program = new Command();
+
+  program
+    .name("dorker")
+    .description("Advanced Google Dorking Tool with Anti-Detection")
+    .version("2.0.0")
+    .option("-s, --server", "Run in server mode with web configuration")
+    .option(
+      "-p, --port <number>",
+      "Port for server mode (default: 3000)",
+      "3000"
+    )
+    .option("-i, --interactive", "Run in interactive mode (default)", false)
+    .parse();
+
+  const options = program.opts();
+
+  return {
+    server: options.server,
+    port: parseInt(options.port) || 3000,
+    interactive: options.interactive || !options.server,
+  };
+}
+
 export {
   displayBanner,
   displayConfig,
@@ -586,4 +615,5 @@ export {
   createSpinner,
   displaySuccess,
   displayWarning,
+  parseCommandLineArgs,
 };

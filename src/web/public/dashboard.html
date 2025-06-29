@@ -498,12 +498,15 @@
         z-index: 3000;
         opacity: 0;
         visibility: hidden;
-        transition: var(--transition);
+        pointer-events: none;
+        transition: opacity 0.3s ease, visibility 0.3s ease,
+          pointer-events 0.3s ease;
       }
 
       .modal.show {
         opacity: 1;
         visibility: visible;
+        pointer-events: all;
       }
 
       .modal-content {
@@ -590,27 +593,7 @@
         background: var(--text-primary);
       }
 
-      /* Export modal */
-      .modal {
-        position: fixed;
-        top: 0;
-        left: 0;
-        right: 0;
-        bottom: 0;
-        background: rgba(0, 0, 0, 0.5);
-        display: flex;
-        align-items: center;
-        justify-content: center;
-        z-index: 3000;
-        opacity: 0;
-        pointer-events: none;
-        transition: opacity 0.3s ease;
-      }
-
-      .modal.show {
-        opacity: 1;
-        pointer-events: all;
-      }
+      /* Remove duplicate modal CSS - keeping the one above */
 
       .modal-content {
         background: var(--bg-primary);
@@ -916,6 +899,217 @@
     <!-- Notifications Container -->
     <div id="notifications-container"></div>
 
+    <!-- Configuration Modal -->
+    <div class="modal" id="config-modal">
+      <div class="modal-content" style="max-width: 600px">
+        <div class="modal-header">
+          <div class="modal-title">🔧 Dorking Configuration</div>
+        </div>
+        <div style="padding: 1rem">
+          <form id="config-form">
+            <div style="margin-bottom: 1rem">
+              <label
+                style="display: block; margin-bottom: 0.5rem; font-weight: 500"
+                >📁 Dork File Path</label
+              >
+              <input
+                type="text"
+                id="dork-file"
+                name="dorkFile"
+                value="dorks.txt"
+                required
+                style="
+                  width: 100%;
+                  padding: 0.5rem;
+                  border: 1px solid var(--border-color);
+                  border-radius: 6px;
+                  background: var(--bg-primary);
+                  color: var(--text-primary);
+                "
+              />
+            </div>
+
+            <div style="margin-bottom: 1rem">
+              <label
+                style="display: block; margin-bottom: 0.5rem; font-weight: 500"
+                >💾 Output File Path</label
+              >
+              <input
+                type="text"
+                id="output-file"
+                name="outputFile"
+                value="results.json"
+                required
+                style="
+                  width: 100%;
+                  padding: 0.5rem;
+                  border: 1px solid var(--border-color);
+                  border-radius: 6px;
+                  background: var(--bg-primary);
+                  color: var(--text-primary);
+                "
+              />
+            </div>
+
+            <div style="margin-bottom: 1rem">
+              <label
+                style="display: block; margin-bottom: 0.5rem; font-weight: 500"
+                >📊 Results per Search</label
+              >
+              <input
+                type="number"
+                id="result-count"
+                name="resultCount"
+                value="30"
+                min="1"
+                max="100"
+                required
+                style="
+                  width: 100%;
+                  padding: 0.5rem;
+                  border: 1px solid var(--border-color);
+                  border-radius: 6px;
+                  background: var(--bg-primary);
+                  color: var(--text-primary);
+                "
+              />
+            </div>
+
+            <div style="margin-bottom: 1rem">
+              <label
+                style="display: block; margin-bottom: 0.5rem; font-weight: 500"
+                >⏱️ Delay between Searches (seconds)</label
+              >
+              <input
+                type="number"
+                id="delay"
+                name="delay"
+                value="45"
+                min="5"
+                max="60"
+                required
+                style="
+                  width: 100%;
+                  padding: 0.5rem;
+                  border: 1px solid var(--border-color);
+                  border-radius: 6px;
+                  background: var(--bg-primary);
+                  color: var(--text-primary);
+                "
+              />
+            </div>
+
+            <div style="margin-bottom: 1rem">
+              <label
+                style="display: block; margin-bottom: 0.5rem; font-weight: 500"
+                >⏸️ Maximum Pause Length (seconds)</label
+              >
+              <input
+                type="number"
+                id="max-pause"
+                name="maxPause"
+                value="60"
+                min="30"
+                max="60"
+                required
+                style="
+                  width: 100%;
+                  padding: 0.5rem;
+                  border: 1px solid var(--border-color);
+                  border-radius: 6px;
+                  background: var(--bg-primary);
+                  color: var(--text-primary);
+                "
+              />
+            </div>
+
+            <div style="margin-bottom: 1rem">
+              <label
+                style="display: block; margin-bottom: 0.5rem; font-weight: 500"
+                >🤖 Custom User Agent (optional)</label
+              >
+              <input
+                type="text"
+                id="user-agent"
+                name="userAgent"
+                placeholder="Leave empty for default browser agent"
+                style="
+                  width: 100%;
+                  padding: 0.5rem;
+                  border: 1px solid var(--border-color);
+                  border-radius: 6px;
+                  background: var(--bg-primary);
+                  color: var(--text-primary);
+                "
+              />
+            </div>
+
+            <div style="margin-bottom: 1rem">
+              <label style="display: block; margin-bottom: 1rem">
+                <input
+                  type="checkbox"
+                  id="headless-mode"
+                  name="headless"
+                  style="margin-right: 0.5rem"
+                />
+                👁️ Run browser in headless mode
+              </label>
+
+              <label style="display: block; margin-bottom: 1rem">
+                <input
+                  type="checkbox"
+                  id="manual-captcha"
+                  name="manualCaptchaMode"
+                  style="margin-right: 0.5rem"
+                />
+                🔐 Enable manual CAPTCHA solving
+              </label>
+
+              <label style="display: block; margin-bottom: 1rem">
+                <input
+                  type="checkbox"
+                  id="human-like"
+                  name="humanLike"
+                  checked
+                  style="margin-right: 0.5rem"
+                />
+                🎭 Enable human-like behavior simulation
+              </label>
+
+              <label style="display: block; margin-bottom: 1rem">
+                <input
+                  type="checkbox"
+                  id="auto-proxy"
+                  name="autoProxy"
+                  style="margin-right: 0.5rem"
+                />
+                🌍 Enable automatic proxy switching via ASOCKS
+              </label>
+
+              <label style="display: block; margin-bottom: 1rem">
+                <input
+                  type="checkbox"
+                  id="multi-engine"
+                  name="multiEngine"
+                  style="margin-right: 0.5rem"
+                />
+                🔍 Enable multi-engine dorking
+              </label>
+            </div>
+          </form>
+        </div>
+        <div class="modal-actions">
+          <button type="button" class="btn" id="config-cancel-btn">
+            Cancel
+          </button>
+          <button type="button" class="btn btn-primary" id="config-start-btn">
+            <i class="fas fa-play"></i>
+            Start Dorking
+          </button>
+        </div>
+      </div>
+    </div>
+
     <!-- Export Modal -->
     <div class="modal" id="export-modal">
       <div class="modal-content">
@@ -978,6 +1172,7 @@
       document.addEventListener("DOMContentLoaded", () => {
         initializeCharts();
         setupEventListeners();
+        checkServerMode();
 
         // Load theme preference
         const savedTheme = localStorage.getItem("dashboard-theme") || "light";
@@ -1021,8 +1216,37 @@
           stats: stats,
           performanceData: [],
         };
+
+        // Force clear all UI elements and reset stats
         clearResults();
         clearLogs();
+
+        // Reset all displayed stats to zero
+        document.getElementById("progress-percentage").textContent = "0%";
+        document.getElementById("processed-count").textContent = "0";
+        document.getElementById("total-count").textContent = stats.totalDorks;
+        document.getElementById("success-rate").textContent = "0%";
+        document.getElementById("successful-count").textContent = "0";
+        document.getElementById("total-results").textContent = "0";
+        document.getElementById("avg-results").textContent = "0";
+        document.getElementById("captcha-encounters").textContent = "0";
+        document.getElementById("captcha-solved").textContent = "0";
+        document.getElementById("captcha-rate").innerHTML =
+          "<span>0%</span> solve rate";
+
+        // Reset progress ring
+        updateProgressRing(0);
+
+        // Reset start time display
+        document.getElementById("start-time").textContent =
+          startTime.toLocaleTimeString();
+
+        // Clear performance chart
+        if (performanceChart) {
+          performanceChart.data.labels = [];
+          performanceChart.data.datasets[0].data = [];
+          performanceChart.update();
+        }
 
         if (!runtimeInterval) {
           runtimeInterval = setInterval(updateRuntime, 1000);
@@ -1341,12 +1565,28 @@
           .getElementById("modal-export-btn")
           .addEventListener("click", performExport);
 
+        // Configuration modal buttons
+        document
+          .getElementById("config-cancel-btn")
+          .addEventListener("click", closeConfigModal);
+        document
+          .getElementById("config-start-btn")
+          .addEventListener("click", startDorkingWithConfig);
+
         // Close modal when clicking outside
         document
           .getElementById("export-modal")
           .addEventListener("click", (e) => {
             if (e.target.id === "export-modal") {
               closeModal();
+            }
+          });
+
+        document
+          .getElementById("config-modal")
+          .addEventListener("click", (e) => {
+            if (e.target.id === "config-modal") {
+              closeConfigModal();
             }
           });
 
@@ -1444,6 +1684,181 @@
         const div = document.createElement("div");
         div.textContent = text;
         return div.innerHTML;
+      }
+
+      // Server Mode Functions
+      async function checkServerMode() {
+        try {
+          const response = await fetch("/api/server-mode");
+          const data = await response.json();
+
+          if (data.enabled) {
+            setupServerModeUI(data);
+          }
+        } catch (error) {
+          console.log("Server mode not available or error:", error);
+        }
+      }
+
+      function setupServerModeUI(serverModeData) {
+        // Add configuration button to header if in server mode
+        const headerControls = document.querySelector(".header-controls");
+
+        // Check if server mode and can start
+        if (serverModeData.canStart) {
+          const configBtn = document.createElement("button");
+          configBtn.className = "btn btn-primary";
+          configBtn.id = "config-btn";
+          configBtn.innerHTML = '<i class="fas fa-cog"></i> Configure & Start';
+          configBtn.addEventListener("click", showConfigModal);
+          headerControls.insertBefore(configBtn, headerControls.firstChild);
+        }
+
+        // Add stop button if running
+        if (serverModeData.status === "running") {
+          const stopBtn = document.createElement("button");
+          stopBtn.className = "btn";
+          stopBtn.style.borderColor = "var(--error-color)";
+          stopBtn.style.color = "var(--error-color)";
+          stopBtn.id = "stop-btn";
+          stopBtn.innerHTML = '<i class="fas fa-stop"></i> Stop Dorking';
+          stopBtn.addEventListener("click", stopDorking);
+          headerControls.insertBefore(stopBtn, headerControls.firstChild);
+        }
+
+        // Show server mode indicator
+        showNotification(
+          "Server mode active - configure from web interface",
+          "info"
+        );
+      }
+
+      function showConfigModal() {
+        document.getElementById("config-modal").classList.add("show");
+      }
+
+      function closeConfigModal() {
+        const configModal = document.getElementById("config-modal");
+        configModal.classList.remove("show");
+
+        // Ensure modal is properly hidden
+        setTimeout(() => {
+          if (!configModal.classList.contains("show")) {
+            configModal.style.visibility = "hidden";
+            configModal.style.opacity = "0";
+            configModal.style.pointerEvents = "none";
+          }
+        }, 300);
+      }
+
+      async function startDorkingWithConfig() {
+        const form = document.getElementById("config-form");
+        const formData = new FormData(form);
+
+        const config = {
+          dorkFile: formData.get("dorkFile"),
+          outputFile: formData.get("outputFile"),
+          resultCount: parseInt(formData.get("resultCount")),
+          delay: parseInt(formData.get("delay")),
+          maxPause: parseInt(formData.get("maxPause")),
+          headless: formData.get("headless") === "on",
+          userAgent: formData.get("userAgent") || null,
+          manualCaptchaMode: formData.get("manualCaptchaMode") === "on",
+          humanLike: formData.get("humanLike") === "on",
+          autoProxy: formData.get("autoProxy") === "on",
+          multiEngine: formData.get("multiEngine") === "on",
+          verbose: true,
+        };
+
+        try {
+          showNotification("Starting dorking session...", "info");
+
+          const response = await fetch("/api/start-dorking", {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+            },
+            body: JSON.stringify(config),
+          });
+
+          const result = await response.json();
+
+          if (result.success) {
+            showNotification(
+              "Dorking session started successfully!",
+              "success"
+            );
+
+            // Force close the configuration modal
+            const configModal = document.getElementById("config-modal");
+            configModal.classList.remove("show");
+
+            // Double-check modal is closed
+            setTimeout(() => {
+              configModal.style.display = "none";
+              setTimeout(() => {
+                configModal.style.display = "";
+              }, 100);
+            }, 500);
+
+            // Remove config button and add stop button
+            const configBtn = document.getElementById("config-btn");
+            if (configBtn) configBtn.remove();
+
+            const headerControls = document.querySelector(".header-controls");
+            const stopBtn = document.createElement("button");
+            stopBtn.className = "btn";
+            stopBtn.style.borderColor = "var(--error-color)";
+            stopBtn.style.color = "var(--error-color)";
+            stopBtn.id = "stop-btn";
+            stopBtn.innerHTML = '<i class="fas fa-stop"></i> Stop Dorking';
+            stopBtn.addEventListener("click", stopDorking);
+            headerControls.insertBefore(stopBtn, headerControls.firstChild);
+          } else {
+            showNotification(
+              `Failed to start dorking: ${result.error}`,
+              "error"
+            );
+          }
+        } catch (error) {
+          showNotification(`Error starting dorking: ${error.message}`, "error");
+        }
+      }
+
+      async function stopDorking() {
+        try {
+          showNotification("Stopping dorking session...", "info");
+
+          const response = await fetch("/api/stop-dorking", {
+            method: "POST",
+          });
+
+          const result = await response.json();
+
+          if (result.success) {
+            showNotification("Dorking session stopped", "success");
+
+            // Remove stop button and add config button
+            const stopBtn = document.getElementById("stop-btn");
+            if (stopBtn) stopBtn.remove();
+
+            const headerControls = document.querySelector(".header-controls");
+            const configBtn = document.createElement("button");
+            configBtn.className = "btn btn-primary";
+            configBtn.id = "config-btn";
+            configBtn.innerHTML =
+              '<i class="fas fa-cog"></i> Configure & Start';
+            configBtn.addEventListener("click", showConfigModal);
+            headerControls.insertBefore(configBtn, headerControls.firstChild);
+          } else {
+            showNotification(
+              `Failed to stop dorking: ${result.error}`,
+              "error"
+            );
+          }
+        } catch (error) {
+          showNotification(`Error stopping dorking: ${error.message}`, "error");
+        }
       }
     </script>
   </body>

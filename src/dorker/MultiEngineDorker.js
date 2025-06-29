@@ -439,11 +439,51 @@ class MultiEngineDorker {
         );
       }
 
-      // Clear search box and enter dork
-      this.logger?.debug(`Clicking search box to clear it (triple click)`);
-      await searchBox.click({ clickCount: 3 });
-      this.logger?.debug(`Triple click completed, pressing Backspace`);
-      await page.keyboard.press("Backspace");
+      // Clear search box completely and enter dork
+      this.logger?.debug(`Clearing search box completely`);
+
+      // Focus on search box
+      await searchBox.focus();
+      await sleep(200, "after focusing search box", this.logger);
+
+      // Select all text in search box (cross-platform)
+      if (process.platform === "darwin") {
+        // Mac - use Command key
+        await page.keyboard.down("Meta");
+        await page.keyboard.press("a");
+        await page.keyboard.up("Meta");
+      } else {
+        // Windows/Linux - use Ctrl key
+        await page.keyboard.down("Control");
+        await page.keyboard.press("a");
+        await page.keyboard.up("Control");
+      }
+      await sleep(100, "after selecting all text", this.logger);
+
+      // Delete selected text
+      await page.keyboard.press("Delete");
+      await sleep(200, "after deleting text", this.logger);
+
+      // Double-check by getting current value and clearing if needed
+      const currentValue = await page.evaluate((selector) => {
+        const input = document.querySelector(selector);
+        return input ? input.value : "";
+      }, 'input[name="q"]');
+
+      if (currentValue && currentValue.trim() !== "") {
+        this.logger?.debug(
+          `Search box still has content: "${currentValue}", force clearing...`
+        );
+        await page.evaluate((selector) => {
+          const input = document.querySelector(selector);
+          if (input) {
+            input.value = "";
+            input.dispatchEvent(new Event("input", { bubbles: true }));
+          }
+        }, 'input[name="q"]');
+        await sleep(300, "after force clearing", this.logger);
+      }
+
       const clearDelay = 500 + Math.random() * 1000;
       await sleep(clearDelay, "after clearing search box", this.logger);
 
@@ -454,10 +494,40 @@ class MultiEngineDorker {
           dork.length > 50 ? "..." : ""
         }" with ${Math.round(dorkTypeDelay)}ms delay between keystrokes`
       );
-      await page.type('input[name="q"]', dork, {
-        delay: dorkTypeDelay,
-      });
+
+      // Type the dork character by character to ensure it's entered correctly
+      for (let i = 0; i < dork.length; i++) {
+        await page.keyboard.type(dork[i]);
+        await sleep(dorkTypeDelay, `typing character ${i + 1}`, this.logger);
+      }
+
       this.logger?.debug(`Finished typing dork query`);
+
+      // Verify the dork was typed correctly
+      const finalValue = await page.evaluate((selector) => {
+        const input = document.querySelector(selector);
+        return input ? input.value : "";
+      }, 'input[name="q"]');
+
+      this.logger?.debug(`Search box final value: "${finalValue}"`);
+
+      if (finalValue !== dork) {
+        this.logger?.warn(
+          `Dork mismatch! Expected: "${dork}", Got: "${finalValue}"`
+        );
+        // Try to fix by clearing and retyping
+        await page.evaluate(
+          (selector, correctDork) => {
+            const input = document.querySelector(selector);
+            if (input) {
+              input.value = correctDork;
+              input.dispatchEvent(new Event("input", { bubbles: true }));
+            }
+          },
+          'input[name="q"]',
+          dork
+        );
+      }
 
       const postDorkDelay = 1000 + Math.random() * 2000;
       await sleep(postDorkDelay, "after typing dork", this.logger);
@@ -584,6 +654,7 @@ class MultiEngineDorker {
       const results = await page.evaluate((max) => {
         const results = [];
         const seenUrls = new Set();
+        const seenTitles = new Set(); // Also track titles to prevent exact duplicates
 
         // Helper function to decode URL from Google redirect
         function extractRealUrl(href) {
@@ -596,7 +667,9 @@ class MultiEngineDorker {
               const urlParams = new URLSearchParams(urlPart);
               const realUrl = urlParams.get("q");
               if (realUrl) {
-                return decodeURIComponent(realUrl);
+                const decoded = decodeURIComponent(realUrl);
+                // Normalize URL to prevent duplicates
+                return normalizeUrl(decoded);
               }
             } catch (e) {
               console.log("Error parsing redirect URL:", e);
@@ -605,10 +678,63 @@ class MultiEngineDorker {
 
           // Handle direct URLs
           if (href.startsWith("http")) {
-            return href;
+            return normalizeUrl(href);
           }
 
           return null;
+        }
+
+        // Helper function to normalize URLs to prevent duplicates
+        function normalizeUrl(url) {
+          try {
+            const urlObj = new URL(url);
+            // Remove trailing slash, www prefix, and common tracking params
+            let normalized =
+              urlObj.protocol +
+              "//" +
+              urlObj.hostname.replace(/^www\./, "") +
+              urlObj.pathname;
+
+            // Remove trailing slash
+            if (
+              normalized.endsWith("/") &&
+              normalized !== urlObj.protocol + "//" + urlObj.hostname + "/"
+            ) {
+              normalized = normalized.slice(0, -1);
+            }
+
+            // Add search params if they exist and are not tracking params
+            if (urlObj.search) {
+              const params = new URLSearchParams(urlObj.search);
+              const filteredParams = new URLSearchParams();
+
+              // Keep only non-tracking parameters
+              for (const [key, value] of params) {
+                if (
+                  ![
+                    "utm_source",
+                    "utm_medium",
+                    "utm_campaign",
+                    "utm_term",
+                    "utm_content",
+                    "gclid",
+                    "fbclid",
+                  ].includes(key)
+                ) {
+                  filteredParams.append(key, value);
+                }
+              }
+
+              if (filteredParams.toString()) {
+                normalized += "?" + filteredParams.toString();
+              }
+            }
+
+            return normalized;
+          } catch (e) {
+            // Fallback if URL parsing fails
+            return url.replace(/^www\./, "").replace(/\/$/, "");
+          }
         }
 
         // Helper function to clean text
@@ -717,8 +843,14 @@ class MultiEngineDorker {
             }
           }
 
-          if (title && title !== "No title" && title.length > 0) {
+          if (
+            title &&
+            title !== "No title" &&
+            title.length > 0 &&
+            !seenTitles.has(title)
+          ) {
             seenUrls.add(url);
+            seenTitles.add(title);
             results.push({
               title: title,
               url: url,
@@ -803,8 +935,9 @@ class MultiEngineDorker {
               }
             }
 
-            if (title && title !== "No title") {
+            if (title && title !== "No title" && !seenTitles.has(title)) {
               seenUrls.add(url);
+              seenTitles.add(title);
               results.push({
                 title: title,
                 url: url,
@@ -919,8 +1052,9 @@ class MultiEngineDorker {
                 }
               }
 
-              if (title && title !== "No title") {
+              if (title && title !== "No title" && !seenTitles.has(title)) {
                 seenUrls.add(url);
+                seenTitles.add(title);
                 results.push({
                   title: title,
                   url: url,

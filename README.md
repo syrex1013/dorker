@@ -1,162 +1,204 @@
-# Advanced Google Dorker with Enhanced Stealth
+# DORKER - Advanced Google Dorking Tool
 
-A sophisticated Google dorking tool with advanced anti-detection features, unique fingerprinting per session, and human-like behavior simulation.
+A powerful Google dorking tool built with Node.js and Puppeteer, featuring advanced anti-detection capabilities and a modern web dashboard.
 
 ## Features
 
-- **🛡️ Advanced Stealth Mode**: Each browser session has a completely unique fingerprint
-- **🤖 Human-like Behavior**: Simulates natural mouse movements, typing patterns, and browsing behavior
-- **🔄 CAPTCHA Handling**: Automatic detection with manual solving support + free audio challenge solving
-- **🎵 Audio CAPTCHA Solver**: Uses browser's Web Speech API and pattern recognition (completely free, no API keys needed)
-- **🌐 Multi-Engine Support**: Google, Bing, and DuckDuckGo
-- **📊 Session Management**: Automatic session cleanup and fingerprint rotation
-- **🎯 Smart Detection Evasion**: Advanced techniques to avoid bot detection
+- **Advanced Anti-Detection**: Stealth mode, human-like behavior simulation, and intelligent CAPTCHA handling
+- **Live Web Dashboard**: Real-time monitoring and configuration through a modern web interface
+- **Multi-Engine Support**: Support for multiple search engines (when enabled)
+- **Automatic Proxy Switching**: Integration with ASOCKS for IP rotation
+- **Comprehensive Logging**: Detailed logging with file output and web viewing
+- **Flexible Configuration**: Both CLI and web-based configuration options
 
 ## Installation
 
-1.  Clone the repository:
+1. Clone the repository:
 
-    ```bash
-    git clone <your-repo-url>
-    cd dorker
-    ```
+   ```bash
+   git clone <repository-url>
+   cd dorker
+   ```
 
-2.  Install the dependencies:
+2. Install dependencies:
 
-    ```bash
-    npm install
-    ```
+   ```bash
+   npm install
+   ```
 
-3.  Ready to use! Audio CAPTCHA solving is completely free and requires no setup.
+3. Create your dorks file:
+
+   ```bash
+   echo "site:example.com filetype:pdf" > dorks.txt
+   ```
 
 ## Usage
 
-### Interactive Mode (Recommended)
+### Server Mode (Recommended)
+
+Run the application in server mode for web-based configuration:
 
 ```bash
+# Start server on default port (3000)
+npm run server
+
+# Start server on custom port
+node index.js --server --port 8080
+```
+
+Then open your browser to `http://localhost:3000` (or your custom port) to:
+
+- Configure all dorking parameters through the web interface
+- Start/stop dorking sessions
+- Monitor progress in real-time
+- View and export results
+
+### Interactive Mode (Traditional CLI)
+
+For traditional command-line interaction:
+
+```bash
+# Standard interactive mode
+npm start
+
+# Or directly
 node index.js
 ```
 
-### Command Line Mode
+### Command Line Options
 
-```bash
-node index.js -f dorks.txt -e google -m 10 -d 3000 --no-headless
+- `--server` or `-s`: Run in server mode with web configuration
+- `--port <number>` or `-p <number>`: Specify port for server mode (default: 3000)
+- `--interactive` or `-i`: Run in interactive CLI mode (default when no server flag)
+
+## Configuration Options
+
+### Web Configuration (Server Mode)
+
+When running in server mode, configure the following through the web interface:
+
+- **Dork File Path**: Path to your dorks file (default: `dorks.txt`)
+- **Output File Path**: Where to save results (default: `results.json`)
+- **Results per Search**: Number of results to fetch per dork (1-100)
+- **Search Delay**: Delay between searches in seconds (5-60)
+- **Maximum Pause**: Maximum random pause length (30-60)
+- **Browser Settings**: Headless mode, custom user agent
+- **Security Settings**: Manual CAPTCHA mode, human-like behavior
+- **Proxy Settings**: Automatic proxy switching via ASOCKS
+- **Advanced Settings**: Multi-engine dorking
+
+### CLI Configuration (Interactive Mode)
+
+In interactive mode, you'll be prompted for all configuration options through a modern CLI interface.
+
+## Dashboard Features
+
+The web dashboard provides:
+
+- **Real-time Statistics**: Progress, success rate, results count
+- **Live Monitoring**: Current dork being processed, proxy status
+- **Security Metrics**: CAPTCHA encounters and solve rates
+- **Performance Charts**: Visual representation of search performance
+- **Results Viewer**: Browse and export found URLs
+- **System Logs**: Detailed logging with filtering
+- **Data Export**: Export results, logs, and statistics in JSON format
+
+## File Structure
+
+```
+dorker/
+├── src/
+│   ├── browser/          # Browser management
+│   ├── captcha/          # CAPTCHA detection and handling
+│   ├── config/           # Configuration management
+│   ├── constants/        # Search engine constants
+│   ├── dorker/           # Main dorking logic
+│   ├── proxy/            # Proxy management
+│   ├── ui/               # CLI interface
+│   ├── utils/            # Utility functions
+│   └── web/              # Web dashboard
+├── logs/                 # Application logs
+├── temp/                 # Temporary files
+├── dorks.txt            # Your dorks file
+└── results.json         # Output results
 ```
 
-### Options
+## Security Features
 
-- `-f, --file <path>`: Path to the dork file
-- `-e, --engine <engine>`: Search engine (google, bing, duckduckgo)
-- `-m, --max-results <number>`: Maximum results per dork
-- `-d, --delay <milliseconds>`: Delay between requests
-- `--no-headless`: Show the browser window
-- `--interactive`: Force interactive mode
+- **Stealth Mode**: Advanced browser fingerprint randomization
+- **Human-like Behavior**: Random mouse movements, typing patterns
+- **CAPTCHA Handling**: Automatic audio CAPTCHA solving with manual fallback
+- **Proxy Rotation**: Automatic IP switching to avoid detection
+- **Rate Limiting**: Intelligent delays between requests
+- **User Agent Rotation**: Dynamic user agent switching
 
-## Avoiding CAPTCHAs
+## Advanced Usage
 
-The tool includes several measures to avoid triggering CAPTCHAs:
+### Custom Proxy Configuration
 
-1. **Unique Fingerprints**: Each session uses a unique browser fingerprint
-2. **Human-like Behavior**: Simulates natural mouse movements and typing
-3. **Smart Delays**: Randomized delays between searches
-4. **Session Warmup**: Option to browse normal sites before dorking
-5. **Direct URL Mode**: Falls back to direct URL navigation after multiple CAPTCHAs
+For ASOCKS integration, ensure you have valid ASOCKS credentials configured in your environment.
 
-### Tips for Better Results
+### Batch Processing
 
-1. **Use Longer Delays**: Set delay to 5000ms or more between searches
-2. **Limit Results**: Use fewer max results per dork (3-5)
-3. **Use Headless Mode Sparingly**: Running with `--no-headless` can help with manual CAPTCHA solving
-4. **Rotate IP Addresses**: Consider using a VPN or proxy service
-5. **Warm Up Sessions**: Let the browser visit normal sites before starting
+Create multiple dork files and run them sequentially:
 
-## Advanced Features
+```bash
+# Process multiple dork files
+node index.js --server  # Configure each file through web interface
+```
 
-### Fingerprint Randomization
+### Result Processing
 
-- Screen resolutions and device scale factors
-- WebGL vendor/renderer information
-- Languages and timezones
-- Hardware specifications
-- Platform-specific user agents
+Results are saved in JSON format with detailed metadata:
 
-### Human Behavior Simulation
-
-- Natural mouse movements with bezier curves
-- F-pattern and Z-pattern reading simulation
-- Realistic typing with occasional typos
-- Momentum-based scrolling
-- Random micro-movements and pauses
-
-### CAPTCHA Handling
-
-- **Automatic CAPTCHA detection**: Detects reCAPTCHA, hCaptcha, and Cloudflare challenges
-- **Free audio solving**: Automatically attempts audio challenges using browser's Web Speech API
-- **Manual solving interface**: User-friendly manual solving with 3-minute timeout
-- **Automatic fallback**: Falls back to direct URL mode after multiple CAPTCHAs
-- **2captcha integration**: Support for paid solving service (set CAPTCHA_TOKEN environment variable)
-
-#### Audio CAPTCHA Solving (100% Free)
-
-The tool can automatically solve audio CAPTCHAs using completely free methods:
-
-1. **Web Speech API**: Uses browser's built-in speech recognition (Chrome/Edge)
-2. **Pattern Recognition**: Simple pattern matching for common CAPTCHA sequences
-3. **Fallback Methods**: Smart guessing based on common CAPTCHA patterns
-
-**How it works:**
-
-1. When a CAPTCHA appears, the tool will:
-   - Click the audio challenge button
-   - Use browser's Web Speech API to transcribe the audio
-   - Enter the transcription automatically
-   - Submit the solution
-2. **No API keys needed** - completely free and offline
-3. **No external services** - uses only browser capabilities
-
-**Supported CAPTCHA Types:**
-
-- Google reCAPTCHA v2 (audio challenges)
-- hCaptcha (audio challenges)
-- Most standard audio CAPTCHA implementations
-
-**Browser Compatibility:**
-
-- Chrome/Chromium: Full Web Speech API support
-- Edge: Full Web Speech API support
-- Firefox: Limited support, falls back to pattern recognition
+```json
+{
+  "dork": "site:example.com filetype:pdf",
+  "results": [
+    {
+      "title": "Example PDF Document",
+      "url": "https://example.com/document.pdf",
+      "snippet": "..."
+    }
+  ],
+  "timestamp": "2024-01-01T12:00:00Z",
+  "searchTime": 1250
+}
+```
 
 ## Troubleshooting
 
-### Getting Too Many CAPTCHAs?
+### Common Issues
 
-1. Increase delay between searches
-2. Use a residential proxy or VPN
-3. Run in non-headless mode for manual solving
-4. Reduce the number of concurrent searches
+1. **CAPTCHA Blocks**: Enable manual CAPTCHA mode for difficult challenges
+2. **Rate Limiting**: Increase delays between searches
+3. **Proxy Issues**: Verify ASOCKS credentials and connectivity
+4. **Browser Crashes**: Try running in headless mode
 
-### No Results Found?
+### Debug Mode
 
-1. Check if the dork syntax is correct
-2. Verify you're not being blocked by checking the browser window
-3. Try simpler dorks first (e.g., `site:wikipedia.org`)
-4. Check the logs in the `logs/` directory
+Enable verbose logging for troubleshooting:
 
-### Audio CAPTCHA Not Working?
+```bash
+# Check logs directory
+ls -la logs/
 
-1. **Browser Compatibility**: Use Chrome or Edge for best Web Speech API support
-2. **Microphone Permissions**: Browser may ask for microphone permissions (allow them)
-3. **Audio Quality**: Some audio CAPTCHAs may be too distorted for recognition
-4. **Network Issues**: Ensure stable internet connection for audio playback
-5. **Fallback**: The tool will fall back to manual solving if audio fails
+# View latest log
+tail -f logs/dorker-*.log
+```
 
-**Tips for Better Audio CAPTCHA Success:**
+## Contributing
 
-- **Use Chrome/Chromium**: Best Web Speech API support
-- **Enable microphone**: Browser needs microphone access for speech recognition
-- **Quiet environment**: Background noise can interfere with recognition
-- **Try multiple times**: Audio CAPTCHAs can be regenerated if first attempt fails
+1. Fork the repository
+2. Create a feature branch
+3. Make your changes
+4. Run tests and linting
+5. Submit a pull request
 
 ## License
 
-MIT
+This project is licensed under the MIT License. See LICENSE file for details.
+
+## Disclaimer
+
+This tool is for educational and legitimate security testing purposes only. Always comply with robots.txt, terms of service, and applicable laws when using this tool.
