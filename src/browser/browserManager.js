@@ -1,7 +1,6 @@
-import puppeteer from "puppeteer";
+import { connect } from "puppeteer-real-browser";
 import chalk from "chalk";
 import { createCursor } from "ghost-cursor";
-import { generateFingerprint } from "../utils/fingerprint.js";
 import { sleep } from "../utils/sleep.js";
 import { logWithDedup } from "../utils/logger.js";
 
@@ -10,16 +9,301 @@ let browserInstance = null;
 let pageInstance = null;
 
 /**
- * Launch browser with stealth configuration
+ * Human-like typing function with realistic patterns
+ * @param {Object} element - Element to type into
+ * @param {string} text - Text to type
+ * @param {Object} options - Typing options
+ * @param {Object} logger - Logger instance
+ */
+async function _humanLikeType(element, text, options = {}, logger = null) {
+  const {
+    minDelay = 80,
+    maxDelay = 180,
+    mistakes = true,
+    pauseChance = 0.1,
+    backspaceChance = 0.05,
+  } = options;
+
+  try {
+    for (let i = 0; i < text.length; i++) {
+      const char = text[i];
+
+      // Realistic typing delay with variation
+      const baseDelay = Math.random() * (maxDelay - minDelay) + minDelay;
+      const delay = baseDelay + (Math.random() * 50 - 25); // ±25ms variation
+
+      // Occasional longer pauses (thinking)
+      if (Math.random() < pauseChance) {
+        const thinkTime = Math.random() * 800 + 200; // 200-1000ms thinking pause
+        logger?.debug(`Thinking pause: ${Math.round(thinkTime)}ms`);
+        await sleep(thinkTime, "thinking pause", logger);
+      }
+
+      // Occasional mistakes and corrections
+      if (mistakes && Math.random() < backspaceChance && i > 2) {
+        // Type wrong character
+        const wrongChars = "qwertyuiopasdfghjklzxcvbnm";
+        const wrongChar =
+          wrongChars[Math.floor(Math.random() * wrongChars.length)];
+        await element.type(wrongChar, { delay: delay * 0.8 });
+
+        // Pause to "notice" mistake
+        await sleep(100 + Math.random() * 300, "noticing mistake", logger);
+
+        // Backspace to correct
+        await element.press("Backspace", { delay: delay * 0.6 });
+        await sleep(50 + Math.random() * 100, "after correction", logger);
+      }
+
+      // Type the actual character
+      await element.type(char, { delay: Math.max(delay, 30) });
+
+      // Slightly longer delays for spaces (more natural)
+      if (char === " ") {
+        await sleep(Math.random() * 100 + 50, "after space", logger);
+      }
+    }
+  } catch (error) {
+    logger?.debug("Error in human-like typing", { error: error.message });
+    // Fallback to simple typing
+    await element.type(text, { delay: (minDelay + maxDelay) / 2 });
+  }
+}
+
+/**
+ * Enhanced ghost cursor click with human-like behavior
+ * @param {Object} cursor - Ghost cursor instance
+ * @param {Object} element - Element to click
+ * @param {Object} page - Page instance for fallback
+ * @param {Object} logger - Logger instance
+ */
+async function _humanLikeClick(cursor, element, page, logger = null) {
+  try {
+    if (!cursor || typeof cursor.click !== "function") {
+      throw new Error("No valid cursor available");
+    }
+
+    // Add slight delay before click (human reaction time)
+    const reactionTime = Math.random() * 200 + 100; // 100-300ms
+    await sleep(reactionTime, "human reaction time", logger);
+
+    // Try ghost cursor with timeout
+    await Promise.race([
+      cursor.click(element),
+      new Promise((_, reject) =>
+        setTimeout(() => reject(new Error("cursor timeout")), 5000)
+      ),
+    ]);
+
+    logger?.debug("Ghost cursor click successful");
+
+    // Small delay after click (natural)
+    await sleep(Math.random() * 150 + 50, "after click delay", logger);
+  } catch (error) {
+    logger?.debug(`Ghost cursor failed: ${error.message}, using fallback`);
+
+    // Enhanced fallback with human-like behavior
+    try {
+      // Get element position for more natural clicking
+      const box = await element.boundingBox();
+      if (box) {
+        // Click slightly offset from center (more human-like)
+        const offsetX = (Math.random() - 0.5) * Math.min(box.width * 0.3, 20);
+        const offsetY = (Math.random() - 0.5) * Math.min(box.height * 0.3, 10);
+
+        await page.mouse.click(
+          box.x + box.width / 2 + offsetX,
+          box.y + box.height / 2 + offsetY,
+          { delay: Math.random() * 50 + 30 } // 30-80ms click duration
+        );
+      } else {
+        // Direct element click fallback
+        await element.click({ delay: Math.random() * 50 + 30 });
+      }
+
+      logger?.debug("Fallback click completed with human-like behavior");
+    } catch (fallbackError) {
+      logger?.debug(`Fallback click failed: ${fallbackError.message}`);
+      // Last resort - simple click
+      await element.click();
+    }
+  }
+}
+
+/**
+ * Random mouse movements to simulate human browsing
+ * @param {Object} page - Page instance
+ * @param {Object} cursor - Ghost cursor instance
+ * @param {Object} logger - Logger instance
+ */
+/**
+ * Perform completely safe cursor movements during warmup (NO interaction)
+ * @param {Object} page - Puppeteer page
+ * @param {Object} cursor - Ghost cursor
+ * @param {Object} logger - Winston logger instance
+ */
+async function performSafeCursorMovements(page, cursor, logger = null) {
+  try {
+    const viewport = await page.viewport();
+    const maxX = Math.min(viewport?.width || 1366, 1366) - 200;
+    const maxY = Math.min(viewport?.height || 768, 768) - 200;
+
+    // Perform 3-5 very safe movements in empty areas only
+    const movementCount = Math.floor(Math.random() * 3) + 3;
+
+    logger?.debug(
+      `Performing ${movementCount} safe cursor movements (warmup mode)`
+    );
+
+    for (let i = 0; i < movementCount; i++) {
+      // Very conservative coordinates - stay in safe center area
+      const targetX = Math.random() * (maxX - 600) + 300; // Far from edges
+      const targetY = Math.random() * (maxY - 400) + 200; // Avoid header/footer
+
+      try {
+        // Only move cursor, absolutely no clicking or interaction
+        if (cursor && typeof cursor.move === "function") {
+          try {
+            // Move cursor safely with timeout
+            await Promise.race([
+              cursor.move(targetX, targetY),
+              new Promise((_, reject) =>
+                setTimeout(() => reject(new Error("cursor timeout")), 2000)
+              ),
+            ]);
+            logger?.debug(`Safe cursor movement ${i + 1} completed`);
+          } catch (_cursorError) {
+            // Skip this movement if cursor fails - don't use fallback to avoid any clicks
+            logger?.debug(
+              `Safe cursor movement ${i + 1} skipped - cursor unavailable`
+            );
+            continue;
+          }
+        } else {
+          // No fallback during warmup - skip if no cursor
+          logger?.debug(
+            `Safe cursor movement ${i + 1} skipped - no cursor available`
+          );
+          continue;
+        }
+
+        // Pause at position (simulate reading)
+        const pauseTime = Math.random() * 800 + 1200; // 1200-2000ms
+        await sleep(pauseTime, `reading pause ${i + 1}`, logger);
+      } catch (moveError) {
+        logger?.debug(
+          `Safe cursor movement ${i + 1} failed: ${moveError.message}`
+        );
+        // Don't use any fallback - just skip this movement
+        continue;
+      }
+    }
+
+    logger?.debug(`Completed safe cursor movements for warmup`);
+  } catch (error) {
+    logger?.debug("Error in safe cursor movements", { error: error.message });
+  }
+}
+
+async function _performRandomMouseMovements(page, cursor, logger = null) {
+  try {
+    const viewport = await page.viewport();
+    const maxX = Math.min(viewport?.width || 1366, 1366) - 100;
+    const maxY = Math.min(viewport?.height || 768, 768) - 100;
+
+    // Perform 4-6 random movements (reduced for safety)
+    const movementCount = Math.floor(Math.random() * 3) + 4;
+
+    for (let i = 0; i < movementCount; i++) {
+      // Generate safe coordinates (avoid top and edges where buttons might be)
+      const targetX = Math.random() * (maxX - 400) + 200; // More conservative bounds
+      const targetY = Math.random() * (maxY - 300) + 150; // Avoid header area
+
+      try {
+        // Check if the target area is safe (not over clickable elements)
+        const isSafeArea = await page.evaluate(
+          (x, y) => {
+            const element = document.elementFromPoint(x, y);
+            if (!element) return true;
+
+            // Avoid moving over links, buttons, or other clickable elements
+            const tagName = element.tagName.toLowerCase();
+            const hasClickHandler =
+              element.onclick ||
+              element.getAttribute("onclick") ||
+              element.hasAttribute("data-ved") ||
+              element.hasAttribute("href");
+
+            const isClickable =
+              ["a", "button", "input", "select"].includes(tagName) ||
+              hasClickHandler ||
+              element.role === "button" ||
+              element.role === "link";
+
+            // Stay in safe text areas or empty spaces
+            return !isClickable;
+          },
+          targetX,
+          targetY
+        );
+
+        if (!isSafeArea) {
+          logger?.debug(
+            `Mouse movement ${i + 1} skipped - unsafe area detected`
+          );
+          continue;
+        }
+
+        if (cursor && typeof cursor.move === "function") {
+          try {
+            // Use curved movement (more human-like) with timeout
+            await Promise.race([
+              cursor.move(targetX, targetY),
+              new Promise((_, reject) =>
+                setTimeout(() => reject(new Error("cursor timeout")), 3000)
+              ),
+            ]);
+          } catch (_cursorError) {
+            logger?.debug(`Ghost cursor error detected, using fallback`);
+            throw new Error("cursor unavailable");
+          }
+        } else {
+          // Fallback to page.mouse
+          await page.mouse.move(targetX, targetY);
+        }
+
+        // Pause at position (like reading)
+        const pauseTime = Math.random() * 1000 + 800; // 800-1800ms (longer reading time)
+        await sleep(pauseTime, `reading pause ${i + 1}`, logger);
+      } catch (moveError) {
+        logger?.debug(`Mouse movement ${i + 1} failed: ${moveError.message}`);
+        // Use fallback movement to safe coordinates
+        try {
+          await page.mouse.move(targetX, targetY);
+          logger?.debug(`Fallback mouse movement completed`);
+        } catch (fallbackError) {
+          logger?.debug(
+            `Both cursor and fallback move failed: ${fallbackError.message}`
+          );
+        }
+      }
+    }
+
+    logger?.debug(`Completed ${movementCount} random mouse movements`);
+  } catch (error) {
+    logger?.debug("Error in random mouse movements", { error: error.message });
+  }
+}
+
+/**
+ * Launch browser with real browser configuration using puppeteer-real-browser
  * @param {Object} config - Configuration object
  * @param {Object} logger - Winston logger instance
  * @returns {Promise<Object>} Browser instance
  */
 async function launchBrowser(config, logger = null) {
   try {
-    logger?.info("Launching browser with anti-detection configuration");
-
-    const fingerprint = generateFingerprint();
+    logger?.info("Launching real browser with anti-detection configuration");
 
     const browserArgs = [
       "--no-sandbox",
@@ -30,7 +314,6 @@ async function launchBrowser(config, logger = null) {
       "--disable-backgrounding-occluded-windows",
       "--disable-renderer-backgrounding",
       "--disable-features=TranslateUI",
-      "--disable-extensions",
       "--disable-default-apps",
       "--disable-sync",
       "--disable-translate",
@@ -45,7 +328,6 @@ async function launchBrowser(config, logger = null) {
       "--ignore-certificate-errors",
       "--ignore-ssl-errors",
       "--ignore-certificate-errors-spki-list",
-      `--user-agent=${config.userAgent || fingerprint.userAgent}`,
       "--window-size=1366,768",
       // Enable rendering for proper page display
       "--enable-webgl",
@@ -61,27 +343,37 @@ async function launchBrowser(config, logger = null) {
       );
     }
 
-    const browser = await puppeteer.launch({
-      headless: config.headless !== false,
+    // Use puppeteer-real-browser for a real browser instance
+    const { browser, page } = await connect({
+      headless: config.headless === true ? "new" : false,
       args: browserArgs,
+      turnstile: true,
+      disableXvfb: false,
       ignoreHTTPSErrors: true,
-      ignoreDefaultArgs: ["--enable-automation"],
-      defaultViewport: {
-        width: fingerprint.screen.width,
-        height: fingerprint.screen.height,
+      customConfig: {},
+      connectOption: {
+        ignoreDefaultArgs: ["--enable-automation"],
+        defaultViewport: {
+          width: 1366,
+          height: 768,
+        },
       },
     });
 
     browserInstance = browser;
-    logger?.info("Browser launched successfully", {
+
+    // Get the actual user agent from the real browser
+    const actualUserAgent = await page.evaluate(() => navigator.userAgent);
+
+    logger?.info("Real browser launched successfully", {
       headless: config.headless,
-      userAgent: config.userAgent || fingerprint.userAgent,
-      viewport: fingerprint.screen,
+      userAgent: actualUserAgent,
+      viewport: { width: 1366, height: 768 },
     });
 
-    return browser;
+    return { browser, firstPage: page };
   } catch (error) {
-    logger?.error("Failed to launch browser", { error: error.message });
+    logger?.error("Failed to launch real browser", { error: error.message });
     throw error;
   }
 }
@@ -91,11 +383,13 @@ async function launchBrowser(config, logger = null) {
  * @param {Object} browser - Browser instance
  * @param {Object} config - Configuration object
  * @param {Object} logger - Winston logger instance
+ * @param {Object} firstPage - Optional first page from real browser
  * @returns {Promise<Object>} Page instance with cursor
  */
-async function createPage(browser, config, logger = null) {
+async function createPage(browser, config, logger = null, firstPage = null) {
   try {
-    const page = await browser.newPage();
+    // Use the first page if provided (from puppeteer-real-browser), otherwise create new
+    const page = firstPage || (await browser.newPage());
     pageInstance = page;
 
     // Enable stealth mode and security configuration
@@ -313,8 +607,32 @@ async function createPage(browser, config, logger = null) {
       });
     }
 
-    // Create ghost cursor for human-like interactions
-    const cursor = createCursor(page);
+    // Create ghost cursor for human-like interactions with error handling
+    let cursor = null;
+    try {
+      cursor = createCursor(page);
+
+      // Test cursor functionality immediately
+      const testResult = await page.evaluate(() => {
+        return {
+          width: window.innerWidth,
+          height: window.innerHeight,
+          ready: true,
+        };
+      });
+
+      if (testResult.ready) {
+        logger?.debug("Ghost cursor initialized successfully");
+      }
+    } catch (cursorError) {
+      logger?.warn(
+        "Ghost cursor initialization failed, will use fallback methods",
+        {
+          error: cursorError.message,
+        }
+      );
+      cursor = null; // Set to null to trigger fallback methods
+    }
 
     logger?.info("Page created with anti-detection measures");
     return { page, cursor };
@@ -331,10 +649,10 @@ async function createPage(browser, config, logger = null) {
  * @param {Object} logger - Winston logger instance
  * @returns {Promise<boolean>} True if consent was found and handled
  */
-async function checkAndHandleConsentDynamic(page, cursor, logger = null) {
+async function _checkAndHandleConsentDynamic(page, cursor, logger = null) {
   try {
     // Quick check for consent indicators without waiting
-    const isConsentPage = await page.evaluate(() => {
+    const consentInfo = await page.evaluate(() => {
       const indicators = [
         "Before you continue to Google",
         "Zanim przejdziesz do Google",
@@ -356,18 +674,41 @@ async function checkAndHandleConsentDynamic(page, cursor, logger = null) {
       const pageHTML = document.body.innerHTML || "";
       const currentUrl = window.location.href;
 
-      return indicators.some(
+      // Check for search box (indicates main Google page)
+      const hasSearchBox = !!(
+        document.querySelector('input[name="q"]') ||
+        document.querySelector('textarea[name="q"]') ||
+        document.querySelector("#APjFqb") ||
+        document.querySelector(".RNNXgb")
+      );
+
+      const foundIndicators = indicators.filter(
         (indicator) =>
           pageText.includes(indicator) ||
           pageHTML.includes(indicator) ||
           currentUrl.includes("consent.google")
       );
+
+      return {
+        isConsentPage: foundIndicators.length > 0 && !hasSearchBox,
+        hasSearchBox,
+        foundIndicators,
+        url: currentUrl,
+        title: document.title,
+      };
     });
 
-    if (isConsentPage) {
+    logger?.debug("Consent check results:", consentInfo);
+
+    if (consentInfo.isConsentPage) {
       logger?.info("Dynamic consent form detected during warmup, handling...");
-      await handleConsent(page, cursor, logger);
-      return true;
+      const handled = await handleConsentOptimized(page, cursor, logger);
+      return handled;
+    }
+
+    if (consentInfo.hasSearchBox) {
+      logger?.debug("Search box detected - already on main Google page");
+      return false;
     }
 
     return false;
@@ -385,128 +726,73 @@ async function checkAndHandleConsentDynamic(page, cursor, logger = null) {
  * @param {Object} logger - Winston logger instance
  */
 async function performWarmup(pageData, logger = null) {
-  const { page, cursor } = pageData;
+  const { page, cursor, dashboard } = pageData;
 
   try {
     logger?.info("Starting warm-up browsing session");
     logWithDedup("info", "🔥 Starting warm-up session...", chalk.blue, logger);
+
+    // Update dashboard status
+    if (dashboard && dashboard.setStatus) {
+      dashboard.setStatus("warming-up");
+    }
+    if (dashboard && dashboard.addLog) {
+      dashboard.addLog("info", "🔥 Starting warm-up browsing session...");
+    }
 
     // Generate warm-up time (30-60 seconds maximum, capped at 60s)
     const warmupTime = Math.min(
       Math.floor(Math.random() * 30000) + 30000,
       60000
     );
+
     logger?.info(`Warm-up session duration: ${warmupTime}ms`);
 
     // Navigate to Google with proper loading detection
     await navigateToGoogle(pageData, logger);
 
-    // Handle initial consent if present
-    await handleConsent(page, cursor, logger);
+    // Handle initial consent if present (ONLY ONCE)
+    await handleConsentOptimized(page, cursor, logger);
 
-    // Start consent monitoring interval during warmup
-    const consentCheckInterval = setInterval(async () => {
-      try {
-        await checkAndHandleConsentDynamic(page, cursor, logger);
-      } catch (error) {
-        logger?.debug("Error in consent monitoring interval:", {
-          error: error.message,
-        });
-      }
-    }, 3000); // Check every 3 seconds
+    // NO INTERVAL - NO CLICKING - ONLY CURSOR MOVEMENTS
+    logger?.info("Performing MOVEMENT-ONLY warmup - no clicking allowed");
 
-    try {
-      // Perform some natural searches
-      const warmupSearches = [
-        "weather today",
-        "news",
-        "latest technology trends",
-        "best restaurants nearby",
-      ];
+    // Warmup with ONLY cursor movements on Google homepage
+    const warmupStartTime = Date.now();
+    const warmupEndTime = warmupStartTime + warmupTime;
 
-      const searchQuery =
-        warmupSearches[Math.floor(Math.random() * warmupSearches.length)];
-      logger?.info(`Performing warm-up search: ${searchQuery}`);
-
-      // Check for consent before searching
-      await checkAndHandleConsentDynamic(page, cursor, logger);
-
-      // Find and use search box
-      const searchBox = await page.$('input[name="q"]');
-      if (searchBox) {
-        logger?.debug(`Ghost cursor clicking search box`);
-        try {
-          await cursor.click(searchBox);
-          logger?.debug(`Click completed on search box`);
-        } catch (cursorError) {
-          logger?.debug(
-            `Cursor click failed, using fallback: ${cursorError.message}`
-          );
-          await searchBox.click();
-          logger?.debug(`Fallback click completed on search box`);
-        }
-        const sleepTime = 500 + Math.random() * 1000;
-        await sleep(sleepTime, "after search box click", logger);
-
-        // Check for consent after clicking search box
-        await checkAndHandleConsentDynamic(page, cursor, logger);
-
-        // Type with human-like delays
-        const typeDelay = 50 + Math.random() * 100;
-        logger?.debug(
-          `Typing search query: "${searchQuery}" with ${Math.round(
-            typeDelay
-          )}ms delay between keystrokes`
+    // Stay on Google homepage and ONLY move cursor
+    while (Date.now() < warmupEndTime) {
+      // Verify we're still on Google (don't navigate if we're not)
+      const currentUrl = page.url();
+      if (!currentUrl.includes("google.com")) {
+        logger?.warn(
+          `⚠️ Navigated away from Google during warmup to: ${currentUrl}`
         );
-        await page.type('input[name="q"]', searchQuery, {
-          delay: typeDelay,
+        logger?.info("🔄 Returning to Google homepage");
+
+        // Go back to Google homepage
+        await page.goto("https://www.google.com", {
+          waitUntil: "domcontentloaded",
+          timeout: 15000,
         });
-        logger?.debug(`Finished typing search query`);
-        const postTypeDelay = 1000 + Math.random() * 2000;
-        await sleep(postTypeDelay, "after typing query", logger);
+        await sleep(2000, "after returning to Google", logger);
 
-        // Check for consent before submitting search
-        await checkAndHandleConsentDynamic(page, cursor, logger);
-
-        // Press Enter
-        logger?.debug(`Pressing Enter to submit warmup search`);
-        await page.keyboard.press("Enter");
-        logger?.debug(`Enter key pressed, waiting for navigation`);
-        await page.waitForNavigation({
-          waitUntil: "networkidle0",
-          timeout: 30000,
-        });
-        logger?.debug(`Navigation completed for warmup search`);
-
-        // Check for consent after navigation
-        await checkAndHandleConsentDynamic(page, cursor, logger);
-
-        // Scroll and interact naturally with periodic consent checks (max 15 seconds)
-        const browsingStartTime = Date.now();
-        const browsingDuration = 10000 + Math.random() * 5000; // 10-15 seconds max
-
-        while (Date.now() - browsingStartTime < browsingDuration) {
-          // Check for consent every few seconds during browsing
-          await checkAndHandleConsentDynamic(page, cursor, logger);
-
-          // Perform a short browsing action
-          await simulateHumanBrowsing(page, cursor, 2000, logger);
-
-          // Small delay before next consent check
-          await sleep(1000, "between browsing actions", logger);
-        }
+        // Handle consent if needed after returning
+        await handleConsentOptimized(page, cursor, logger);
       }
 
-      // Final consent check before completing warmup
-      await checkAndHandleConsentDynamic(page, cursor, logger);
-    } finally {
-      // Always clear the consent monitoring interval
-      clearInterval(consentCheckInterval);
-      logger?.debug("Consent monitoring interval cleared");
+      // Perform ONLY safe cursor movements (absolutely NO clicking or interaction)
+      logger?.debug("Performing MOVEMENT-ONLY warmup - no interactions");
+      await performSafeCursorMovements(page, cursor, logger);
+
+      // Pause between movement sessions
+      const pauseTime = Math.random() * 3000 + 2000; // 2-5 seconds
+      await sleep(pauseTime, "warmup movement pause", logger);
     }
 
     logWithDedup("info", "✅ Warm-up session completed", chalk.green, logger);
-    logger?.info("Warm-up session completed successfully");
+    logger?.info("Warm-up session completed successfully (movement-only)");
   } catch (error) {
     logger?.warn("Warm-up session encountered issues", {
       error: error.message,
@@ -517,6 +803,242 @@ async function performWarmup(pageData, logger = null) {
       chalk.yellow,
       logger
     );
+  }
+}
+
+/**
+ * Optimized consent handling with better detection and limits
+ * @param {Object} page - Puppeteer page
+ * @param {Object} cursor - Ghost cursor
+ * @param {Object} logger - Winston logger instance
+ * @returns {Promise<boolean>} True if consent was handled successfully
+ */
+async function handleConsentOptimized(page, cursor, logger = null) {
+  try {
+    logger?.info("Starting optimized consent handling...");
+
+    const maxAttempts = 3;
+
+    for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+      logger?.debug(`Consent handling attempt ${attempt}/${maxAttempts}`);
+
+      // Wait a moment for page to stabilize
+      await sleep(2000, `consent attempt ${attempt} stabilization`, logger);
+
+      // Check if we're actually on a consent page and get current state
+      const pageState = await page.evaluate(() => {
+        const currentUrl = window.location.href;
+        const pageText = document.body.textContent || "";
+
+        // Strong indicators we're on main Google page (not consent)
+        const hasSearchBox = !!(
+          document.querySelector('input[name="q"]') ||
+          document.querySelector('textarea[name="q"]') ||
+          document.querySelector("#APjFqb") ||
+          document.querySelector(".RNNXgb")
+        );
+
+        const hasGoogleLogo = !!document.querySelector(
+          '[aria-label*="Google"]'
+        );
+
+        // Consent page indicators
+        const consentIndicators = [
+          "Before you continue to Google",
+          "We use cookies and data",
+          "Accept all",
+          "Reject all",
+        ];
+
+        const hasConsentText = consentIndicators.some((indicator) =>
+          pageText.includes(indicator)
+        );
+
+        // Find clickable consent elements
+        const consentButtons = Array.from(
+          document.querySelectorAll('button, div[role="button"]')
+        ).filter((el) => {
+          const text = (
+            el.textContent ||
+            el.getAttribute("aria-label") ||
+            ""
+          ).toLowerCase();
+          return (
+            text.includes("accept all") ||
+            text.includes("accept") ||
+            text.includes("agree") ||
+            el.id === "L2AGLb"
+          );
+        });
+
+        return {
+          url: currentUrl,
+          title: document.title,
+          hasSearchBox,
+          hasGoogleLogo,
+          hasConsentText,
+          isMainGooglePage: hasSearchBox && hasGoogleLogo && !hasConsentText,
+          consentButtonCount: consentButtons.length,
+          consentButtons: consentButtons.map((btn) => ({
+            tagName: btn.tagName,
+            id: btn.id,
+            text: (btn.textContent || "").substring(0, 50),
+            role: btn.getAttribute("role"),
+          })),
+        };
+      });
+
+      logger?.debug(`Page state on attempt ${attempt}:`, pageState);
+
+      // If we're already on main Google page, no consent handling needed
+      if (pageState.isMainGooglePage) {
+        logger?.info("Already on main Google page - consent handling complete");
+        return true;
+      }
+
+      // If no consent elements found, might not be a consent page
+      if (pageState.consentButtonCount === 0) {
+        logger?.info("No consent elements found - proceeding");
+        return true;
+      }
+
+      // Try to click consent buttons
+      const success = await clickConsentButtons(page, cursor, logger);
+      if (success) {
+        // Wait for navigation/page update
+        await sleep(3000, "after successful consent click", logger);
+
+        // Verify we moved past consent
+        const newState = await page.evaluate(() => {
+          const hasSearchBox = !!(
+            document.querySelector('input[name="q"]') ||
+            document.querySelector('textarea[name="q"]') ||
+            document.querySelector("#APjFqb") ||
+            document.querySelector(".RNNXgb")
+          );
+          return { hasSearchBox, url: window.location.href };
+        });
+
+        if (newState.hasSearchBox) {
+          logger?.info(
+            "Consent successfully handled - search box now available"
+          );
+          return true;
+        }
+      }
+    }
+
+    logger?.warn("Could not handle consent after maximum attempts");
+    return false;
+  } catch (error) {
+    logger?.error("Error in optimized consent handling", {
+      error: error.message,
+    });
+    return false;
+  }
+}
+
+/**
+ * Click consent buttons with improved reliability
+ * @param {Object} page - Puppeteer page
+ * @param {Object} cursor - Ghost cursor
+ * @param {Object} logger - Winston logger instance
+ * @returns {Promise<boolean>} True if a button was successfully clicked
+ */
+async function clickConsentButtons(page, cursor, logger = null) {
+  try {
+    const consentSelectors = [
+      'button[id="L2AGLb"]',
+      'button:has-text("Accept all")',
+      'div[role="button"]:has-text("Accept all")',
+      'button:has-text("Accept")',
+      'div[role="button"]:has-text("Accept")',
+      "button[jsname][data-ved]",
+      "[data-ved] button",
+    ];
+
+    for (const selector of consentSelectors) {
+      try {
+        // Convert :has-text selectors to evaluate-based finding
+        let element;
+        if (selector.includes(":has-text")) {
+          const baseSelector = selector.split(":has-text")[0];
+          const text = selector.match(/\("([^"]+)"\)/)?.[1];
+
+          element = await page.evaluateHandle(
+            (baseSelector, text) => {
+              const elements = Array.from(
+                document.querySelectorAll(baseSelector)
+              );
+              return elements.find((el) =>
+                (el.textContent || "")
+                  .toLowerCase()
+                  .includes(text.toLowerCase())
+              );
+            },
+            baseSelector,
+            text
+          );
+
+          const exists = await page.evaluate((el) => !!el, element);
+          if (!exists) element = null;
+        } else {
+          element = await page.$(selector);
+        }
+
+        if (element) {
+          logger?.debug(`Found consent element: ${selector}`);
+
+          // Scroll into view
+          await page.evaluate((el) => {
+            if (el) el.scrollIntoView({ behavior: "smooth", block: "center" });
+          }, element);
+
+          await sleep(1000, "after scroll into view", logger);
+
+          // Try ghost cursor first, then fallback
+          let clicked = false;
+
+          if (cursor && typeof cursor.click === "function") {
+            try {
+              await Promise.race([
+                cursor.click(element),
+                new Promise((_, reject) =>
+                  setTimeout(() => reject(new Error("cursor timeout")), 5000)
+                ),
+              ]);
+              clicked = true;
+              logger?.debug("Ghost cursor click successful");
+            } catch (error) {
+              logger?.debug(`Ghost cursor failed: ${error.message}`);
+            }
+          }
+
+          // Fallback to direct click
+          if (!clicked) {
+            await page.evaluate((el) => {
+              if (el && typeof el.click === "function") {
+                el.click();
+              }
+            }, element);
+            clicked = true;
+            logger?.debug("Fallback click successful");
+          }
+
+          if (clicked) {
+            await sleep(2000, "after consent click", logger);
+            return true;
+          }
+        }
+      } catch (error) {
+        logger?.debug(`Error with selector ${selector}: ${error.message}`);
+      }
+    }
+
+    return false;
+  } catch (error) {
+    logger?.error("Error clicking consent buttons", { error: error.message });
+    return false;
   }
 }
 
@@ -756,14 +1278,49 @@ async function handleConsent(page, cursor, logger = null) {
             `Ghost cursor clicking consent element with selector: ${selector}`
           );
           try {
-            await cursor.click(element);
-            logger?.debug(`Click completed on consent element`);
+            // Enhanced validation for cursor and element before click
+            const isValidCursor =
+              cursor &&
+              typeof cursor === "object" &&
+              typeof cursor.click === "function";
+            const isValidElement = element && typeof element === "object";
+
+            if (isValidCursor && isValidElement) {
+              try {
+                await cursor.click(element);
+                logger?.debug(`Click completed on consent element`);
+              } catch (clickError) {
+                // Check if it's a remoteObject error
+                if (clickError.message.includes("remoteObject")) {
+                  logger?.debug(
+                    "Ghost cursor remoteObject error on click, using fallback"
+                  );
+                  throw new Error("remoteObject not available");
+                }
+                throw clickError;
+              }
+            } else {
+              throw new Error(
+                `Invalid cursor (${isValidCursor}) or element (${isValidElement})`
+              );
+            }
           } catch (cursorError) {
             logger?.debug(
               `Cursor click failed, using fallback: ${cursorError.message}`
             );
-            await page.evaluate((el) => el.click(), element);
-            logger?.debug(`Fallback click completed on consent element`);
+            try {
+              // More reliable fallback: direct element click
+              await page.evaluate((el) => {
+                if (el && typeof el.click === "function") {
+                  el.click();
+                }
+              }, element);
+              logger?.debug(`Fallback click completed on consent element`);
+            } catch (fallbackError) {
+              logger?.debug(
+                `Both cursor and fallback click failed: ${fallbackError.message}`
+              );
+            }
           }
 
           // Wait for navigation or page change
@@ -875,8 +1432,8 @@ async function simulateHumanBrowsing(page, cursor, duration, logger = null) {
 
   while (Date.now() - startTime < duration) {
     try {
-      // Random human actions (reduced click frequency to avoid issues)
-      const actions = ["scroll", "move", "pause", "scroll", "move"];
+      // Random human actions (NO CLICKING during warmup to avoid navigating away)
+      const actions = ["scroll", "move", "pause", "scroll", "move", "hover"];
 
       const action = actions[Math.floor(Math.random() * actions.length)];
 
@@ -908,18 +1465,60 @@ async function simulateHumanBrowsing(page, cursor, duration, logger = null) {
 
             logger?.debug(`Ghost cursor moving to position: (${x}, ${y})`);
             try {
-              await cursor.move(x, y);
-              logger?.debug(`Cursor movement completed`);
+              // Enhanced validation for cursor object and coordinates
+              const isValidCursor =
+                cursor &&
+                typeof cursor === "object" &&
+                typeof cursor.move === "function";
+              const isValidCoords =
+                !isNaN(x) &&
+                !isNaN(y) &&
+                x >= 0 &&
+                y >= 0 &&
+                x <= maxX &&
+                y <= maxY;
+
+              if (isValidCursor && isValidCoords) {
+                // Additional safety check for cursor state with timeout
+                try {
+                  const movePromise = cursor.move(x, y);
+                  const timeoutPromise = new Promise((_, reject) => {
+                    setTimeout(() => reject(new Error("cursor timeout")), 3000);
+                  });
+
+                  await Promise.race([movePromise, timeoutPromise]);
+                  logger?.debug(`Cursor movement completed successfully`);
+                } catch (moveError) {
+                  // Check for common cursor errors
+                  if (
+                    moveError.message.includes("remoteObject") ||
+                    moveError.message.includes("timeout") ||
+                    moveError.message.includes("Protocol error") ||
+                    moveError.message.includes("Session closed")
+                  ) {
+                    logger?.debug(
+                      "Ghost cursor error detected, using fallback"
+                    );
+                    throw new Error("cursor unavailable");
+                  }
+                  throw moveError;
+                }
+              } else {
+                throw new Error(
+                  `Invalid cursor (${isValidCursor}) or coordinates (${isValidCoords})`
+                );
+              }
             } catch (cursorError) {
               logger?.debug(`Cursor move failed: ${cursorError.message}`);
               try {
-                // Fallback: just move the mouse without ghost-cursor
+                // Fallback: use page.mouse.move which is more reliable
                 await page.mouse.move(x, y);
                 logger?.debug(`Fallback mouse movement completed`);
               } catch (fallbackError) {
                 logger?.debug(
                   `Both cursor and fallback move failed: ${fallbackError.message}`
                 );
+                // Silent fallback - continue without mouse movement
               }
             }
           } catch (moveError) {
@@ -932,23 +1531,33 @@ async function simulateHumanBrowsing(page, cursor, duration, logger = null) {
           await sleep(1000 + Math.random() * 3000);
           break;
 
-        case "click": {
+        case "hover": {
           try {
-            // Only occasionally perform clicks and ensure safe coordinates
-            if (Math.random() < 0.3) {
-              // 30% chance of clicking
-              const viewport = await page.viewport();
-              const maxX = Math.min(viewport?.width || 1366, 1366) - 200;
-              const maxY = Math.min(viewport?.height || 768, 768) - 200;
+            // Hover over elements to simulate reading without clicking
+            const viewport = await page.viewport();
+            const maxX = Math.min(viewport?.width || 1366, 1366) - 100;
+            const maxY = Math.min(viewport?.height || 768, 768) - 100;
 
-              const clickX = Math.random() * (maxX - 300) + 200;
-              const clickY = Math.random() * (maxY - 300) + 200;
+            const hoverX = Math.random() * (maxX - 200) + 100;
+            const hoverY = Math.random() * (maxY - 200) + 100;
 
-              // Use page.mouse.click instead of cursor.click for more reliability
-              await page.mouse.click(clickX, clickY);
+            // Just move to the position and pause (simulates hovering over content)
+            try {
+              if (cursor && typeof cursor.move === "function") {
+                await cursor.move(hoverX, hoverY);
+              } else {
+                await page.mouse.move(hoverX, hoverY);
+              }
+
+              // Pause as if reading content
+              await sleep(500 + Math.random() * 1500);
+            } catch (hoverError) {
+              logger?.debug("Hover simulation failed", {
+                error: hoverError.message,
+              });
             }
-          } catch (clickError) {
-            logger?.debug("Click action failed", { error: clickError.message });
+          } catch (hoverError) {
+            logger?.debug("Hover action failed", { error: hoverError.message });
           }
           break;
         }
@@ -1083,7 +1692,7 @@ async function navigateToGoogle(pageData, logger = null) {
     }
 
     // Always check and handle consent after navigation
-    await handleConsent(page, pageData.cursor, logger);
+    await handleConsentOptimized(page, pageData.cursor, logger);
 
     // Final verification that page is ready
     const finalCheck = await isPageLoaded(page, logger);
@@ -1135,6 +1744,7 @@ export {
   createPage,
   performWarmup,
   handleConsent,
+  handleConsentOptimized,
   simulateHumanBrowsing,
   navigateToGoogle,
   isPageLoaded,

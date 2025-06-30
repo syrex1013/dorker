@@ -231,8 +231,14 @@ async function appendDorkResults(
  * @param {Object} results - Results object containing dorks and their results
  * @param {string} filePath - Path to save the URLs file
  * @param {Object} logger - Winston logger instance
+ * @param {boolean} includeAll - Whether to include duplicates (default: false)
  */
-async function saveUrlsToFile(results, filePath, logger = null) {
+async function saveUrlsToFile(
+  results,
+  filePath,
+  logger = null,
+  includeAll = false
+) {
   try {
     const urls = [];
 
@@ -247,34 +253,79 @@ async function saveUrlsToFile(results, filePath, logger = null) {
       }
     }
 
-    // Remove duplicates
-    const uniqueUrls = [...new Set(urls)];
+    if (urls.length === 0) {
+      logger?.warn("No URLs found to save");
+      return;
+    }
+
+    let urlsToSave;
+    let duplicateCount = 0;
+
+    if (includeAll) {
+      urlsToSave = urls;
+      duplicateCount = urls.length - [...new Set(urls)].length;
+    } else {
+      urlsToSave = [...new Set(urls)];
+      duplicateCount = urls.length - urlsToSave.length;
+    }
+
+    // Create filename with type indicator
+    const pathInfo = path.parse(filePath);
+    const typeIndicator = includeAll ? "-all" : "-unique";
+    const finalPath = path.join(
+      pathInfo.dir,
+      `${pathInfo.name}${typeIndicator}${pathInfo.ext}`
+    );
 
     // Save one URL per line
-    const urlContent = uniqueUrls.join("\n") + "\n";
-    await fs.writeFile(filePath, urlContent, "utf8");
+    const urlContent = urlsToSave.join("\n") + "\n";
+    await fs.writeFile(finalPath, urlContent, "utf8");
 
     logger?.info("URLs saved to file", {
-      filePath,
-      urlCount: uniqueUrls.length,
+      filePath: finalPath,
+      urlCount: urlsToSave.length,
       totalFound: urls.length,
-      duplicatesRemoved: urls.length - uniqueUrls.length,
+      duplicatesRemoved: duplicateCount,
+      includeAll,
     });
 
+    const typeDescription = includeAll ? "all" : "unique";
     logWithDedup(
       "info",
-      `💾 Saved ${uniqueUrls.length} unique URLs to ${path.basename(filePath)}`,
+      `💾 Saved ${urlsToSave.length} ${typeDescription} URLs to ${path.basename(
+        finalPath
+      )}`,
       chalk.green,
       logger
     );
-    if (urls.length > uniqueUrls.length) {
-      logWithDedup(
-        "info",
-        `   (${urls.length - uniqueUrls.length} duplicates removed)`,
-        chalk.blue,
-        logger
-      );
+
+    if (duplicateCount > 0) {
+      const duplicateMessage = includeAll
+        ? `   (including ${duplicateCount} duplicates)`
+        : `   (${duplicateCount} duplicates removed)`;
+      logWithDedup("info", duplicateMessage, chalk.blue, logger);
     }
+
+    // Also save the alternate version for comparison
+    const altTypeIndicator = includeAll ? "-unique" : "-all";
+    const altPath = path.join(
+      pathInfo.dir,
+      `${pathInfo.name}${altTypeIndicator}${pathInfo.ext}`
+    );
+    const altUrls = includeAll ? [...new Set(urls)] : urls;
+    const altContent = altUrls.join("\n") + "\n";
+
+    await fs.writeFile(altPath, altContent, "utf8");
+
+    const altTypeDescription = includeAll ? "unique" : "all";
+    logWithDedup(
+      "info",
+      `💾 Also saved ${
+        altUrls.length
+      } ${altTypeDescription} URLs to ${path.basename(altPath)}`,
+      chalk.cyan,
+      logger
+    );
   } catch (error) {
     logger?.error("Failed to save URLs to file", {
       error: error.message,

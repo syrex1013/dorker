@@ -19,12 +19,14 @@ import {
 } from "./utils/fileOperations.js";
 import MultiEngineDorker from "./dorker/MultiEngineDorker.js";
 import DashboardServer from "./web/dashboard.js";
+import { resetCaptchaDetectionState } from "./captcha/detector.js";
 import boxen from "boxen";
 
 // Global dashboard instance
 let dashboard = null;
 let dorker = null;
 let logger = null;
+let isServerMode = false; // Track if we're running in server mode
 
 /**
  * Display section separator
@@ -126,6 +128,9 @@ async function handleStartDorking(config) {
       return { success: false, error: errorMessage };
     }
 
+    // Set configuration on dashboard
+    dashboard.setConfiguration(config);
+
     // START DASHBOARD SESSION IMMEDIATELY after loading dorks
     dashboard.startSession(dorks.length);
 
@@ -211,6 +216,9 @@ async function performDorking(dorks, config) {
     const dork = dorks[i];
 
     try {
+      // Reset CAPTCHA detection state for new search
+      resetCaptchaDetectionState();
+
       // Update dashboard with current dork
       dashboard.setCurrentDork(dork);
 
@@ -232,10 +240,8 @@ async function performDorking(dorks, config) {
         dashboard.addToTotalResults(results.length);
         dashboard.addResult(dork, results);
 
-        // Log to both dashboard and console
-        const successMessage = `Found ${results.length} results for dork`;
-        dashboard.addLog("success", successMessage);
-        console.log(chalk.green(`✅ ${successMessage}`));
+        // Log to console only - dashboard.addResult already logs to dashboard
+        console.log(chalk.green(`✅ Found ${results.length} results for dork`));
 
         // Show some sample results in console
         if (results.length > 0) {
@@ -266,8 +272,8 @@ async function performDorking(dorks, config) {
       // Store results
       allResults[dork] = results;
 
-      // Append to output file immediately if configured
-      if (config.outputFile) {
+      // Only save to output file in CLI mode, not in server mode
+      if (config.outputFile && !isServerMode) {
         await appendDorkResults(
           dork,
           results,
@@ -291,8 +297,10 @@ async function performDorking(dorks, config) {
       if (i < dorks.length - 1) {
         const delayMessage = `Waiting ${config.delay}s before next search...`;
         dashboard.addLog("info", delayMessage);
+        dashboard.setStatus("delaying-search");
         console.log(chalk.gray(`⏱️ ${delayMessage}`));
         await dorker.delayBetweenSearches();
+        dashboard.setStatus("running");
       }
     } catch (error) {
       logger.error("Error processing dork", {
@@ -314,21 +322,18 @@ async function performDorking(dorks, config) {
     }
   }
 
-  // Mark session as completed
+  // Mark session as completed and auto-stop
   dashboard.endSession();
+  dashboard.setStatus("completed");
 
   const completionMessage = "All dorks processed successfully";
   dashboard.addLog("success", completionMessage);
   console.log(chalk.green(`\n✅ ${completionMessage}`));
   console.log("─".repeat(50));
 
-  // Save final results
-  if (config.outputFile) {
-    const saveMessage = `Results saved to ${config.outputFile}`;
-    await saveResults(allResults, config.outputFile, logger);
-    dashboard.addLog("info", saveMessage);
-    console.log(chalk.blue(`💾 ${saveMessage}`));
-  }
+  // Save final results (only in CLI mode - server mode uses web export)
+  // Note: In server mode, users can export results through the web dashboard interface
+  // so we don't automatically create results.json files
 
   // Cleanup
   if (dorker) {
@@ -339,8 +344,15 @@ async function performDorking(dorks, config) {
     console.log(chalk.gray(`🧹 ${cleanupMessage}`));
   }
 
-  // Final summary
+  // Final summary and completion notification
   const sessionSummary = dashboard.getSessionSummary();
+
+  // Send completion notification to web dashboard
+  dashboard.sendNotification(
+    `🎉 Dorking completed! Processed ${sessionSummary.processedDorks} dorks with ${sessionSummary.successRate}% success rate`,
+    "completion",
+    true
+  );
   console.log(chalk.bold.green("\n🎉 Session Complete!"));
   console.log(chalk.gray(`Success Rate: ${sessionSummary.successRate}%`));
   console.log(chalk.gray(`Total Results: ${sessionSummary.totalResults}`));
@@ -494,12 +506,8 @@ async function interactiveMode() {
           dashboard.incrementSuccessful();
           dashboard.addToTotalResults(results.length);
           dashboard.addResult(dork, results);
-          dashboard.addLog(
-            "success",
-            `Found ${results.length} results for dork`
-          );
 
-          // Show quick preview
+          // Show quick preview in console
           if (results.length > 0) {
             console.log(chalk.gray("📋 Quick Preview:"));
             results.slice(0, 3).forEach((result, idx) => {
@@ -527,8 +535,8 @@ async function interactiveMode() {
         // Store results
         allResults[dork] = results;
 
-        // Append to output file immediately if configured
-        if (config.outputFile) {
+        // Only save to output file in CLI mode, not in server mode
+        if (config.outputFile && !isServerMode) {
           await appendDorkResults(
             dork,
             results,
@@ -593,12 +601,21 @@ async function interactiveMode() {
 
     displaySection("Session Complete", "green");
 
-    // Mark session as completed
+    // Mark session as completed and auto-stop
     dashboard.endSession();
+    dashboard.setStatus("completed");
     dashboard.addLog("success", "All dorks processed successfully");
 
-    // Save final results
-    if (config.outputFile) {
+    // Send completion notification to web dashboard
+    const interactiveSummary = dashboard.getSessionSummary();
+    dashboard.sendNotification(
+      `🎉 Interactive session completed! ${interactiveSummary.successRate}% success rate with ${interactiveSummary.totalResults} total results`,
+      "completion",
+      true
+    );
+
+    // Save final results (CLI mode only - creates results.json file)
+    if (config.outputFile && !isServerMode) {
       displayStatus(
         `Saving final results to ${config.outputFile}...`,
         "💾",
@@ -617,12 +634,48 @@ async function interactiveMode() {
     // Ask if user wants to save URLs to result.txt
     const shouldSaveUrls = await askSaveUrls(allResults);
     if (shouldSaveUrls) {
-      displayStatus("Saving URLs to result.txt...", "🔗", "blue");
+      displayStatus("Saving URLs to files...", "🔗", "blue");
 
-      await saveUrlsToFile(allResults, "result.txt", logger);
+      // Save both unique and all versions for comparison
+      await saveUrlsToFile(allResults, "result.txt", logger, false); // unique version first
 
-      dashboard.addLog("info", "URLs saved to result.txt");
-      displayStatus("✅ URLs saved to result.txt", "✓", "green");
+      dashboard.addLog(
+        "info",
+        "URLs saved to result-unique.txt and result-all.txt"
+      );
+      displayStatus(
+        "✅ URLs saved - both unique and complete versions created",
+        "✓",
+        "green"
+      );
+
+      // Show user the difference
+      const urls = [];
+      for (const dork in allResults) {
+        if (allResults[dork] && Array.isArray(allResults[dork])) {
+          allResults[dork].forEach((result) => {
+            if (result.url && result.url.trim()) {
+              urls.push(result.url.trim());
+            }
+          });
+        }
+      }
+
+      const uniqueCount = [...new Set(urls)].length;
+      const totalCount = urls.length;
+      const duplicateCount = totalCount - uniqueCount;
+
+      if (duplicateCount > 0) {
+        displayStatus(
+          `📊 Total: ${totalCount} URLs, Unique: ${uniqueCount}, Duplicates: ${duplicateCount}`,
+          "📈",
+          "cyan"
+        );
+        dashboard.addLog(
+          "info",
+          `Statistics: ${uniqueCount} unique URLs, ${duplicateCount} duplicates removed`
+        );
+      }
     }
 
     const completionBox = boxen(
@@ -710,9 +763,11 @@ async function main() {
 
     if (args.server) {
       // Server mode - start dashboard and wait for web configuration
+      isServerMode = true;
       await serverMode(args.port || 3000);
     } else {
       // Interactive mode - original CLI workflow
+      isServerMode = false;
       await interactiveMode();
     }
   } catch (error) {

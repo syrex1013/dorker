@@ -185,6 +185,18 @@
         animation: statusPulse 1s infinite;
       }
 
+      .status-delaying-search {
+        background: linear-gradient(45deg, #6b7280, #4b5563);
+        color: white;
+        animation: statusPulse 3s infinite;
+      }
+
+      .status-captcha-transcribing {
+        background: linear-gradient(45deg, #8b5cf6, #7c3aed);
+        color: white;
+        animation: statusPulse 1.5s infinite;
+      }
+
       .status-running {
         background: var(--text-accent);
         color: white;
@@ -335,6 +347,45 @@
       .table-content {
         max-height: 400px;
         overflow-y: auto;
+        scroll-behavior: smooth;
+        position: relative;
+      }
+
+      /* Infinite scroll enhancements */
+      .infinite-scroll-loader {
+        position: sticky;
+        bottom: 0;
+        background: var(--bg-primary);
+        border-top: 1px solid var(--border-color);
+        margin: 0;
+        z-index: 1;
+        backdrop-filter: blur(4px);
+      }
+
+      /* Custom scrollbars for infinite scroll containers */
+      .table-content::-webkit-scrollbar {
+        width: 8px;
+      }
+
+      .table-content::-webkit-scrollbar-track {
+        background: var(--bg-secondary);
+        border-radius: 4px;
+      }
+
+      .table-content::-webkit-scrollbar-thumb {
+        background: var(--border-color);
+        border-radius: 4px;
+        transition: background 0.2s ease;
+      }
+
+      .table-content::-webkit-scrollbar-thumb:hover {
+        background: var(--text-secondary);
+      }
+
+      /* Firefox scrollbar styling */
+      .table-content {
+        scrollbar-width: thin;
+        scrollbar-color: var(--border-color) var(--bg-secondary);
       }
 
       .table-row {
@@ -385,6 +436,137 @@
 
       .notification-error {
         border-left: 4px solid var(--error-color);
+      }
+
+      .notification-completion {
+        border-left: 4px solid var(--success-color);
+        background: linear-gradient(
+          135deg,
+          rgba(16, 185, 129, 0.1),
+          rgba(16, 185, 129, 0.05)
+        );
+        border: 2px solid var(--success-color);
+        box-shadow: 0 20px 40px rgba(16, 185, 129, 0.3);
+        transform: translateX(100%) scale(0.9);
+        max-width: 500px;
+        z-index: 3000;
+      }
+
+      .notification-completion.show {
+        transform: translateX(0) scale(1);
+        animation: completionPulse 0.5s ease-out;
+      }
+
+      @keyframes completionPulse {
+        0% {
+          transform: translateX(0) scale(0.9);
+        }
+        50% {
+          transform: translateX(0) scale(1.05);
+        }
+        100% {
+          transform: translateX(0) scale(1);
+        }
+      }
+
+      .completion-popup {
+        position: fixed;
+        top: 50%;
+        left: 50%;
+        transform: translate(-50%, -50%) scale(0.8);
+        background: var(--bg-primary);
+        border: 2px solid var(--success-color);
+        border-radius: 16px;
+        padding: 2rem;
+        box-shadow: 0 25px 50px rgba(0, 0, 0, 0.3);
+        max-width: 500px;
+        width: 90vw;
+        z-index: 5000;
+        opacity: 0;
+        visibility: hidden;
+        pointer-events: none;
+        transition: all 0.3s ease;
+        text-align: center;
+      }
+
+      .completion-popup.show {
+        opacity: 1;
+        visibility: visible;
+        pointer-events: all;
+        transform: translate(-50%, -50%) scale(1);
+      }
+
+      .completion-popup-overlay {
+        position: fixed;
+        top: 0;
+        left: 0;
+        width: 100%;
+        height: 100%;
+        background: rgba(0, 0, 0, 0.6);
+        backdrop-filter: blur(8px);
+        z-index: 4000;
+        opacity: 0;
+        visibility: hidden;
+        pointer-events: none;
+        transition: opacity 0.3s ease, visibility 0.3s ease,
+          pointer-events 0.3s ease;
+      }
+
+      .completion-popup-overlay.show {
+        opacity: 1;
+        visibility: visible;
+        pointer-events: all;
+      }
+
+      .completion-title {
+        font-size: 1.5rem;
+        font-weight: 700;
+        color: var(--success-color);
+        margin-bottom: 1rem;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        gap: 0.5rem;
+      }
+
+      .completion-message {
+        font-size: 1rem;
+        color: var(--text-primary);
+        margin-bottom: 1.5rem;
+        line-height: 1.5;
+      }
+
+      .completion-stats {
+        display: grid;
+        grid-template-columns: repeat(2, 1fr);
+        gap: 1rem;
+        margin-bottom: 1.5rem;
+        padding: 1rem;
+        background: var(--bg-secondary);
+        border-radius: 8px;
+      }
+
+      .completion-stat {
+        text-align: center;
+      }
+
+      .completion-stat-value {
+        font-size: 1.25rem;
+        font-weight: 700;
+        color: var(--text-accent);
+      }
+
+      .completion-stat-label {
+        font-size: 0.8rem;
+        color: var(--text-secondary);
+        text-transform: uppercase;
+        font-weight: 500;
+      }
+
+      .completion-actions {
+        display: flex;
+        gap: 1rem;
+        justify-content: center;
       }
 
       /* Logs */
@@ -561,6 +743,12 @@
         animation: statusPulse 1s infinite;
       }
 
+      .main-status-pill.status-captcha-proxy {
+        background: linear-gradient(135deg, #f59e0b, #d97706);
+        color: white;
+        animation: statusPulse 0.8s infinite;
+      }
+
       .main-status-pill.status-running {
         background: linear-gradient(135deg, #10b981, #059669);
         color: white;
@@ -574,6 +762,11 @@
 
       .main-status-pill.status-error {
         background: linear-gradient(135deg, #ef4444, #dc2626);
+        color: white;
+      }
+
+      .main-status-pill.status-stopped {
+        background: linear-gradient(135deg, #6b7280, #4b5563);
         color: white;
       }
 
@@ -754,11 +947,15 @@
         border: 1px solid var(--border-color);
         border-radius: var(--radius);
         padding: 2rem;
-        max-width: 500px;
+        max-width: 600px;
         width: 90%;
+        max-height: 90vh;
+        overflow-y: auto;
         box-shadow: var(--shadow-lg);
         transform: scale(0.95);
         transition: var(--transition);
+        position: relative;
+        z-index: 3001;
       }
 
       .modal.show .modal-content {
@@ -776,10 +973,16 @@
       }
 
       .modal-actions {
-        display: flex;
+        display: flex !important;
         gap: 1rem;
         justify-content: flex-end;
         margin-top: 2rem;
+        padding-top: 1rem;
+        border-top: 1px solid var(--border-color);
+        background: var(--bg-primary);
+        position: sticky;
+        bottom: 0;
+        z-index: 3002;
       }
 
       /* Responsive */
@@ -833,33 +1036,7 @@
         background: var(--text-primary);
       }
 
-      /* Remove duplicate modal CSS - keeping the one above */
-
-      .modal-content {
-        background: var(--bg-primary);
-        border-radius: var(--radius);
-        padding: 2rem;
-        max-width: 500px;
-        width: 90%;
-        box-shadow: var(--shadow-lg);
-      }
-
-      .modal-header {
-        margin-bottom: 1.5rem;
-      }
-
-      .modal-title {
-        font-size: 1.25rem;
-        font-weight: 600;
-        color: var(--text-primary);
-      }
-
-      .modal-actions {
-        display: flex;
-        gap: 1rem;
-        justify-content: flex-end;
-        margin-top: 1.5rem;
-      }
+      /* Duplicate modal CSS removed - using the definitions above */
     </style>
   </head>
   <body>
@@ -1053,6 +1230,28 @@
             </div>
           </div>
         </div>
+
+        <!-- Configuration Info -->
+        <div class="card" id="config-card" style="display: none">
+          <div class="card-header">
+            <div class="card-title">Configuration</div>
+            <i class="fas fa-cog" style="color: var(--text-accent)"></i>
+          </div>
+          <div
+            id="config-display"
+            style="margin-top: 1rem; font-size: 0.875rem"
+          >
+            <div
+              style="
+                color: var(--text-secondary);
+                text-align: center;
+                padding: 1rem;
+              "
+            >
+              Configuration will appear when session starts
+            </div>
+          </div>
+        </div>
       </div>
 
       <!-- Live Status Section -->
@@ -1195,6 +1394,51 @@
     <!-- Notifications Container -->
     <div id="notifications-container"></div>
 
+    <!-- Completion Popup -->
+    <div id="completion-popup-overlay" class="completion-popup-overlay">
+      <div id="completion-popup" class="completion-popup">
+        <div class="completion-title">
+          <i class="fas fa-trophy"></i>
+          Dorking Complete!
+        </div>
+        <div id="completion-message" class="completion-message">
+          Session completed successfully
+        </div>
+        <div id="completion-stats" class="completion-stats">
+          <div class="completion-stat">
+            <div id="completion-processed" class="completion-stat-value">0</div>
+            <div class="completion-stat-label">Processed</div>
+          </div>
+          <div class="completion-stat">
+            <div id="completion-success-rate" class="completion-stat-value">
+              0%
+            </div>
+            <div class="completion-stat-label">Success Rate</div>
+          </div>
+          <div class="completion-stat">
+            <div id="completion-total-results" class="completion-stat-value">
+              0
+            </div>
+            <div class="completion-stat-label">Total Results</div>
+          </div>
+          <div class="completion-stat">
+            <div id="completion-runtime" class="completion-stat-value">
+              00:00:00
+            </div>
+            <div class="completion-stat-label">Runtime</div>
+          </div>
+        </div>
+        <div class="completion-actions">
+          <button class="btn btn-primary" id="completion-export-btn">
+            <i class="fas fa-download"></i> Export URLs
+          </button>
+          <button class="btn" id="completion-close-btn">
+            <i class="fas fa-times"></i> Close
+          </button>
+        </div>
+      </div>
+    </div>
+
     <!-- Configuration Modal -->
     <div class="modal" id="config-modal">
       <div class="modal-content" style="max-width: 600px">
@@ -1259,6 +1503,30 @@
                 value="30"
                 min="1"
                 max="100"
+                required
+                style="
+                  width: 100%;
+                  padding: 0.5rem;
+                  border: 1px solid var(--border-color);
+                  border-radius: 6px;
+                  background: var(--bg-primary);
+                  color: var(--text-primary);
+                "
+              />
+            </div>
+
+            <div style="margin-bottom: 1rem">
+              <label
+                style="display: block; margin-bottom: 0.5rem; font-weight: 500"
+                >📄 Maximum Pages to Scrape per Dork</label
+              >
+              <input
+                type="number"
+                id="max-pages"
+                name="maxPages"
+                value="1"
+                min="1"
+                max="10"
                 required
                 style="
                   width: 100%;
@@ -1492,7 +1760,11 @@
       document.addEventListener("DOMContentLoaded", () => {
         initializeCharts();
         setupEventListeners();
+        setupInfiniteScroll();
         checkServerMode();
+
+        // Ensure completion popup is hidden on page load
+        closeCompletionPopup();
 
         // Load theme preference
         const savedTheme = localStorage.getItem("dashboard-theme") || "light";
@@ -1502,15 +1774,131 @@
         }
       });
 
-      // Socket event handlers
+      // Enhanced Socket event handlers with reconnection logic
       socket.on("connect", () => {
+        reconnectAttempts = 0;
         showNotification("Connected to server", "success");
         console.log("✅ Dashboard connected");
+
+        // Request initial data on connect/reconnect
+        socket.emit("requestData");
       });
 
-      socket.on("disconnect", () => {
-        showNotification("Disconnected from server", "error");
-        console.log("❌ Dashboard disconnected");
+      socket.on("disconnect", (reason) => {
+        console.log("❌ Dashboard disconnected:", reason);
+
+        // Only show error notification if page is visible
+        if (isPageVisible) {
+          showNotification(
+            "Connection lost - attempting to reconnect...",
+            "warning"
+          );
+        }
+
+        // Stop heartbeat on disconnect
+        stopHeartbeat();
+      });
+
+      socket.on("connect_error", (error) => {
+        console.log("❌ Connection error:", error);
+
+        if (isPageVisible && reconnectAttempts < maxReconnectAttempts) {
+          reconnectAttempts++;
+          showNotification(
+            `Connection failed (${reconnectAttempts}/${maxReconnectAttempts}) - retrying...`,
+            "warning"
+          );
+        }
+      });
+
+      socket.on("reconnect", (attemptNumber) => {
+        reconnectAttempts = 0;
+        console.log(`✅ Reconnected after ${attemptNumber} attempts`);
+
+        if (isPageVisible) {
+          showNotification("Reconnected successfully!", "success");
+        }
+
+        // Restart heartbeat on reconnect
+        startHeartbeat();
+
+        // Request fresh data after reconnection
+        socket.emit("requestData");
+      });
+
+      socket.on("reconnect_failed", () => {
+        console.log("❌ Failed to reconnect after maximum attempts");
+
+        if (isPageVisible) {
+          showNotification(
+            "Unable to reconnect - please refresh the page",
+            "error"
+          );
+        }
+      });
+
+      // Handle initial data loading
+      socket.on("initialResults", (results) => {
+        console.log("📊 Loading initial results:", results.length);
+        sessionData.results = results;
+
+        // Populate results container with existing results
+        const resultsContainer = document.getElementById("results-container");
+        resultsContainer.innerHTML = "";
+
+        if (results.length === 0) {
+          resultsContainer.innerHTML = `
+            <div style="text-align: center; padding: 3rem; color: var(--text-secondary);">
+              <i class="fas fa-search" style="font-size: 2rem; margin-bottom: 1rem; opacity: 0.5;"></i>
+              <div>No results yet - start a dorking session to see results here</div>
+            </div>
+          `;
+        } else {
+          // Add all existing results
+          results.forEach((result) => {
+            addResult(result);
+          });
+
+          // Show export button if there are results
+          const exportUrlsBtn = document.getElementById("export-urls-btn");
+          if (exportUrlsBtn) {
+            exportUrlsBtn.style.display = "inline-flex";
+          }
+        }
+      });
+
+      socket.on("initialLogs", (logs) => {
+        console.log("📋 Loading initial logs:", logs.length);
+        sessionData.logs = logs;
+
+        // Populate logs container with existing logs
+        const logsContainer = document.getElementById("logs-container");
+        logsContainer.innerHTML = "";
+
+        if (logs.length === 0) {
+          logsContainer.innerHTML = `
+            <div style="text-align: center; padding: 3rem; color: var(--text-secondary);">
+              <i class="fas fa-terminal" style="font-size: 2rem; margin-bottom: 1rem; opacity: 0.5;"></i>
+              <div>No logs yet - start a dorking session to see system logs here</div>
+            </div>
+          `;
+        } else {
+          // Add all existing logs
+          logs.forEach((log) => {
+            addLog(log);
+          });
+        }
+      });
+
+      socket.on("performanceData", (performanceData) => {
+        console.log("📈 Loading performance data:", performanceData.length);
+        sessionData.performanceData = performanceData.map((data) => ({
+          time: new Date(data.timestamp),
+          processed: data.processed,
+          successful: data.successful,
+          results: data.totalResults,
+        }));
+        updatePerformanceChart();
       });
 
       socket.on("stats", (stats) => {
@@ -1530,6 +1918,7 @@
 
       socket.on("sessionStart", (stats) => {
         startTime = new Date(stats.startTime);
+        // Clear data for new session - this ensures fresh start
         sessionData = {
           results: [],
           logs: [],
@@ -1673,6 +2062,14 @@
         console.log("📋 New log:", log);
       });
 
+      socket.on("notification", (notification) => {
+        if (notification.type === "completion") {
+          showCompletionPopup(notification);
+        } else {
+          showNotification(notification.message, notification.type);
+        }
+      });
+
       socket.on("sessionEnd", (data) => {
         console.log("🏁 Session ended:", data);
 
@@ -1682,8 +2079,8 @@
           runtimeInterval = null;
         }
 
-        // Update UI back to idle state
-        updateStatus("idle");
+        // Update UI back to completed/idle state
+        updateStatus(data.success ? "completed" : "idle");
 
         // Show completion notification
         if (data.success) {
@@ -1695,20 +2092,46 @@
           showNotification("⚠️ Dorking session ended", "warning");
         }
 
-        // Switch back to start mode
-        setTimeout(() => {
-          const startStopBtn = document.getElementById("start-stop-btn");
+        // Immediately switch back to start mode
+        const startStopBtn = document.getElementById("start-stop-btn");
+        if (startStopBtn) {
           startStopBtn.innerHTML = '<i class="fas fa-play"></i> Start';
           startStopBtn.className = "btn btn-primary";
           startStopBtn.style.borderColor = "";
           startStopBtn.style.color = "";
+          startStopBtn.style.display = "inline-flex";
 
-          // Keep export URLs button visible if there are results
-          const exportUrlsBtn = document.getElementById("export-urls-btn");
-          if (sessionData.results && sessionData.results.length > 0) {
-            exportUrlsBtn.style.display = "inline-flex";
+          console.log("🔄 Button changed back to Start mode");
+        }
+
+        // Keep export URLs button visible if there are results
+        const exportUrlsBtn = document.getElementById("export-urls-btn");
+        if (
+          exportUrlsBtn &&
+          sessionData.results &&
+          sessionData.results.length > 0
+        ) {
+          exportUrlsBtn.style.display = "inline-flex";
+          console.log("📎 Export URLs button kept visible");
+        }
+
+        // Update runtime display to final time
+        if (startTime) {
+          const finalRuntime = Date.now() - startTime.getTime();
+          const hours = Math.floor(finalRuntime / 3600000);
+          const minutes = Math.floor((finalRuntime % 3600000) / 60000);
+          const seconds = Math.floor((finalRuntime % 60000) / 1000);
+          const runtimeDisplay = `${hours.toString().padStart(2, "0")}:${minutes
+            .toString()
+            .padStart(2, "0")}:${seconds.toString().padStart(2, "0")}`;
+
+          const runtimeEl = document.getElementById("runtime");
+          if (runtimeEl) {
+            runtimeEl.textContent = runtimeDisplay;
           }
-        }, 1000);
+        }
+
+        console.log("🏁 Session end handling completed");
       });
 
       socket.on("error", (error) => {
@@ -1802,6 +2225,9 @@
           : "Direct connection";
         document.getElementById("current-proxy").textContent = proxyText;
 
+        // Update configuration display
+        updateConfigurationDisplay(stats.config);
+
         // Initialize start time if not set
         if (stats.startTime && !startTime) {
           startTime = new Date(stats.startTime);
@@ -1842,10 +2268,14 @@
           initializing: "fas fa-cog fa-spin",
           "warming-up": "fas fa-fire",
           searching: "fas fa-search",
+          "delaying-search": "fas fa-clock",
           captcha: "fas fa-lock",
+          "captcha-transcribing": "fas fa-microphone",
+          "captcha-proxy": "fas fa-globe",
           running: "fas fa-play-circle",
           completed: "fas fa-check-circle",
           error: "fas fa-exclamation-circle",
+          stopped: "fas fa-stop-circle",
         };
 
         const icon = statusIcons[status] || "fas fa-question-circle";
@@ -1873,6 +2303,49 @@
         console.log(`🔄 Status updated: ${status} - ${statusText}`);
       }
 
+      // Update configuration display
+      function updateConfigurationDisplay(config) {
+        const configCard = document.getElementById("config-card");
+        const configDisplay = document.getElementById("config-display");
+
+        if (!config) {
+          configCard.style.display = "none";
+          return;
+        }
+
+        configCard.style.display = "block";
+
+        const configItems = [
+          { label: "📁 Dork File", value: config.dorkFile || "N/A" },
+          { label: "💾 Output File", value: config.outputFile || "N/A" },
+          {
+            label: "📊 Results per Search",
+            value: config.resultCount || "N/A",
+          },
+          { label: "📄 Max Pages", value: config.maxPages || "N/A" },
+          { label: "⏱️ Min Delay", value: `${config.minDelay || 0}s` },
+          { label: "⏰ Max Delay", value: `${config.maxDelay || 0}s` },
+          { label: "👁️ Headless", value: config.headless ? "Yes" : "No" },
+          {
+            label: "🔐 Manual CAPTCHA",
+            value: config.manualCaptchaMode ? "Yes" : "No",
+          },
+          { label: "🎭 Human-like", value: config.humanLike ? "Yes" : "No" },
+          { label: "🌍 Auto Proxy", value: config.autoProxy ? "Yes" : "No" },
+        ];
+
+        configDisplay.innerHTML = configItems
+          .map(
+            (item) => `
+            <div style="display: flex; justify-content: space-between; margin-bottom: 0.5rem; padding: 0.25rem 0;">
+              <span style="color: var(--text-secondary);">${item.label}:</span>
+              <span style="font-weight: 600; text-align: right; max-width: 60%; word-break: break-all;">${item.value}</span>
+            </div>
+          `
+          )
+          .join("");
+      }
+
       function getDefaultStatusText(status) {
         switch (status) {
           case "idle":
@@ -1883,14 +2356,22 @@
             return "Warming up browser session...";
           case "searching":
             return "Actively searching for results...";
+          case "delaying-search":
+            return "Waiting between searches for safety...";
           case "captcha":
-            return "Solving CAPTCHA challenge...";
+            return "CAPTCHA detected - attempting to solve...";
+          case "captcha-transcribing":
+            return "Transcribing CAPTCHA audio using AI...";
+          case "captcha-proxy":
+            return "Bypassing CAPTCHA with proxy switch...";
           case "running":
             return "Session active and processing dorks";
           case "completed":
             return "Session completed successfully";
           case "error":
             return "An error occurred during processing";
+          case "stopped":
+            return "Session stopped by user";
           default:
             return status;
         }
@@ -1982,6 +2463,76 @@
         performanceChart.update("none");
       }
 
+      // Infinite scroll functionality
+      function addInfiniteScrollLoader(container, type) {
+        const loader = document.createElement("div");
+        loader.className = "infinite-scroll-loader";
+        loader.innerHTML = `
+          <div style="text-align: center; padding: 1rem; color: var(--text-secondary);">
+            <i class="fas fa-spinner fa-spin" style="margin-right: 0.5rem;"></i>
+            Scroll down to load older ${type}...
+          </div>
+        `;
+        container.appendChild(loader);
+      }
+
+      function setupInfiniteScroll() {
+        const resultsContainer = document.getElementById("results-container");
+        const logsContainer = document.getElementById("logs-container");
+
+        // Results infinite scroll
+        let resultsScrollThrottle = false;
+        resultsContainer.addEventListener("scroll", () => {
+          if (resultsScrollThrottle) return;
+          resultsScrollThrottle = true;
+
+          setTimeout(() => {
+            const { scrollTop, scrollHeight, clientHeight } = resultsContainer;
+            if (scrollTop + clientHeight >= scrollHeight - 10) {
+              // User scrolled to bottom - could load more historical results here
+              const loader = resultsContainer.querySelector(
+                ".infinite-scroll-loader"
+              );
+              if (loader) {
+                loader.innerHTML = `
+                  <div style="text-align: center; padding: 1rem; color: var(--text-secondary);">
+                    <i class="fas fa-check" style="margin-right: 0.5rem;"></i>
+                    All results loaded
+                  </div>
+                `;
+              }
+            }
+            resultsScrollThrottle = false;
+          }, 100);
+        });
+
+        // Logs infinite scroll
+        let logsScrollThrottle = false;
+        logsContainer.addEventListener("scroll", () => {
+          if (logsScrollThrottle) return;
+          logsScrollThrottle = true;
+
+          setTimeout(() => {
+            const { scrollTop, scrollHeight, clientHeight } = logsContainer;
+            if (scrollTop + clientHeight >= scrollHeight - 10) {
+              // User scrolled to bottom - could load more historical logs here
+              const loader = logsContainer.querySelector(
+                ".infinite-scroll-loader"
+              );
+              if (loader) {
+                loader.innerHTML = `
+                  <div style="text-align: center; padding: 1rem; color: var(--text-secondary);">
+                    <i class="fas fa-check" style="margin-right: 0.5rem;"></i>
+                    All logs loaded
+                  </div>
+                `;
+              }
+            }
+            logsScrollThrottle = false;
+          }, 100);
+        });
+      }
+
       function addResult(result) {
         const container = document.getElementById("results-container");
 
@@ -1994,7 +2545,6 @@
         resultEl.className = "result-card";
 
         const urlElements = result.results
-          .slice(0, 5)
           .map(
             (url) =>
               `<div class="result-url-container">
@@ -2010,26 +2560,28 @@
           )
           .join("");
 
-        const moreText =
-          result.results.length > 5
-            ? `<div style="text-align: center; padding: 0.5rem; color: var(--text-secondary); font-size: 0.875rem;">... and ${
-                result.results.length - 5
-              } more results</div>`
-            : "";
-
         resultEl.innerHTML = `
           <div class="result-header">
             <div class="result-dork">${escapeHtml(result.dork)}</div>
             <div class="result-count">${result.count} results</div>
           </div>
-          <div class="result-urls">${urlElements}${moreText}</div>
+          <div class="result-urls" style="max-height: 400px; overflow-y: auto; padding-right: 8px;">${urlElements}</div>
         `;
 
         container.insertBefore(resultEl, container.firstChild);
 
-        // Keep only last 20 results
-        while (container.children.length > 20) {
-          container.removeChild(container.lastChild);
+        // Infinite scroll - keep all results, auto-scroll to show latest
+        if (container.children.length === 1) {
+          // First result, scroll to top
+          container.scrollTop = 0;
+        }
+
+        // Add loading indicator if more than 50 results (for performance)
+        if (
+          container.children.length > 50 &&
+          !container.querySelector(".infinite-scroll-loader")
+        ) {
+          addInfiniteScrollLoader(container, "results");
         }
       }
 
@@ -2078,9 +2630,18 @@
 
         container.insertBefore(logEl, container.firstChild);
 
-        // Keep only last 100 logs
-        while (container.children.length > 100) {
-          container.removeChild(container.lastChild);
+        // Infinite scroll - keep all logs, auto-scroll to show latest
+        if (container.children.length === 1) {
+          // First log, scroll to top
+          container.scrollTop = 0;
+        }
+
+        // Add loading indicator if more than 200 logs (for performance)
+        if (
+          container.children.length > 200 &&
+          !container.querySelector(".infinite-scroll-loader")
+        ) {
+          addInfiniteScrollLoader(container, "logs");
         }
       }
 
@@ -2144,8 +2705,97 @@
         }, 5000);
       }
 
+      // Completion notification and popup functions
+      function showCompletionPopup(notification) {
+        const overlay = document.getElementById("completion-popup-overlay");
+        const popup = document.getElementById("completion-popup");
+
+        // Update popup content with session data
+        document.getElementById("completion-message").textContent =
+          notification.message;
+
+        // Get current session stats
+        const stats = sessionData.stats || {};
+        document.getElementById("completion-processed").textContent =
+          stats.processedDorks || 0;
+        document.getElementById("completion-success-rate").textContent =
+          stats.processedDorks > 0
+            ? Math.round((stats.successfulDorks / stats.processedDorks) * 100) +
+              "%"
+            : "0%";
+        document.getElementById("completion-total-results").textContent =
+          stats.totalResults || 0;
+
+        // Calculate runtime
+        if (startTime) {
+          const runtime = Date.now() - startTime.getTime();
+          const hours = Math.floor(runtime / 3600000);
+          const minutes = Math.floor((runtime % 3600000) / 60000);
+          const seconds = Math.floor((runtime % 60000) / 1000);
+          document.getElementById("completion-runtime").textContent = `${hours
+            .toString()
+            .padStart(2, "0")}:${minutes.toString().padStart(2, "0")}:${seconds
+            .toString()
+            .padStart(2, "0")}`;
+        } else {
+          document.getElementById("completion-runtime").textContent =
+            "00:00:00";
+        }
+
+        // Show popup with animation
+        overlay.classList.add("show");
+        popup.classList.add("show");
+
+        // Also show regular notification
+        showNotification(notification.message, "completion");
+
+        // Auto-update UI for completion state
+        updateStatus("completed", "All dorks processed successfully!");
+
+        // Update start/stop button back to start mode
+        const startStopBtn = document.getElementById("start-stop-btn");
+        if (startStopBtn) {
+          startStopBtn.innerHTML = '<i class="fas fa-play"></i> Start';
+          startStopBtn.className = "btn btn-primary";
+          startStopBtn.style.borderColor = "";
+          startStopBtn.style.color = "";
+          startStopBtn.style.display = "inline-flex";
+
+          console.log("🎉 Completion popup: Button changed back to Start mode");
+        }
+
+        console.log("🎉 Completion popup shown with stats:", {
+          processed: stats.processedDorks,
+          successRate:
+            stats.processedDorks > 0
+              ? Math.round((stats.successfulDorks / stats.processedDorks) * 100)
+              : 0,
+          totalResults: stats.totalResults,
+        });
+      }
+
+      function closeCompletionPopup() {
+        const overlay = document.getElementById("completion-popup-overlay");
+        const popup = document.getElementById("completion-popup");
+
+        overlay.classList.remove("show");
+        popup.classList.remove("show");
+
+        console.log("🎉 Completion popup closed");
+      }
+
+      function exportURLsFromCompletion() {
+        // Use the same export logic as the main export function
+        exportURLs();
+
+        // Close the popup after export
+        closeCompletionPopup();
+      }
+
       function setupEventListeners() {
+        // Request initial data when page loads
         socket.emit("requestData");
+        console.log("📡 Requesting initial data from server...");
 
         // Header control buttons
         document
@@ -2188,6 +2838,23 @@
           .getElementById("config-start-btn")
           .addEventListener("click", startDorkingWithConfig);
 
+        // Completion popup buttons
+        document
+          .getElementById("completion-close-btn")
+          .addEventListener("click", closeCompletionPopup);
+        document
+          .getElementById("completion-export-btn")
+          .addEventListener("click", exportURLsFromCompletion);
+
+        // Close completion popup when clicking overlay
+        document
+          .getElementById("completion-popup-overlay")
+          .addEventListener("click", (e) => {
+            if (e.target.id === "completion-popup-overlay") {
+              closeCompletionPopup();
+            }
+          });
+
         // Close modal when clicking outside
         document
           .getElementById("export-modal")
@@ -2205,12 +2872,59 @@
             }
           });
 
-        // Heartbeat
-        setInterval(() => {
-          if (socket.connected) {
-            socket.emit("ping");
+        // Enhanced connection management with page visibility handling
+        let heartbeatInterval = null;
+        let isPageVisible = !document.hidden;
+        let reconnectAttempts = 0;
+        const maxReconnectAttempts = 5;
+
+        // Page visibility change handler
+        document.addEventListener("visibilitychange", () => {
+          isPageVisible = !document.hidden;
+
+          if (isPageVisible) {
+            console.log("🌟 Tab became visible - resuming normal operation");
+            startHeartbeat();
+
+            // Force reconnection if disconnected while tab was hidden
+            if (!socket.connected) {
+              console.log("🔄 Reconnecting after tab became visible...");
+              socket.connect();
+            }
+
+            // Request fresh data when tab becomes visible
+            setTimeout(() => {
+              if (socket.connected) {
+                socket.emit("requestData");
+              }
+            }, 1000);
+          } else {
+            console.log("🌙 Tab became hidden - pausing heartbeat");
+            stopHeartbeat();
           }
-        }, 30000);
+        });
+
+        // Start heartbeat function
+        function startHeartbeat() {
+          stopHeartbeat(); // Clear any existing heartbeat
+
+          heartbeatInterval = setInterval(() => {
+            if (socket.connected && isPageVisible) {
+              socket.emit("ping", Date.now());
+            }
+          }, 30000);
+        }
+
+        // Stop heartbeat function
+        function stopHeartbeat() {
+          if (heartbeatInterval) {
+            clearInterval(heartbeatInterval);
+            heartbeatInterval = null;
+          }
+        }
+
+        // Start initial heartbeat
+        startHeartbeat();
       }
 
       // UI Functions
@@ -2271,26 +2985,52 @@
           return;
         }
 
-        // Remove duplicates
-        const uniqueUrls = [...new Set(allUrls)];
+        // Show option dialog for export type
+        const includeDuplicates = confirm(
+          `Found ${allUrls.length} total URLs.\n\n` +
+            `Click OK to export ALL URLs (including duplicates)\n` +
+            `Click Cancel to export only UNIQUE URLs\n\n` +
+            `Unique count: ${[...new Set(allUrls)].length}\n` +
+            `Total count: ${allUrls.length}\n` +
+            `Duplicates: ${allUrls.length - [...new Set(allUrls)].length}`
+        );
+
+        let urlsToExport;
+        let exportType;
+
+        if (includeDuplicates) {
+          urlsToExport = allUrls;
+          exportType = "all";
+        } else {
+          urlsToExport = [...new Set(allUrls)];
+          exportType = "unique";
+        }
 
         // Create and download file
-        const urlsText = uniqueUrls.join("\n");
+        const urlsText = urlsToExport.join("\n");
         const blob = new Blob([urlsText], { type: "text/plain" });
         const url = URL.createObjectURL(blob);
         const a = document.createElement("a");
         a.href = url;
-        a.download = `dorker-urls-${
+        a.download = `dorker-urls-${exportType}-${
           new Date().toISOString().split("T")[0]
         }.txt`;
         a.click();
         URL.revokeObjectURL(url);
 
+        const duplicateInfo = includeDuplicates
+          ? ` (including ${
+              allUrls.length - [...new Set(allUrls)].length
+            } duplicates)`
+          : ` (duplicates removed)`;
+
         showNotification(
-          `📎 Exported ${uniqueUrls.length} unique URLs`,
+          `📎 Exported ${urlsToExport.length} ${exportType} URLs${duplicateInfo}`,
           "success"
         );
-        console.log(`📎 Exported ${uniqueUrls.length} URLs to file`);
+        console.log(
+          `📎 Exported ${urlsToExport.length} ${exportType} URLs to file`
+        );
       }
 
       function exportData() {
@@ -2403,17 +3143,14 @@
       }
 
       function showConfigModal() {
+        // Ensure completion popup is hidden when showing config modal
+        closeCompletionPopup();
         document.getElementById("config-modal").classList.add("show");
       }
 
       function closeConfigModal() {
         const configModal = document.getElementById("config-modal");
         configModal.classList.remove("show");
-
-        // Immediately hide the modal for better UX
-        configModal.style.opacity = "0";
-        configModal.style.visibility = "hidden";
-        configModal.style.pointerEvents = "none";
 
         console.log("⚙️ Configuration modal closed");
       }
@@ -2438,6 +3175,7 @@
           dorkFile: formData.get("dorkFile"),
           outputFile: formData.get("outputFile"),
           resultCount: parseInt(formData.get("resultCount")),
+          maxPages: parseInt(formData.get("maxPages")) || 1,
           minDelay: minDelay,
           maxDelay: maxDelay,
           maxPause: parseInt(formData.get("maxPause")),
@@ -2453,12 +3191,12 @@
         // IMMEDIATELY close the modal before making the request
         const configModal = document.getElementById("config-modal");
         configModal.classList.remove("show");
-        configModal.style.opacity = "0";
-        configModal.style.visibility = "hidden";
-        configModal.style.pointerEvents = "none";
 
         // Prepare UI for live stats immediately
         initializeLiveStatsDisplay();
+
+        // IMMEDIATELY update button to "Stop" state when starting
+        updateUIForRunningState();
 
         try {
           showNotification("🚀 Starting dorking session...", "info");
@@ -2479,34 +3217,34 @@
               "success"
             );
 
-            // Update UI for running state
-            updateUIForRunningState();
+            // UI already updated above
           } else {
             showNotification(
               `❌ Failed to start dorking: ${result.error}`,
               "error"
             );
+            // Revert button back to "Start" state on failure
+            revertButtonToStartState();
             // Re-show modal if there was an error
             configModal.classList.add("show");
-            configModal.style.opacity = "1";
-            configModal.style.visibility = "visible";
-            configModal.style.pointerEvents = "all";
           }
         } catch (error) {
           showNotification(
             `❌ Error starting dorking: ${error.message}`,
             "error"
           );
+          // Revert button back to "Start" state on error
+          revertButtonToStartState();
           // Re-show modal if there was an error
           configModal.classList.add("show");
-          configModal.style.opacity = "1";
-          configModal.style.visibility = "visible";
-          configModal.style.pointerEvents = "all";
         }
       }
 
       // Initialize the UI for live stats display
       function initializeLiveStatsDisplay() {
+        // Ensure completion popup is hidden if it's open
+        closeCompletionPopup();
+
         // Reset all stats to show "0" but make them visible
         document.getElementById("progress-percentage").textContent = "0%";
         document.getElementById("processed-count").textContent = "0";
@@ -2526,22 +3264,11 @@
         // Reset progress ring
         updateProgressRing(0);
 
-        // Clear results and logs containers but show "waiting" state
-        const resultsContainer = document.getElementById("results-container");
-        resultsContainer.innerHTML = `
-          <div style="text-align: center; padding: 3rem; color: var(--text-secondary);">
-            <i class="fas fa-search" style="font-size: 2rem; margin-bottom: 1rem; opacity: 0.5;"></i>
-            <div>🔍 Session starting... waiting for results...</div>
-          </div>
-        `;
-
-        const logsContainer = document.getElementById("logs-container");
-        logsContainer.innerHTML = `
-          <div style="text-align: center; padding: 3rem; color: var(--text-secondary);">
-            <i class="fas fa-terminal" style="font-size: 2rem; margin-bottom: 1rem; opacity: 0.5;"></i>
-            <div>📋 Session starting... waiting for logs...</div>
-          </div>
-        `;
+        // Keep existing results and logs visible until session actually starts
+        // They will be cleared when sessionStart event is received
+        console.log(
+          "💡 Keeping existing results visible until session starts..."
+        );
 
         // Reset performance chart
         if (performanceChart) {
@@ -2576,14 +3303,18 @@
         const exportUrlsBtn = document.getElementById("export-urls-btn");
 
         // Update start/stop button to stop mode
-        startStopBtn.innerHTML = '<i class="fas fa-stop"></i> Stop';
-        startStopBtn.className = "btn";
-        startStopBtn.style.borderColor = "var(--error-color)";
-        startStopBtn.style.color = "var(--error-color)";
-        startStopBtn.style.display = "inline-flex";
+        if (startStopBtn) {
+          startStopBtn.innerHTML = '<i class="fas fa-stop"></i> Stop';
+          startStopBtn.className = "btn";
+          startStopBtn.style.borderColor = "var(--error-color)";
+          startStopBtn.style.color = "var(--error-color)";
+          startStopBtn.style.display = "inline-flex";
+        }
 
         // Show export URLs button
-        exportUrlsBtn.style.display = "inline-flex";
+        if (exportUrlsBtn) {
+          exportUrlsBtn.style.display = "inline-flex";
+        }
 
         // Set status to running
         updateStatus("running", "Session active - monitoring progress...");
@@ -2591,9 +3322,27 @@
         console.log("🏃 UI updated for running state - live stats active");
       }
 
+      // Revert button back to start state (used when start fails)
+      function revertButtonToStartState() {
+        const startStopBtn = document.getElementById("start-stop-btn");
+        if (startStopBtn) {
+          startStopBtn.innerHTML = '<i class="fas fa-play"></i> Start';
+          startStopBtn.className = "btn btn-primary";
+          startStopBtn.style.borderColor = "";
+          startStopBtn.style.color = "";
+          startStopBtn.style.display = "inline-flex";
+
+          console.log("🔄 Button reverted back to Start state due to error");
+        }
+
+        // Update status back to idle
+        updateStatus("idle", "Ready to start dorking session");
+      }
+
       async function stopDorking() {
         try {
-          showNotification("Stopping dorking session...", "info");
+          showNotification("🛑 Stopping dorking session...", "info");
+          console.log("🛑 Stop request initiated");
 
           const response = await fetch("/api/stop-dorking", {
             method: "POST",
@@ -2602,28 +3351,56 @@
           const result = await response.json();
 
           if (result.success) {
-            showNotification("Dorking session stopped", "success");
+            showNotification(
+              "✅ Dorking session stopped successfully",
+              "success"
+            );
 
-            // Remove stop button and add config button
-            const stopBtn = document.getElementById("stop-btn");
-            if (stopBtn) stopBtn.remove();
+            // Update UI back to start mode immediately
+            const startStopBtn = document.getElementById("start-stop-btn");
+            if (startStopBtn) {
+              startStopBtn.innerHTML = '<i class="fas fa-play"></i> Start';
+              startStopBtn.className = "btn btn-primary";
+              startStopBtn.style.borderColor = "";
+              startStopBtn.style.color = "";
+              startStopBtn.style.display = "inline-flex";
 
-            const headerControls = document.querySelector(".header-controls");
-            const configBtn = document.createElement("button");
-            configBtn.className = "btn btn-primary";
-            configBtn.id = "config-btn";
-            configBtn.innerHTML =
-              '<i class="fas fa-cog"></i> Configure & Start';
-            configBtn.addEventListener("click", showConfigModal);
-            headerControls.insertBefore(configBtn, headerControls.firstChild);
+              console.log("🔄 Manual stop: Button changed back to Start mode");
+            }
+
+            // Stop runtime timer
+            if (runtimeInterval) {
+              clearInterval(runtimeInterval);
+              runtimeInterval = null;
+            }
+
+            // Update status to idle
+            updateStatus("idle", "Session stopped - ready for next run");
+
+            // Keep export URLs button visible if there are results
+            const exportUrlsBtn = document.getElementById("export-urls-btn");
+            if (
+              exportUrlsBtn &&
+              sessionData.results &&
+              sessionData.results.length > 0
+            ) {
+              exportUrlsBtn.style.display = "inline-flex";
+              console.log("📎 Export URLs button kept visible after stop");
+            }
+
+            console.log("🛑 Manual stop completed successfully");
           } else {
             showNotification(
-              `Failed to stop dorking: ${result.error}`,
+              `❌ Failed to stop dorking: ${result.error}`,
               "error"
             );
           }
         } catch (error) {
-          showNotification(`Error stopping dorking: ${error.message}`, "error");
+          showNotification(
+            `❌ Error stopping dorking: ${error.message}`,
+            "error"
+          );
+          console.error("🛑 Stop error:", error);
         }
       }
     </script>

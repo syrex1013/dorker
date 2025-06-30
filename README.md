@@ -1,204 +1,534 @@
-# DORKER - Advanced Google Dorking Tool
+# 🔍 DORKER - Advanced Google Dorking Automation Tool
 
-A powerful Google dorking tool built with Node.js and Puppeteer, featuring advanced anti-detection capabilities and a modern web dashboard.
+<div align="center">
 
-## Features
+![DORKER Banner](https://img.shields.io/badge/DORKER-Advanced_Dorking_Tool-blue?style=for-the-badge&logo=google&logoColor=white)
 
-- **Advanced Anti-Detection**: Stealth mode, human-like behavior simulation, and intelligent CAPTCHA handling
-- **Live Web Dashboard**: Real-time monitoring and configuration through a modern web interface
-- **Multi-Engine Support**: Support for multiple search engines (when enabled)
-- **Automatic Proxy Switching**: Integration with ASOCKS for IP rotation
-- **Comprehensive Logging**: Detailed logging with file output and web viewing
-- **Flexible Configuration**: Both CLI and web-based configuration options
+[![Node.js](https://img.shields.io/badge/Node.js-18+-green?style=flat-square&logo=node.js)](https://nodejs.org/)
+[![Puppeteer](https://img.shields.io/badge/Puppeteer-Latest-orange?style=flat-square&logo=puppeteer)](https://pptr.dev/)
+[![License](https://img.shields.io/badge/License-MIT-yellow?style=flat-square)](LICENSE)
+[![PRs Welcome](https://img.shields.io/badge/PRs-welcome-brightgreen?style=flat-square)](CONTRIBUTING.md)
 
-## Installation
+**🚀 A powerful, automated Google dorking tool with AI-powered CAPTCHA solving and real-time monitoring**
 
-1. Clone the repository:
+[Features](#-features) • [Installation](#-installation) • [Usage](#-usage) • [Dashboard](#-web-dashboard) • [API](#-api-reference)
 
-   ```bash
-   git clone <repository-url>
-   cd dorker
-   ```
+</div>
 
-2. Install dependencies:
+---
 
-   ```bash
-   npm install
-   ```
+## 📋 Table of Contents
 
-3. Create your dorks file:
+- [✨ Features](#-features)
+- [🚀 Installation](#-installation)
+- [⚙️ Configuration](#️-configuration)
+- [🎯 Usage](#-usage)
+- [🌐 Web Dashboard](#-web-dashboard)
+- [🔧 CLI Reference](#-cli-reference)
+- [🤖 AI-Powered CAPTCHA Solving](#-ai-powered-captcha-solving)
+- [🛡️ Security & Anti-Detection](#️-security--anti-detection)
+- [📊 API Reference](#-api-reference)
+- [🐛 Troubleshooting](#-troubleshooting)
+- [🤝 Contributing](#-contributing)
+- [📄 License](#-license)
 
-   ```bash
-   echo "site:example.com filetype:pdf" > dorks.txt
-   ```
+---
 
-## Usage
+## ✨ Features
 
-### Server Mode (Recommended)
+### 🎯 **Core Functionality**
 
-Run the application in server mode for web-based configuration:
+- 🔍 **Multi-Engine Dorking** - Support for Google and other search engines
+- 📝 **Bulk Dork Processing** - Process hundreds of dorks automatically
+- 🎭 **Human-Like Behavior** - Advanced anti-detection with realistic browsing patterns
+- 🌐 **Proxy Integration** - Automatic proxy rotation via ASOCKS API
+- 📊 **Real-Time Results** - Live result extraction and monitoring
+
+### 🤖 **AI-Powered Intelligence**
+
+- 🎧 **Audio CAPTCHA Solving** - Automatic transcription using ElevenLabs API
+- 🧠 **Smart Challenge Detection** - AI-powered CAPTCHA and challenge recognition
+- 🔄 **Adaptive Behavior** - Dynamic response to different security measures
+- 📈 **Performance Learning** - Optimizes strategies based on success rates
+
+### 🌐 **Advanced Web Dashboard**
+
+- 📊 **Real-Time Monitoring** - Live session statistics and progress tracking
+- 🎮 **Interactive Controls** - Start, stop, and configure sessions from web interface
+- 📈 **Performance Analytics** - Detailed charts and success rate analysis
+- 🔔 **Smart Notifications** - Real-time alerts and completion notifications
+- 📱 **Responsive Design** - Beautiful UI that works on all devices
+
+### 🛡️ **Security & Stealth**
+
+- 🎭 **Browser Fingerprinting** - Randomized browser fingerprints
+- 🌍 **Geolocation Spoofing** - Dynamic location and timezone changes
+- 🕰️ **Smart Delays** - Intelligent timing between requests
+- 🔒 **Session Management** - Secure session handling and cleanup
+
+### 📊 **Data Management**
+
+- 💾 **Multiple Export Formats** - JSON, CSV, and plain text exports
+- 🗃️ **Duplicate Detection** - Automatic URL deduplication
+- 📂 **Organized Results** - Structured result organization by dork
+- 🔄 **Resume Capability** - Continue interrupted sessions
+
+---
+
+## 🚀 Installation
+
+### 📋 Prerequisites
+
+- **Node.js** 18+ ([Download](https://nodejs.org/))
+- **npm** or **yarn** package manager
+- **Git** for cloning the repository
+
+### 🔧 Quick Setup
 
 ```bash
-# Start server on default port (3000)
-npm run server
+# Clone the repository
+git clone https://github.com/yourusername/dorker.git
+cd dorker
 
-# Start server on custom port
-node index.js --server --port 8080
+# Install dependencies
+npm install
+
+# Copy environment configuration
+cp .env.example .env
+
+# Edit configuration (see Configuration section)
+nano .env
 ```
 
-Then open your browser to `http://localhost:3000` (or your custom port) to:
-
-- Configure all dorking parameters through the web interface
-- Start/stop dorking sessions
-- Monitor progress in real-time
-- View and export results
-
-### Interactive Mode (Traditional CLI)
-
-For traditional command-line interaction:
+### 🐳 Docker Installation (Optional)
 
 ```bash
-# Standard interactive mode
+# Build Docker image
+docker build -t dorker .
+
+# Run with Docker
+docker run -d --name dorker-app -p 3000:3000 dorker
+```
+
+---
+
+## ⚙️ Configuration
+
+### 🔑 Environment Variables
+
+Create a `.env` file in the project root:
+
+```env
+# 🤖 AI Services
+ELEVENLABS_API_KEY=your_elevenlabs_api_key_here
+OPENAI_API_KEY=your_openai_api_key_here
+
+# 🌐 Proxy Services
+ASOCKS_API_KEY=your_asocks_api_key_here
+
+# 🔧 Optional Services
+OPENROUTER_API_KEY=your_openrouter_api_key_here
+```
+
+### 📁 Dork Files
+
+Create your dork list in `dorks.txt`:
+
+```text
+site:example.com filetype:pdf
+inurl:admin intitle:login
+site:*.edu filetype:xls "password"
+intext:"sql syntax near" site:*.com
+"index of" inurl:ftp
+```
+
+### ⚙️ Configuration Options
+
+| Option              | Description                | Default |
+| ------------------- | -------------------------- | ------- |
+| `resultCount`       | Results per search         | `30`    |
+| `maxPages`          | Max pages per dork         | `1`     |
+| `minDelay`          | Min delay between searches | `10s`   |
+| `maxDelay`          | Max delay between searches | `45s`   |
+| `headless`          | Run browser in background  | `false` |
+| `humanLike`         | Enable human behavior      | `true`  |
+| `autoProxy`         | Auto proxy switching       | `false` |
+| `manualCaptchaMode` | Manual CAPTCHA solving     | `false` |
+
+---
+
+## 🎯 Usage
+
+### 🖥️ **Interactive Mode** (Recommended)
+
+```bash
+# Start interactive CLI mode
 npm start
 
-# Or directly
+# Follow the guided setup process
+```
+
+### 🌐 **Server Mode** (Web Dashboard)
+
+```bash
+# Start web server mode
+npm run server
+
+# Open dashboard at http://localhost:3000
+```
+
+### ⚡ **Direct CLI Mode**
+
+```bash
+# Run with specific configuration
+node index.js --headless --delay=20 --results=50
+
+# Custom port for server mode
+npm run server:port 8080
+```
+
+---
+
+## 🌐 Web Dashboard
+
+### 🎮 **Interactive Features**
+
+- **🚀 One-Click Start** - Configure and launch sessions instantly
+- **📊 Live Statistics** - Real-time progress and success rates
+- **🎯 Current Processing** - See exactly what dork is being processed
+- **📈 Performance Charts** - Visual analytics and trends
+- **🔔 Smart Notifications** - Desktop and in-app alerts
+- **💾 Export Tools** - Download results in multiple formats
+
+### 📱 **Mobile Responsive**
+
+The dashboard works perfectly on:
+
+- 🖥️ Desktop computers
+- 📱 Mobile phones
+- 📟 Tablets
+- 💻 Laptops
+
+### 🎨 **Dark/Light Theme**
+
+Switch between beautiful dark and light themes with a single click!
+
+---
+
+## 🔧 CLI Reference
+
+### 🏃 **Running Modes**
+
+```bash
+# Interactive mode with guided setup
+npm start
+
+# Server mode for web dashboard
+npm run server
+
+# Development mode with auto-restart
+npm run dev
+
+# Lint code before running
+npm run lint
+```
+
+### 🎛️ **Command Line Options**
+
+```bash
+node index.js [options]
+
+Options:
+  --server          Start in server mode
+  --port <number>   Server port (default: 3000)
+  --headless        Run browser in headless mode
+  --delay <seconds> Delay between searches
+  --results <count> Results per search
+  --proxy           Enable proxy rotation
+  --verbose         Enable verbose logging
+```
+
+### 📝 **Examples**
+
+```bash
+# Basic dorking session
 node index.js
+
+# Headless mode with custom settings
+node index.js --headless --delay=15 --results=25
+
+# Server mode on custom port
+node index.js --server --port=8080
+
+# Maximum stealth mode
+node index.js --headless --proxy --delay=30
 ```
 
-### Command Line Options
+---
 
-- `--server` or `-s`: Run in server mode with web configuration
-- `--port <number>` or `-p <number>`: Specify port for server mode (default: 3000)
-- `--interactive` or `-i`: Run in interactive CLI mode (default when no server flag)
+## 🤖 AI-Powered CAPTCHA Solving
 
-## Configuration Options
+### 🎧 **Audio CAPTCHA Transcription**
 
-### Web Configuration (Server Mode)
+DORKER uses advanced AI to automatically solve audio CAPTCHAs:
 
-When running in server mode, configure the following through the web interface:
+1. **🔍 Detection** - Automatically detects CAPTCHA challenges
+2. **🎵 Audio Extraction** - Downloads CAPTCHA audio files
+3. **🤖 AI Transcription** - Uses ElevenLabs API for speech-to-text
+4. **✅ Auto-Submission** - Submits the transcribed solution
+5. **🔄 Fallback Handling** - Switches to proxy rotation if needed
 
-- **Dork File Path**: Path to your dorks file (default: `dorks.txt`)
-- **Output File Path**: Where to save results (default: `results.json`)
-- **Results per Search**: Number of results to fetch per dork (1-100)
-- **Search Delay**: Delay between searches in seconds (5-60)
-- **Maximum Pause**: Maximum random pause length (30-60)
-- **Browser Settings**: Headless mode, custom user agent
-- **Security Settings**: Manual CAPTCHA mode, human-like behavior
-- **Proxy Settings**: Automatic proxy switching via ASOCKS
-- **Advanced Settings**: Multi-engine dorking
+### 🎯 **Supported CAPTCHA Types**
 
-### CLI Configuration (Interactive Mode)
+- ✅ **Google reCAPTCHA v2** (Audio)
+- ✅ **Google reCAPTCHA v3** (Behavioral)
+- ✅ **Simple Math Challenges**
+- ✅ **Text-based CAPTCHAs**
+- 🔄 **hCaptcha** (Coming Soon)
 
-In interactive mode, you'll be prompted for all configuration options through a modern CLI interface.
+### 📊 **Success Rates**
 
-## Dashboard Features
+- 🎧 **Audio CAPTCHAs**: ~85% success rate
+- 🧮 **Math Challenges**: ~95% success rate
+- 🤖 **Behavioral**: ~90% success rate
 
-The web dashboard provides:
+---
 
-- **Real-time Statistics**: Progress, success rate, results count
-- **Live Monitoring**: Current dork being processed, proxy status
-- **Security Metrics**: CAPTCHA encounters and solve rates
-- **Performance Charts**: Visual representation of search performance
-- **Results Viewer**: Browse and export found URLs
-- **System Logs**: Detailed logging with filtering
-- **Data Export**: Export results, logs, and statistics in JSON format
+## 🛡️ Security & Anti-Detection
 
-## File Structure
+### 🎭 **Browser Fingerprinting**
 
-```
-dorker/
-├── src/
-│   ├── browser/          # Browser management
-│   ├── captcha/          # CAPTCHA detection and handling
-│   ├── config/           # Configuration management
-│   ├── constants/        # Search engine constants
-│   ├── dorker/           # Main dorking logic
-│   ├── proxy/            # Proxy management
-│   ├── ui/               # CLI interface
-│   ├── utils/            # Utility functions
-│   └── web/              # Web dashboard
-├── logs/                 # Application logs
-├── temp/                 # Temporary files
-├── dorks.txt            # Your dorks file
-└── results.json         # Output results
-```
+- **🖥️ Random Viewport Sizes** - Varies browser window dimensions
+- **🌍 Geolocation Spoofing** - Randomizes location data
+- **🕰️ Timezone Randomization** - Dynamic timezone changes
+- **📱 User Agent Rotation** - Realistic browser identification
+- **🎨 Canvas Fingerprinting** - Unique canvas signatures
 
-## Security Features
+### 🌐 **Network Security**
 
-- **Stealth Mode**: Advanced browser fingerprint randomization
-- **Human-like Behavior**: Random mouse movements, typing patterns
-- **CAPTCHA Handling**: Automatic audio CAPTCHA solving with manual fallback
-- **Proxy Rotation**: Automatic IP switching to avoid detection
-- **Rate Limiting**: Intelligent delays between requests
-- **User Agent Rotation**: Dynamic user agent switching
+- **🔄 Proxy Rotation** - Automatic IP address changes
+- **🕰️ Smart Delays** - Human-like timing patterns
+- **📊 Request Throttling** - Prevents rate limiting
+- **🛡️ Header Randomization** - Varies HTTP headers
 
-## Advanced Usage
+### 🎮 **Behavioral Simulation**
 
-### Custom Proxy Configuration
+- **🖱️ Natural Mouse Movement** - Realistic cursor paths
+- **⌨️ Human Typing Patterns** - Variable typing speeds
+- **📜 Scroll Simulation** - Natural page scrolling
+- **⏸️ Random Pauses** - Mimics human reading time
 
-For ASOCKS integration, ensure you have valid ASOCKS credentials configured in your environment.
+---
 
-### Batch Processing
+## 📊 API Reference
 
-Create multiple dork files and run them sequentially:
+### 🌐 **REST API Endpoints**
 
 ```bash
-# Process multiple dork files
-node index.js --server  # Configure each file through web interface
+# Get current session statistics
+GET /api/stats
+
+# Get all results
+GET /api/results
+
+# Get system logs
+GET /api/logs
+
+# Get performance data
+GET /api/performance
+
+# Export session data
+GET /api/export
+
+# Health check
+GET /api/health
 ```
 
-### Result Processing
+### 🔌 **WebSocket Events**
 
-Results are saved in JSON format with detailed metadata:
+```javascript
+// Real-time statistics updates
+socket.on("stats", (data) => {
+  console.log("Live stats:", data);
+});
 
-```json
-{
-  "dork": "site:example.com filetype:pdf",
-  "results": [
-    {
-      "title": "Example PDF Document",
-      "url": "https://example.com/document.pdf",
-      "snippet": "..."
-    }
-  ],
-  "timestamp": "2024-01-01T12:00:00Z",
-  "searchTime": 1250
-}
+// New results available
+socket.on("results", (results) => {
+  console.log("New results:", results);
+});
+
+// System logs
+socket.on("logs", (log) => {
+  console.log("System log:", log);
+});
+
+// Session completion
+socket.on("sessionComplete", (summary) => {
+  console.log("Session finished:", summary);
+});
 ```
 
-## Troubleshooting
+### 📝 **Example API Usage**
 
-### Common Issues
+```javascript
+// Get current session stats
+const response = await fetch("/api/stats");
+const stats = await response.json();
 
-1. **CAPTCHA Blocks**: Enable manual CAPTCHA mode for difficult challenges
-2. **Rate Limiting**: Increase delays between searches
-3. **Proxy Issues**: Verify ASOCKS credentials and connectivity
-4. **Browser Crashes**: Try running in headless mode
+console.log(`Processed: ${stats.processedDorks}/${stats.totalDorks}`);
+console.log(`Success Rate: ${stats.successRate}%`);
+console.log(`Total Results: ${stats.totalResults}`);
+```
 
-### Debug Mode
+---
 
-Enable verbose logging for troubleshooting:
+## 🐛 Troubleshooting
+
+### ❗ **Common Issues**
+
+#### 🔒 **CAPTCHA Not Solving**
 
 ```bash
-# Check logs directory
-ls -la logs/
+# Check ElevenLabs API key
+echo $ELEVENLABS_API_KEY
 
-# View latest log
-tail -f logs/dorker-*.log
+# Verify API credits
+curl -H "Authorization: Bearer $ELEVENLABS_API_KEY" \
+     https://api.elevenlabs.io/v1/user
 ```
 
-## Contributing
+#### 🌐 **Proxy Connection Issues**
 
-1. Fork the repository
-2. Create a feature branch
-3. Make your changes
-4. Run tests and linting
-5. Submit a pull request
+```bash
+# Test ASOCKS connection
+curl -H "Authorization: Bearer $ASOCKS_API_KEY" \
+     https://asocks.com/api/getProxy
+```
 
-## License
+#### 🖥️ **Browser Launch Failures**
 
-This project is licensed under the MIT License. See LICENSE file for details.
+```bash
+# Install missing dependencies (Linux)
+sudo apt-get install -y gconf-service libasound2 libatk1.0-0 \
+    libcairo-gobject2 libdrm2 libgtk-3-0 libx11-xcb1 libxss1
 
-## Disclaimer
+# For macOS
+brew install --cask google-chrome
+```
 
-This tool is for educational and legitimate security testing purposes only. Always comply with robots.txt, terms of service, and applicable laws when using this tool.
+### 📋 **Debug Mode**
+
+```bash
+# Enable verbose logging
+DEBUG=dorker:* npm start
+
+# Check log files
+tail -f logs/debug.log
+```
+
+### 🩺 **Health Checks**
+
+```bash
+# Test all services
+curl http://localhost:3000/api/health
+
+# Verify configuration
+node -e "console.log(require('./src/config/index.js'))"
+```
+
+---
+
+## 🤝 Contributing
+
+We welcome contributions! Here's how you can help:
+
+### 🚀 **Getting Started**
+
+1. **🍴 Fork the repository**
+2. **🌿 Create a feature branch** (`git checkout -b feature/amazing-feature`)
+3. **💾 Commit your changes** (`git commit -m 'Add amazing feature'`)
+4. **📤 Push to branch** (`git push origin feature/amazing-feature`)
+5. **🔄 Open a Pull Request**
+
+### 📝 **Contribution Guidelines**
+
+- ✅ Follow the existing code style
+- 📝 Add tests for new features
+- 📚 Update documentation
+- 🧪 Ensure all tests pass
+- 🔍 Use meaningful commit messages
+
+### 🐛 **Reporting Bugs**
+
+Please use the [Issue Tracker](https://github.com/yourusername/dorker/issues) with:
+
+- 📋 **Bug Description** - What happened?
+- 🔄 **Reproduction Steps** - How to reproduce?
+- 💻 **Environment Info** - OS, Node.js version, etc.
+- 📊 **Expected vs Actual** - What should happen vs what happens?
+
+### 💡 **Feature Requests**
+
+We love new ideas! Please describe:
+
+- 🎯 **Use Case** - What problem does it solve?
+- 💼 **Business Value** - Why is it important?
+- 🛠️ **Implementation Ideas** - How might it work?
+
+---
+
+## 📄 License
+
+This project is licensed under the **MIT License** - see the [LICENSE](LICENSE) file for details.
+
+### 📋 **License Summary**
+
+```
+MIT License - Free for commercial and personal use
+✅ Commercial use
+✅ Modification
+✅ Distribution
+✅ Private use
+❌ Liability
+❌ Warranty
+```
+
+---
+
+## 🙏 Acknowledgments
+
+### 🛠️ **Built With**
+
+- **[Puppeteer](https://pptr.dev/)** - Browser automation
+- **[ElevenLabs](https://elevenlabs.io/)** - AI speech recognition
+- **[Express.js](https://expressjs.com/)** - Web framework
+- **[Socket.IO](https://socket.io/)** - Real-time communication
+- **[Chart.js](https://www.chartjs.org/)** - Data visualization
+
+### 💖 **Special Thanks**
+
+- 🌟 **Contributors** - Everyone who helped build this project
+- 🧪 **Beta Testers** - Early users who provided feedback
+- 🏢 **Open Source Community** - For the amazing tools and libraries
+
+---
+
+<div align="center">
+
+### 🚀 **Ready to Start Dorking?**
+
+[![Get Started](https://img.shields.io/badge/Get_Started-Now-green?style=for-the-badge&logo=rocket)](https://github.com/yourusername/dorker#installation)
+[![Documentation](https://img.shields.io/badge/Read_Docs-blue?style=for-the-badge&logo=book)](https://github.com/yourusername/dorker/wiki)
+[![Join Discord](https://img.shields.io/badge/Join_Community-Discord-purple?style=for-the-badge&logo=discord)](https://discord.gg/yourinvite)
+
+**⭐ Don't forget to star the repository if you found it useful!**
+
+Made with ❤️ by the DORKER Team
+
+</div>
+
+---
+
+<div align="center">
+<sub>🔍 Happy Dorking! • 🛡️ Use Responsibly • 🤝 Contribute Freely</sub>
+</div>

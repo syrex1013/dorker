@@ -73,6 +73,11 @@ function displayConfig(config) {
       getStatusIcon(true, "number"),
     ],
     [
+      "📄 Max Pages per Dork",
+      config.maxPages.toString(),
+      getStatusIcon(true, "number"),
+    ],
+    [
       "⏱️ Delay Range",
       `${config.minDelay || config.delay || 10}-${
         config.maxDelay || config.delay || 45
@@ -162,6 +167,19 @@ async function getConfiguration() {
             const num = parseInt(value);
             if (isNaN(num) || num < 1 || num > 100) {
               return "Must be a number between 1 and 100";
+            }
+          },
+        }),
+
+      maxPages: () =>
+        p.text({
+          message: "📄 Maximum pages to scrape per dork",
+          placeholder: "1",
+          defaultValue: "1",
+          validate: (value) => {
+            const num = parseInt(value);
+            if (isNaN(num) || num < 1 || num > 10) {
+              return "Must be a number between 1 and 10";
             }
           },
         }),
@@ -268,6 +286,7 @@ async function getConfiguration() {
     dorkFile: config.dorkFile || "dorks.txt",
     outputFile: config.outputFile || "results.json",
     resultCount: parseInt(config.resultCount) || 30,
+    maxPages: Math.min(parseInt(config.maxPages) || 1, 10),
     minDelay: Math.max(minDelay, 5),
     maxDelay: Math.min(maxDelay, 120),
     maxPause: Math.min(parseInt(config.maxPause) || 60, 60),

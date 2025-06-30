@@ -9,9 +9,15 @@ const ASOCKS_CONFIG = {
 };
 
 const OPENROUTER_CONFIG = {
-  apiKey:
-    process.env.OPENROUTER_API_KEY ||
-    "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",
+  apiKey: process.env.OPENROUTER_API_KEY || null,
+};
+
+const ELEVENLABS_CONFIG = {
+  apiKey: process.env.ELEVENLABS_API_KEY || null,
+};
+
+const OPENAI_CONFIG = {
+  apiKey: process.env.OPENAI_API_KEY || null,
 };
 
 // Cache configurations
@@ -19,4 +25,10 @@ const CONSOLE_LOG_CACHE_CONFIG = {
   maxSize: 100,
 };
 
-export { ASOCKS_CONFIG, OPENROUTER_CONFIG, CONSOLE_LOG_CACHE_CONFIG };
+export {
+  ASOCKS_CONFIG,
+  OPENROUTER_CONFIG,
+  ELEVENLABS_CONFIG,
+  OPENAI_CONFIG,
+  CONSOLE_LOG_CACHE_CONFIG,
+};

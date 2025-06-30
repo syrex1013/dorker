@@ -2,9 +2,7 @@ import { detectCaptcha } from "./detector.js";
 import { sleep } from "../utils/sleep.js";
 import chalk from "chalk";
 import { logWithDedup } from "../utils/logger.js";
-// ElevenLabs integration placeholder - can be implemented later
-// import pkg from '@elevenlabs/elevenlabs-js';
-// const { ElevenLabsApi } = pkg;
+import { ELEVENLABS_CONFIG } from "../config/index.js";
 import fs from "fs/promises";
 import path from "path";
 import axios from "axios";
@@ -50,14 +48,19 @@ class BackgroundCaptchaMonitor {
   }
 
   /**
-   * Initialize ElevenLabs API (placeholder for future implementation)
+   * Initialize ElevenLabs API for audio transcription
    */
   initializeElevenLabs() {
-    // Placeholder for ElevenLabs integration
-    // Can be implemented when ElevenLabs package is properly configured
-    this.logger?.debug(
-      "ElevenLabs integration placeholder - to be implemented"
-    );
+    if (ELEVENLABS_CONFIG.apiKey) {
+      this.elevenLabsApiKey = ELEVENLABS_CONFIG.apiKey;
+      this.logger?.debug(
+        "ElevenLabs API initialized for audio transcription attempt"
+      );
+    } else {
+      this.logger?.warn(
+        "ElevenLabs API key not found in configuration - audio CAPTCHA solving will use fallback methods"
+      );
+    }
   }
 
   /**
@@ -145,7 +148,7 @@ class BackgroundCaptchaMonitor {
         );
 
         if (this.dashboard && this.dashboard.addLog) {
-          this.dashboard.addLog("warning", "�� Background CAPTCHA detected!");
+          this.dashboard.addLog("warning", "🚨 Background CAPTCHA detected!");
         }
 
         if (this.dashboard && this.dashboard.setCaptchaStats) {
@@ -273,10 +276,30 @@ class BackgroundCaptchaMonitor {
               `Found CAPTCHA checkbox with selector: ${selector}`
             );
 
-            // Try ghost cursor click
+            // Try ghost cursor click with enhanced validation
             try {
-              await cursor.click(checkbox);
-              this.logger?.debug("Ghost cursor clicked CAPTCHA checkbox");
+              const isValidCursor =
+                cursor &&
+                typeof cursor === "object" &&
+                typeof cursor.click === "function";
+
+              if (isValidCursor) {
+                try {
+                  await cursor.click(checkbox);
+                  this.logger?.debug("Ghost cursor clicked CAPTCHA checkbox");
+                } catch (clickError) {
+                  // Check if it's a remoteObject error
+                  if (clickError.message.includes("remoteObject")) {
+                    this.logger?.debug(
+                      "Ghost cursor remoteObject error on CAPTCHA checkbox, using fallback"
+                    );
+                    throw new Error("remoteObject not available");
+                  }
+                  throw clickError;
+                }
+              } else {
+                throw new Error("Invalid cursor object");
+              }
             } catch (cursorError) {
               this.logger?.debug("Cursor click failed, using fallback", {
                 error: cursorError.message,
@@ -359,8 +382,28 @@ class BackgroundCaptchaMonitor {
             this.logger?.debug(`Found audio button with selector: ${selector}`);
 
             try {
-              await cursor.click(audioButton);
-              this.logger?.debug("Ghost cursor clicked audio button");
+              const isValidCursor =
+                cursor &&
+                typeof cursor === "object" &&
+                typeof cursor.click === "function";
+
+              if (isValidCursor) {
+                try {
+                  await cursor.click(audioButton);
+                  this.logger?.debug("Ghost cursor clicked audio button");
+                } catch (clickError) {
+                  // Check if it's a remoteObject error
+                  if (clickError.message.includes("remoteObject")) {
+                    this.logger?.debug(
+                      "Ghost cursor remoteObject error on audio button, using fallback"
+                    );
+                    throw new Error("remoteObject not available");
+                  }
+                  throw clickError;
+                }
+              } else {
+                throw new Error("Invalid cursor object");
+              }
             } catch (cursorError) {
               this.logger?.debug("Cursor click failed, using fallback", {
                 error: cursorError.message,
@@ -487,8 +530,32 @@ class BackgroundCaptchaMonitor {
    */
   async findAudioSource(page) {
     try {
-      // Try main page first
+      this.logger?.info("🔍 Searching for audio CAPTCHA source...");
+
+      // Try main page first - look for the download link instead of audio elements
       let audioSrc = await page.evaluate(() => {
+        // Look for the download link that appears after clicking audio button
+        const downloadLink = document.querySelector(
+          ".rc-audiochallenge-tdownload-link"
+        );
+        if (downloadLink && downloadLink.href) {
+          return downloadLink.href;
+        }
+
+        // Fallback: look for any link with audio.mp3 in href
+        const audioLinks = Array.from(
+          document.querySelectorAll('a[href*="audio.mp3"]')
+        );
+        for (const link of audioLinks) {
+          if (
+            link.href &&
+            (link.href.includes("recaptcha") || link.href.includes("captcha"))
+          ) {
+            return link.href;
+          }
+        }
+
+        // Legacy fallback: check for audio elements (less likely to work)
         const audioElements = Array.from(document.querySelectorAll("audio"));
         for (const audio of audioElements) {
           if (
@@ -498,12 +565,35 @@ class BackgroundCaptchaMonitor {
             return audio.src;
           }
         }
+
         return null;
       });
 
+      this.logger?.debug(
+        `Found ${await page.$$eval(
+          'a[href*="audio.mp3"]',
+          (links) => links.length
+        )} audio download links on main page`
+      );
+
       if (audioSrc) {
+        this.logger?.info("🎵 Found audio source on main page!");
+        this.logger?.info(`📍 Audio URL: ${audioSrc}`);
+        this.logger?.debug("Audio source details", {
+          url: audioSrc,
+          length: audioSrc.length,
+          domain: new URL(audioSrc).hostname,
+          pathname: new URL(audioSrc).pathname,
+          isDownloadLink: audioSrc.includes("payload/audio.mp3"),
+          hasRecaptchaParams:
+            audioSrc.includes("p=") && audioSrc.includes("k="),
+        });
         return audioSrc;
       }
+
+      this.logger?.info(
+        "🔍 No audio found on main page, checking challenge iframe..."
+      );
 
       // Try challenge iframe
       const challengeFrame = page
@@ -514,16 +604,61 @@ class BackgroundCaptchaMonitor {
         );
 
       if (challengeFrame) {
+        this.logger?.debug("Found challenge iframe", {
+          frameUrl: challengeFrame.url(),
+        });
+
         audioSrc = await challengeFrame.evaluate(() => {
+          // Look for download link in iframe
+          const downloadLink = document.querySelector(
+            ".rc-audiochallenge-tdownload-link"
+          );
+          if (downloadLink && downloadLink.href) {
+            return downloadLink.href;
+          }
+
+          // Fallback: look for any audio.mp3 links
+          const audioLinks = Array.from(
+            document.querySelectorAll('a[href*="audio.mp3"]')
+          );
+          for (const link of audioLinks) {
+            if (link.href) {
+              return link.href;
+            }
+          }
+
+          // Legacy fallback: audio elements
           const audio = document.querySelector("audio");
           return audio ? audio.src : null;
         });
+
+        if (audioSrc) {
+          this.logger?.info("🎵 Found audio source in challenge iframe!");
+          this.logger?.info(`📍 Audio URL: ${audioSrc}`);
+          this.logger?.debug("Audio source details from iframe", {
+            url: audioSrc,
+            length: audioSrc.length,
+            domain: new URL(audioSrc).hostname,
+            pathname: new URL(audioSrc).pathname,
+            frameUrl: challengeFrame.url(),
+            isDownloadLink: audioSrc.includes("payload/audio.mp3"),
+            hasRecaptchaParams:
+              audioSrc.includes("p=") && audioSrc.includes("k="),
+          });
+          return audioSrc;
+        } else {
+          this.logger?.warn("No audio download link found in challenge iframe");
+        }
+      } else {
+        this.logger?.warn("No challenge iframe found");
       }
 
-      return audioSrc;
+      this.logger?.error("❌ Could not find any audio source for CAPTCHA");
+      return null;
     } catch (error) {
       this.logger?.error("Error finding audio source", {
         error: error.message,
+        stack: error.stack,
       });
       return null;
     }
@@ -534,29 +669,275 @@ class BackgroundCaptchaMonitor {
    */
   async downloadAudioFile(audioSrc) {
     try {
+      this.logger?.info("📥 Starting audio file download...");
+      this.logger?.debug("Download request details", {
+        url: audioSrc,
+        urlLength: audioSrc.length,
+        domain: new URL(audioSrc).hostname,
+      });
+
       const tempDir = path.join(process.cwd(), "temp");
       await fs.mkdir(tempDir, { recursive: true });
 
       const fileName = `captcha_audio_${Date.now()}.mp3`;
       const filePath = path.join(tempDir, fileName);
 
+      this.logger?.info(`📁 Downloading to: ${filePath}`);
+
+      const headers = {
+        "User-Agent":
+          "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36",
+      };
+
+      this.logger?.debug("Request headers", headers);
+
       const response = await axios({
         method: "GET",
         url: audioSrc,
         responseType: "stream",
-        headers: {
-          "User-Agent":
-            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36",
-        },
+        headers,
+        timeout: 30000,
+        maxRedirects: 5,
       });
 
+      this.logger?.info("📡 Response received!");
+      this.logger?.debug("Response details", {
+        status: response.status,
+        statusText: response.statusText,
+        headers: response.headers,
+        contentLength: response.headers["content-length"],
+        contentType: response.headers["content-type"],
+      });
+
+      if (response.headers["content-length"]) {
+        const fileSize = parseInt(response.headers["content-length"]);
+        this.logger?.info(
+          `📊 File size: ${fileSize} bytes (${(fileSize / 1024).toFixed(2)} KB)`
+        );
+      }
+
       const writer = createWriteStream(filePath);
+      let downloadedBytes = 0;
+
+      response.data.on("data", (chunk) => {
+        downloadedBytes += chunk.length;
+        if (response.headers["content-length"]) {
+          const progress = (
+            (downloadedBytes / parseInt(response.headers["content-length"])) *
+            100
+          ).toFixed(1);
+          this.logger?.debug(
+            `Download progress: ${progress}% (${downloadedBytes} bytes)`
+          );
+        }
+      });
+
       await pipeline(response.data, writer);
 
-      this.logger?.debug("Audio file downloaded", { filePath });
+      // Get final file stats
+      const stats = await fs.stat(filePath);
+      this.logger?.info("✅ Audio file downloaded successfully!");
+      this.logger?.debug("Final file details", {
+        filePath,
+        fileName,
+        finalSize: stats.size,
+        finalSizeKB: (stats.size / 1024).toFixed(2),
+        downloadedBytes,
+        created: stats.birthtime,
+      });
+
       return filePath;
     } catch (error) {
-      this.logger?.error("Error downloading audio file", {
+      this.logger?.error("❌ Error downloading audio file", {
+        error: error.message,
+        stack: error.stack,
+        code: error.code,
+        url: audioSrc,
+        response: error.response
+          ? {
+              status: error.response.status,
+              statusText: error.response.statusText,
+              headers: error.response.headers,
+            }
+          : null,
+      });
+      return null;
+    }
+  }
+
+  /**
+   * Transcribe audio using ElevenLabs API (using proper SDK)
+   */
+  async transcribeAudio(audioFilePath) {
+    try {
+      this.logger?.info("🎧 Starting audio transcription process...");
+      this.logger?.debug("Transcription details", {
+        audioFilePath,
+        elevenLabsApiKeyAvailable: !!this.elevenLabsApiKey,
+        apiKeyLength: this.elevenLabsApiKey ? this.elevenLabsApiKey.length : 0,
+      });
+
+      if (!this.elevenLabsApiKey) {
+        this.logger?.warn(
+          "No ElevenLabs API key available, using fallback transcription"
+        );
+        return await this.fallbackAudioTranscription(audioFilePath);
+      }
+
+      // Import ElevenLabs SDK
+      const { ElevenLabsClient } = await import("@elevenlabs/elevenlabs-js");
+
+      // Read the audio file
+      this.logger?.info("📖 Reading audio file for transcription...");
+      const audioBuffer = await fs.readFile(audioFilePath);
+      const fileStats = await fs.stat(audioFilePath);
+
+      this.logger?.debug("Audio file read details", {
+        filePath: audioFilePath,
+        bufferSize: audioBuffer.length,
+        fileSize: fileStats.size,
+        fileSizeKB: (fileStats.size / 1024).toFixed(2),
+        created: fileStats.birthtime,
+        modified: fileStats.mtime,
+      });
+
+      // Initialize ElevenLabs client
+      this.logger?.info("🔧 Initializing ElevenLabs client...");
+      const elevenlabs = new ElevenLabsClient({
+        apiKey: this.elevenLabsApiKey,
+      });
+
+      // Create audio blob from buffer
+      this.logger?.info("📦 Preparing audio blob for transcription...");
+      const audioBlob = new Blob([audioBuffer], { type: "audio/mp3" });
+
+      this.logger?.debug("Audio blob details", {
+        size: audioBlob.size,
+        type: audioBlob.type,
+        blobSizeKB: (audioBlob.size / 1024).toFixed(2),
+      });
+
+      this.logger?.debug("Transcription request configuration", {
+        modelId: "scribe_v1",
+        tagAudioEvents: true,
+        languageCode: "eng",
+        diarize: false, // Set to false for CAPTCHA as it's usually single speaker
+      });
+
+      try {
+        this.logger?.info("🌐 Sending transcription request to ElevenLabs...");
+
+        // Use proper ElevenLabs SDK for speech-to-text
+        const transcription = await elevenlabs.speechToText.convert({
+          file: audioBlob,
+          modelId: "scribe_v1", // Model to use, for now only "scribe_v1" is supported
+          tagAudioEvents: true, // Tag audio events like laughter, applause, etc.
+          languageCode: "eng", // Language of the audio file
+          diarize: false, // Whether to annotate who is speaking (false for CAPTCHA)
+        });
+
+        this.logger?.info("📡 ElevenLabs transcription response received!");
+        this.logger?.debug("Transcription response details", {
+          responseType: typeof transcription,
+          responseKeys:
+            typeof transcription === "object"
+              ? Object.keys(transcription)
+              : null,
+          fullResponse: transcription,
+        });
+
+        // Extract text from response
+        let transcriptionText = null;
+        if (typeof transcription === "string") {
+          transcriptionText = transcription.trim();
+        } else if (transcription && transcription.text) {
+          transcriptionText = transcription.text.trim();
+        } else if (transcription && transcription.transcription) {
+          transcriptionText = transcription.transcription.trim();
+        }
+
+        this.logger?.debug("Transcription extraction", {
+          extractedText: transcriptionText || "null/undefined",
+          textLength: transcriptionText ? transcriptionText.length : 0,
+          extractionMethod:
+            typeof transcription === "string"
+              ? "direct_string"
+              : transcription?.text
+              ? "text_property"
+              : transcription?.transcription
+              ? "transcription_property"
+              : "unknown",
+        });
+
+        if (transcriptionText && transcriptionText.length > 0) {
+          this.logger?.info("✅ ElevenLabs transcription successful!", {
+            transcription:
+              transcriptionText.substring(0, 50) +
+              (transcriptionText.length > 50 ? "..." : ""),
+            fullLength: transcriptionText.length,
+            fullText: transcriptionText,
+          });
+          return transcriptionText;
+        } else {
+          this.logger?.warn("⚠️ Empty transcription received from ElevenLabs");
+          this.logger?.debug("Empty transcription analysis", {
+            responseData: transcription,
+            hasText: !!transcription?.text,
+            hasTranscription: !!transcription?.transcription,
+            isString: typeof transcription === "string",
+          });
+          return await this.fallbackAudioTranscription(audioFilePath);
+        }
+      } catch (apiError) {
+        this.logger?.error("❌ ElevenLabs SDK transcription failed", {
+          error: apiError.message,
+          stack: apiError.stack,
+          code: apiError.code,
+          name: apiError.name,
+          sdkError: true,
+        });
+
+        return await this.fallbackAudioTranscription(audioFilePath);
+      }
+    } catch (error) {
+      this.logger?.error("❌ Error in transcribeAudio method", {
+        error: error.message,
+        stack: error.stack,
+        audioFilePath,
+        stage: "general_error",
+      });
+
+      // Fall back to alternative methods
+      return await this.fallbackAudioTranscription(audioFilePath);
+    }
+  }
+
+  /**
+   * Fallback audio transcription using basic techniques
+   */
+  async fallbackAudioTranscription(audioFilePath) {
+    try {
+      this.logger?.debug("Using fallback audio transcription methods");
+
+      // Try different fallback approaches
+
+      // Method 1: Try a free online service (AssemblyAI free tier, etc.)
+      const freeServiceResult = await this.tryFreeSTTService(audioFilePath);
+      if (freeServiceResult) {
+        return freeServiceResult;
+      }
+
+      // Method 2: Basic pattern recognition for simple CAPTCHAs
+      // Some CAPTCHAs have predictable patterns or are simple number/letter sequences
+      const patternResult = await this.tryPatternRecognition(audioFilePath);
+      if (patternResult) {
+        return patternResult;
+      }
+
+      this.logger?.warn("All fallback transcription methods failed");
+      return null;
+    } catch (error) {
+      this.logger?.error("Error in fallback audio transcription", {
         error: error.message,
       });
       return null;
@@ -564,49 +945,42 @@ class BackgroundCaptchaMonitor {
   }
 
   /**
-   * Transcribe audio using ElevenLabs or fallback methods
+   * Try using free speech-to-text services
    */
-  async transcribeAudio(_audioFilePath) {
+  async tryFreeSTTService(_audioFilePath) {
     try {
-      // Note: ElevenLabs primarily does text-to-speech, not speech-to-text
-      // For speech-to-text, we might need to use a different service
-      // This is a placeholder for the actual implementation
-      this.logger?.debug("Speech-to-text integration placeholder");
+      // You could implement calls to services like:
+      // - AssemblyAI free tier
+      // - Mozilla DeepSpeech
+      // - Wav2Vec2 models via HuggingFace
 
-      // Fallback: Use a simple pattern matching approach for common CAPTCHA audio
-      // This is a simplified approach - in production you'd want to use proper STT services
-      const transcription = await this.fallbackAudioTranscription(
-        _audioFilePath
-      );
-
-      return transcription;
+      this.logger?.debug("Free STT service integration not implemented");
+      return null;
     } catch (error) {
-      this.logger?.error("Error transcribing audio", { error: error.message });
+      this.logger?.debug("Free STT service failed", { error: error.message });
       return null;
     }
   }
 
   /**
-   * Fallback audio transcription (placeholder)
+   * Try basic pattern recognition for simple CAPTCHAs
    */
-  async fallbackAudioTranscription(_audioFilePath) {
+  async tryPatternRecognition(_audioFilePath) {
     try {
-      // This is a placeholder implementation
-      // In a real scenario, you'd integrate with:
-      // - OpenAI Whisper API
-      // - Google Speech-to-Text
-      // - Azure Speech Services
-      // - AWS Transcribe
+      // For very simple CAPTCHAs, you might be able to:
+      // 1. Analyze audio length to guess number of characters
+      // 2. Use basic audio analysis to detect pauses between characters
+      // 3. Pattern match against common CAPTCHA words/numbers
 
       this.logger?.debug(
-        "Using fallback audio transcription (limited functionality)"
+        "Pattern recognition for CAPTCHA audio not implemented"
       );
 
-      // For now, return null to trigger proxy switching
-      // You can implement actual STT service integration here
+      // This would require audio analysis libraries like node-wav, web-audio-api, etc.
+      // For now, return null to maintain the existing proxy switching behavior
       return null;
     } catch (error) {
-      this.logger?.error("Error in fallback audio transcription", {
+      this.logger?.debug("Pattern recognition failed", {
         error: error.message,
       });
       return null;

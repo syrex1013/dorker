@@ -34,6 +34,9 @@ class DashboardServer {
       captchaSolved: 0,
     };
 
+    // Store current configuration
+    this.currentConfig = null;
+
     this.results = [];
     this.logs = [];
     this.performanceData = [];
@@ -77,7 +80,10 @@ class DashboardServer {
 
     // Enhanced API endpoints
     this.app.get("/api/stats", (req, res) => {
-      res.json(this.stats);
+      res.json({
+        ...this.stats,
+        config: this.currentConfig,
+      });
     });
 
     this.app.get("/api/results", (req, res) => {
@@ -351,7 +357,7 @@ class DashboardServer {
     }
 
     this.results.unshift(resultEntry);
-    this.stats.totalResults += resultEntry.count;
+    // totalResults is already incremented via addToTotalResults method called from main.js
 
     // Keep only last 100 result sets for memory management
     if (this.results.length > 100) {
@@ -655,6 +661,30 @@ class DashboardServer {
   // Proxy management with enhanced logging
   updateProxy(proxy) {
     this.setProxy(proxy);
+  }
+
+  // Configuration management
+  setConfiguration(config) {
+    this.currentConfig = {
+      ...config,
+      // Sanitize sensitive data
+      proxyConfig: config.proxyConfig
+        ? {
+            host: config.proxyConfig.host,
+            port: config.proxyConfig.port,
+            type: config.proxyConfig.type,
+            // Don't expose credentials
+          }
+        : null,
+    };
+    this.addLog(
+      "info",
+      `Configuration updated: ${Object.keys(config).length} settings loaded`
+    );
+  }
+
+  getConfiguration() {
+    return this.currentConfig;
   }
 
   // Server mode methods
