@@ -144,16 +144,17 @@ intext:"sql syntax near" site:*.com
 
 ### ⚙️ Configuration Options
 
-| Option              | Description                | Default |
-| ------------------- | -------------------------- | ------- |
-| `resultCount`       | Results per search         | `30`    |
-| `maxPages`          | Max pages per dork         | `1`     |
-| `minDelay`          | Min delay between searches | `10s`   |
-| `maxDelay`          | Max delay between searches | `45s`   |
-| `headless`          | Run browser in background  | `false` |
-| `humanLike`         | Enable human behavior      | `true`  |
-| `autoProxy`         | Auto proxy switching       | `false` |
-| `manualCaptchaMode` | Manual CAPTCHA solving     | `false` |
+| Option              | Description                 | Default |
+| ------------------- | --------------------------- | ------- |
+| `resultCount`       | Results per search          | `30`    |
+| `maxPages`          | Max pages per dork          | `1`     |
+| `minDelay`          | Min delay between searches  | `10s`   |
+| `maxDelay`          | Max delay between searches  | `45s`   |
+| `headless`          | Run browser in background   | `false` |
+| `humanLike`         | Enable human behavior       | `true`  |
+| `autoProxy`         | Auto proxy switching        | `false` |
+| `manualCaptchaMode` | Manual CAPTCHA solving      | `false` |
+| `dorkFiltering`     | Filter URLs by dork pattern | `true`  |
 
 ---
 

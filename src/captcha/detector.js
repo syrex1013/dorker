@@ -650,6 +650,147 @@ async function handleCaptcha(
     logWithDedup("warning", "🚨 CAPTCHA detected!", chalk.red, logger);
     logger?.warn("CAPTCHA detection confirmed");
 
+    // Check for automated queries message (Google bot detection)
+    const automatedQueriesDetected = await page.evaluate(() => {
+      const pageText = document.body.textContent || "";
+      return (
+        pageText.includes(
+          "Your computer or network may be sending automated queries"
+        ) ||
+        pageText.includes(
+          "To protect our users, we can't process your request right now"
+        ) ||
+        pageText.includes("For more details visit our help page")
+      );
+    });
+
+    if (automatedQueriesDetected) {
+      logWithDedup(
+        "warning",
+        "🤖 Google automated queries detection triggered!",
+        chalk.red,
+        logger
+      );
+
+      if (dashboard && dashboard.addLog) {
+        dashboard.addLog(
+          "warning",
+          "🤖 Google automated queries detection triggered!"
+        );
+      }
+
+      // If proxy is enabled, restart with new proxy instead of solving CAPTCHA
+      if (switchProxyCallback) {
+        logWithDedup(
+          "info",
+          "🔄 Attempting proxy restart due to automated queries detection...",
+          chalk.yellow,
+          logger
+        );
+
+        if (dashboard && dashboard.setStatus) {
+          dashboard.setStatus("captcha-proxy");
+        }
+        if (dashboard && dashboard.addLog) {
+          dashboard.addLog(
+            "info",
+            "🔄 Attempting proxy restart due to automated queries detection..."
+          );
+        }
+
+        // Try switching proxy immediately
+        const proxyChanged = await switchProxyCallback();
+        if (proxyChanged) {
+          logWithDedup(
+            "success",
+            "✅ Proxy switched due to automated queries detection",
+            chalk.green,
+            logger
+          );
+
+          if (dashboard && dashboard.addLog) {
+            dashboard.addLog(
+              "success",
+              "✅ Proxy switched due to automated queries detection"
+            );
+          }
+
+          // Wait for page to reload with new proxy
+          await sleep(5000, "waiting for proxy switch to take effect", logger);
+
+          // Check if the issue is resolved
+          const stillHasIssue = await page.evaluate(() => {
+            const pageText = document.body.textContent || "";
+            return pageText.includes(
+              "Your computer or network may be sending automated queries"
+            );
+          });
+
+          if (!stillHasIssue) {
+            logWithDedup(
+              "success",
+              "✅ Automated queries detection resolved with proxy switch!",
+              chalk.green,
+              logger
+            );
+
+            if (dashboard && dashboard.addLog) {
+              dashboard.addLog(
+                "success",
+                "✅ Automated queries detection resolved with proxy switch!"
+              );
+            }
+            return true;
+          } else {
+            logWithDedup(
+              "warning",
+              "⚠️ Automated queries detection still present after proxy switch",
+              chalk.yellow,
+              logger
+            );
+          }
+        } else {
+          logWithDedup(
+            "warning",
+            "⚠️ Failed to switch proxy for automated queries detection",
+            chalk.yellow,
+            logger
+          );
+        }
+      } else {
+        logWithDedup(
+          "warning",
+          "⚠️ No proxy available - cannot restart for automated queries detection",
+          chalk.yellow,
+          logger
+        );
+
+        if (dashboard && dashboard.addLog) {
+          dashboard.addLog(
+            "warning",
+            "⚠️ No proxy available - cannot restart for automated queries detection"
+          );
+        }
+      }
+
+      // If proxy switch didn't work or not available, return false to avoid CAPTCHA solving
+      logWithDedup(
+        "warning",
+        "❌ Cannot proceed with CAPTCHA due to automated queries detection",
+        chalk.red,
+        logger
+      );
+
+      if (dashboard && dashboard.addLog) {
+        dashboard.addLog(
+          "error",
+          "❌ Cannot proceed with CAPTCHA due to automated queries detection"
+        );
+      }
+
+      return false;
+    }
+
     // Update dashboard
     if (dashboard && dashboard.setStatus) {
       dashboard.setStatus("captcha");

@@ -1,5 +1,5 @@
 import chalk from "chalk";
-import { sleep, humanDelay } from "../utils/sleep.js";
+import { sleep } from "../utils/sleep.js";
 import { logWithDedup } from "../utils/logger.js";
 import {
   testAsocksAPI,
@@ -860,7 +860,27 @@ class MultiEngineDorker {
       }
 
       // Extract results
-      const results = await this.extractResults(page, maxResults);
+      let results = await this.extractResults(page, maxResults);
+
+      // Apply dork-based filtering if enabled
+      if (this.config.dorkFiltering && results.length > 0) {
+        const originalCount = results.length;
+        results = this.filterResultsByDork(results, dork);
+        const filteredCount = results.length;
+
+        if (filteredCount < originalCount) {
+          this.logger?.info(
+            `Dork filtering: ${originalCount} → ${filteredCount} results (${
+              originalCount - filteredCount
+            } filtered out)`,
+            {
+              dork: dork.substring(0, 50),
+              originalCount,
+              filteredCount,
+            }
+          );
+        }
+      }
 
       // Handle pagination if enabled
       const maxPages = this.config.maxPages || 1;
@@ -937,7 +957,24 @@ class MultiEngineDorker {
           }
 
           // Extract results from current page
-          const pageResults = await this.extractResults(page, maxResults);
+          let pageResults = await this.extractResults(page, maxResults);
+
+          // Apply dork-based filtering to pagination results if enabled
+          if (this.config.dorkFiltering && pageResults.length > 0) {
+            const originalPageCount = pageResults.length;
+            pageResults = this.filterResultsByDork(pageResults, dork);
+            const filteredPageCount = pageResults.length;
+
+            if (filteredPageCount < originalPageCount) {
+              this.logger?.info(
+                `Page ${
+                  currentPage + 1
+                } dork filtering: ${originalPageCount} → ${filteredPageCount} results (${
+                  originalPageCount - filteredPageCount
+                } filtered out)`
+              );
+            }
+          }
 
           if (pageResults.length === 0) {
             this.logger?.info(
@@ -2217,7 +2254,200 @@ class MultiEngineDorker {
   }
 
   /**
-   * Perform delay between searches with random timing
+   * Filter results based on dork pattern matching
+   * @param {Array} results - Array of result objects
+   * @param {string} dork - The dork query used
+   * @returns {Array} Filtered results that match the dork pattern
+   */
+  filterResultsByDork(results, dork) {
+    if (!results || results.length === 0) {
+      return results;
+    }
+
+    this.logger?.debug(
+      `Filtering ${results.length} results with dork: ${dork}`
+    );
+
+    try {
+      // Parse the dork to extract filtering patterns
+      const patterns = this.parseDorkPatterns(dork);
+
+      if (patterns.length === 0) {
+        this.logger?.debug(
+          "No filterable patterns found in dork, returning all results"
+        );
+        return results;
+      }
+
+      // Filter results based on extracted patterns
+      const filteredResults = results.filter((result) => {
+        if (!result.url) {
+          return false; // Remove results without URLs
+        }
+
+        // Check if URL matches any of the dork patterns
+        return patterns.some((pattern) => this.matchesPattern(result, pattern));
+      });
+
+      this.logger?.debug(
+        `Dork filtering completed: ${results.length} → ${filteredResults.length} results`
+      );
+      return filteredResults;
+    } catch (error) {
+      this.logger?.warn(
+        "Error during dork filtering, returning unfiltered results",
+        {
+          error: error.message,
+          dork: dork.substring(0, 50),
+        }
+      );
+      return results;
+    }
+  }
+
+  /**
+   * Parse dork query to extract filterable patterns
+   * @param {string} dork - The dork query
+   * @returns {Array} Array of pattern objects
+   */
+  parseDorkPatterns(dork) {
+    const patterns = [];
+
+    // Pattern matching for different dork types
+    const dorkPatterns = [
+      // inurl: patterns
+      {
+        regex: /inurl:([^\s]+)/gi,
+        type: "inurl",
+        extract: (match) => match[1],
+      },
+      // site: patterns
+      {
+        regex: /site:([^\s]+)/gi,
+        type: "site",
+        extract: (match) => match[1],
+      },
+      // intitle: patterns
+      {
+        regex: /intitle:([^\s"]+|"[^"]*")/gi,
+        type: "intitle",
+        extract: (match) => match[1].replace(/"/g, ""),
+      },
+      // intext: patterns
+      {
+        regex: /intext:([^\s"]+|"[^"]*")/gi,
+        type: "intext",
+        extract: (match) => match[1].replace(/"/g, ""),
+      },
+      // filetype: patterns
+      {
+        regex: /filetype:([^\s]+)/gi,
+        type: "filetype",
+        extract: (match) => match[1],
+      },
+      // ext: patterns (alternative to filetype)
+      {
+        regex: /ext:([^\s]+)/gi,
+        type: "filetype",
+        extract: (match) => match[1],
+      },
+    ];
+
+    // Extract patterns from dork
+    for (const dorkPattern of dorkPatterns) {
+      let match;
+      const regex = new RegExp(
+        dorkPattern.regex.source,
+        dorkPattern.regex.flags
+      );
+
+      while ((match = regex.exec(dork)) !== null) {
+        const value = dorkPattern.extract(match);
+        if (value && value.trim()) {
+          patterns.push({
+            type: dorkPattern.type,
+            value: value.trim(),
+            original: match[0],
+          });
+        }
+      }
+    }
+
+    this.logger?.debug(
+      `Extracted ${patterns.length} patterns from dork:`,
+      patterns
+    );
+    return patterns;
+  }
+
+  /**
+   * Check if a result matches a specific pattern
+   * @param {Object} result - Result object with url, title, description
+   * @param {Object} pattern - Pattern object with type and value
+   * @returns {boolean} True if result matches pattern
+   */
+  matchesPattern(result, pattern) {
+    const { type, value } = pattern;
+    const url = result.url.toLowerCase();
+    const title = (result.title || "").toLowerCase();
+    const description = (result.description || "").toLowerCase();
+
+    switch (type) {
+      case "inurl": {
+        // Check if URL contains the specified pattern
+        const urlPattern = value.toLowerCase();
+        return url.includes(urlPattern);
+      }
+
+      case "site": {
+        // Check if URL is from the specified site/domain
+        let sitePattern = value.toLowerCase();
+
+        // Handle wildcards in site patterns
+        if (sitePattern.startsWith("*.")) {
+          // *.example.com should match any subdomain of example.com
+          const baseDomain = sitePattern.substring(2);
+          return url.includes(baseDomain);
+        } else {
+          // Regular site match
+          return url.includes(sitePattern);
+        }
+      }
+
+      case "intitle": {
+        // Check if title contains the specified text
+        const titlePattern = value.toLowerCase();
+        return title.includes(titlePattern);
+      }
+
+      case "intext": {
+        // Check if title or description contains the specified text
+        const textPattern = value.toLowerCase();
+        return title.includes(textPattern) || description.includes(textPattern);
+      }
+
+      case "filetype": {
+        // Check if URL ends with the specified file extension
+        const filePattern = value.toLowerCase();
+
+        // Handle both with and without dot
+        const extensions = [
+          `.${filePattern}`,
+          `.${filePattern}?`, // With query parameters
+          `.${filePattern}#`, // With fragments
+        ];
+
+        return extensions.some((ext) => url.includes(ext));
+      }
+
+      default:
+        this.logger?.debug(`Unknown pattern type: ${type}`);
+        return true; // Don't filter out if we don't understand the pattern
+    }
+  }
+
+  /**
+   * Perform delay between searches with movement-only warmup
    */
   async delayBetweenSearches() {
     // Use new delay range if available, fallback to old single delay for backward compatibility
@@ -2228,16 +2458,85 @@ class MultiEngineDorker {
     const randomDelay =
       Math.floor(Math.random() * (maxDelay - minDelay + 1)) + minDelay;
 
-    const maxPause = this.config.maxPause * 1000;
+    this.logger?.info(
+      `Delaying ${
+        randomDelay / 1000
+      }s before next search with MOVEMENT-ONLY warmup`,
+      {
+        range: `${minDelay / 1000}-${maxDelay / 1000}s`,
+        selected: `${randomDelay / 1000}s`,
+      }
+    );
 
-    this.logger?.info(`Delaying ${randomDelay / 1000}s before next search`, {
-      range: `${minDelay / 1000}-${maxDelay / 1000}s`,
-      selected: `${randomDelay / 1000}s`,
-    });
+    if (this.config.humanLike && this.pageData) {
+      // MOVEMENT-ONLY delay - no clicking, just cursor movements
+      const { page, cursor } = this.pageData;
 
-    if (this.config.humanLike) {
-      await humanDelay(randomDelay, maxPause, this.logger);
+      try {
+        const delayStartTime = Date.now();
+        const delayEndTime = delayStartTime + randomDelay;
+
+        // Stay on current page and ONLY move cursor
+        while (Date.now() < delayEndTime) {
+          // Verify we're still on Google (don't navigate if we're not)
+          const currentUrl = page.url();
+          if (!currentUrl.includes("google.com")) {
+            this.logger?.warn(
+              `⚠️ Navigated away from Google during delay to: ${currentUrl}`
+            );
+            this.logger?.info("🔄 Returning to Google for remainder of delay");
+
+            // Go back to Google
+            await page.goto("https://www.google.com", {
+              waitUntil: "domcontentloaded",
+              timeout: 15000,
+            });
+            await sleep(
+              2000,
+              "after returning to Google during delay",
+              this.logger
+            );
+          }
+
+          // Perform ONLY safe cursor movements (absolutely NO clicking or interaction)
+          this.logger?.debug(
+            "Performing MOVEMENT-ONLY delay - no interactions"
+          );
+
+          // Import and use performSafeCursorMovements
+          const { performSafeCursorMovements } = await import(
+            "../browser/browserManager.js"
+          );
+          await performSafeCursorMovements(page, cursor, this.logger);
+
+          // Pause between movement sessions
+          const pauseTime = Math.random() * 3000 + 2000; // 2-5 seconds
+          const remainingTime = delayEndTime - Date.now();
+
+          // Don't pause longer than remaining time
+          const actualPauseTime = Math.min(pauseTime, remainingTime);
+          if (actualPauseTime > 0) {
+            await sleep(actualPauseTime, "delay movement pause", this.logger);
+          }
+        }
+
+        this.logger?.debug("Movement-only delay completed successfully");
+      } catch (error) {
+        this.logger?.warn(
+          "Error during movement-only delay, falling back to regular sleep",
+          {
+            error: error.message,
+          }
+        );
+        // Fallback to regular sleep if movement fails
+        await sleep(
+          randomDelay,
+          "fallback delay between searches",
+          this.logger
+        );
+      }
     } else {
+      // Fallback to regular sleep
       await sleep(randomDelay, "delay between searches", this.logger);
     }
   }

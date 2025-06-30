@@ -110,6 +110,11 @@ function displayConfig(config) {
       config.multiEngine ? "Enabled" : "Disabled",
       getStatusIcon(config.multiEngine),
     ],
+    [
+      "🎯 Dork URL Filtering",
+      config.dorkFiltering ? "Enabled" : "Disabled",
+      getStatusIcon(config.dorkFiltering),
+    ],
     ["📝 Verbose Logging", "File Logging", getStatusIcon(true)]
   );
 
@@ -263,6 +268,13 @@ async function getConfiguration() {
           message: "🔍 Enable multi-engine dorking?",
           initialValue: false,
         }),
+
+      dorkFiltering: () =>
+        p.confirm({
+          message:
+            "🎯 Enable dork-based URL filtering?\n   Only keep URLs that match the dork pattern (e.g., inurl:index.php?id= → filter URLs without 'index.php?id=')",
+          initialValue: true,
+        }),
     },
     {
       onCancel: () => {
@@ -296,6 +308,7 @@ async function getConfiguration() {
     humanLike: config.humanLike,
     autoProxy: config.autoProxy,
     multiEngine: config.multiEngine,
+    dorkFiltering: config.dorkFiltering,
     verbose: true, // Always enabled
   };
 

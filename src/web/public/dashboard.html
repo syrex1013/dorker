@@ -1683,6 +1683,28 @@
                 />
                 🔍 Enable multi-engine dorking
               </label>
+
+              <label style="display: block; margin-bottom: 1rem">
+                <input
+                  type="checkbox"
+                  id="dork-filtering"
+                  name="dorkFiltering"
+                  checked
+                  style="margin-right: 0.5rem"
+                />
+                🎯 Enable dork-based URL filtering
+                <small
+                  style="
+                    display: block;
+                    color: var(--text-secondary);
+                    margin-left: 1.25rem;
+                    margin-top: 0.25rem;
+                  "
+                >
+                  Only keep URLs that match the dork pattern (e.g.,
+                  inurl:index.php?id= filters URLs without "index.php?id=")
+                </small>
+              </label>
             </div>
           </form>
         </div>
@@ -3185,6 +3207,7 @@
           humanLike: formData.get("humanLike") === "on",
           autoProxy: formData.get("autoProxy") === "on",
           multiEngine: formData.get("multiEngine") === "on",
+          dorkFiltering: formData.get("dorkFiltering") === "on",
           verbose: true,
         };
 
