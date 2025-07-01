@@ -87,46 +87,60 @@ async function _humanLikeClick(cursor, element, page, logger = null) {
     const reactionTime = Math.random() * 200 + 100; // 100-300ms
     await sleep(reactionTime, "human reaction time", logger);
 
-    // Try ghost cursor with timeout
-    await Promise.race([
-      cursor.click(element),
-      new Promise((_, reject) =>
-        setTimeout(() => reject(new Error("cursor timeout")), 5000)
-      ),
-    ]);
-
-    logger?.debug("Ghost cursor click successful");
+    // Try ghost cursor with proper error handling
+    try {
+      await cursor.click(element);
+      logger?.debug("Ghost cursor click successful");
+    } catch (cursorError) {
+      logger?.debug(
+        `Ghost cursor failed: ${cursorError.message}, using fallback`
+      );
+      // Fallback to direct element click
+      if (element && typeof element.click === "function") {
+        await element.click();
+      } else {
+        await page.click(element);
+      }
+      logger?.debug("Fallback click successful");
+    }
 
     // Small delay after click (natural)
     await sleep(Math.random() * 150 + 50, "after click delay", logger);
   } catch (error) {
-    logger?.debug(`Ghost cursor failed: ${error.message}, using fallback`);
+    logger?.debug(`Click failed: ${error.message}`);
+    throw error;
+  }
+}
 
-    // Enhanced fallback with human-like behavior
-    try {
-      // Get element position for more natural clicking
-      const box = await element.boundingBox();
-      if (box) {
-        // Click slightly offset from center (more human-like)
-        const offsetX = (Math.random() - 0.5) * Math.min(box.width * 0.3, 20);
-        const offsetY = (Math.random() - 0.5) * Math.min(box.height * 0.3, 10);
-
-        await page.mouse.click(
-          box.x + box.width / 2 + offsetX,
-          box.y + box.height / 2 + offsetY,
-          { delay: Math.random() * 50 + 30 } // 30-80ms click duration
-        );
-      } else {
-        // Direct element click fallback
-        await element.click({ delay: Math.random() * 50 + 30 });
-      }
-
-      logger?.debug("Fallback click completed with human-like behavior");
-    } catch (fallbackError) {
-      logger?.debug(`Fallback click failed: ${fallbackError.message}`);
-      // Last resort - simple click
-      await element.click();
+/**
+ * Enhanced ghost cursor move with proper fallback
+ * @param {Object} cursor - Ghost cursor instance
+ * @param {number} x - X coordinate
+ * @param {number} y - Y coordinate
+ * @param {Object} page - Page instance for fallback
+ * @param {Object} logger - Logger instance
+ */
+async function _humanLikeMove(cursor, x, y, page, logger = null) {
+  try {
+    if (!cursor || typeof cursor.move !== "function") {
+      throw new Error("No valid cursor available");
     }
+
+    // Try ghost cursor move
+    try {
+      await cursor.move({ x, y });
+      logger?.debug(`Ghost cursor moved to (${x}, ${y})`);
+    } catch (cursorError) {
+      logger?.debug(
+        `Ghost cursor move failed: ${cursorError.message}, using fallback`
+      );
+      // Fallback to page.mouse.move
+      await page.mouse.move(x, y);
+      logger?.debug(`Fallback mouse movement to (${x}, ${y}) completed`);
+    }
+  } catch (error) {
+    logger?.debug(`Mouse movement failed: ${error.message}`);
+    throw error;
   }
 }
 
@@ -161,31 +175,9 @@ async function performSafeCursorMovements(page, cursor, logger = null) {
       const targetY = Math.random() * (maxY - 400) + 200; // Avoid header/footer
 
       try {
-        // Only move cursor, absolutely no clicking or interaction
-        if (cursor && typeof cursor.move === "function") {
-          try {
-            // Move cursor safely with timeout
-            await Promise.race([
-              cursor.move(targetX, targetY),
-              new Promise((_, reject) =>
-                setTimeout(() => reject(new Error("cursor timeout")), 2000)
-              ),
-            ]);
-            logger?.debug(`Safe cursor movement ${i + 1} completed`);
-          } catch (_cursorError) {
-            // Skip this movement if cursor fails - don't use fallback to avoid any clicks
-            logger?.debug(
-              `Safe cursor movement ${i + 1} skipped - cursor unavailable`
-            );
-            continue;
-          }
-        } else {
-          // No fallback during warmup - skip if no cursor
-          logger?.debug(
-            `Safe cursor movement ${i + 1} skipped - no cursor available`
-          );
-          continue;
-        }
+        // Use our enhanced move function
+        await _humanLikeMove(cursor, targetX, targetY, page, logger);
+        logger?.debug(`Safe cursor movement ${i + 1} completed`);
 
         // Pause at position (simulate reading)
         const pauseTime = Math.random() * 800 + 1200; // 1200-2000ms
@@ -249,47 +241,26 @@ async function _performRandomMouseMovements(page, cursor, logger = null) {
 
         if (!isSafeArea) {
           logger?.debug(
-            `Mouse movement ${i + 1} skipped - unsafe area detected`
+            `Skipping unsafe movement target (${targetX}, ${targetY})`
           );
           continue;
         }
 
-        if (cursor && typeof cursor.move === "function") {
-          try {
-            // Use curved movement (more human-like) with timeout
-            await Promise.race([
-              cursor.move(targetX, targetY),
-              new Promise((_, reject) =>
-                setTimeout(() => reject(new Error("cursor timeout")), 3000)
-              ),
-            ]);
-          } catch (_cursorError) {
-            logger?.debug(`Ghost cursor error detected, using fallback`);
-            throw new Error("cursor unavailable");
-          }
-        } else {
-          // Fallback to page.mouse
-          await page.mouse.move(targetX, targetY);
-        }
+        // Use our enhanced move function
+        await _humanLikeMove(cursor, targetX, targetY, page, logger);
+        logger?.debug(`Random movement ${i + 1} completed`);
 
-        // Pause at position (like reading)
-        const pauseTime = Math.random() * 1000 + 800; // 800-1800ms (longer reading time)
-        await sleep(pauseTime, `reading pause ${i + 1}`, logger);
+        // Pause before next movement
+        await sleep(
+          Math.random() * 1000 + 500,
+          `random movement pause ${i + 1}`,
+          logger
+        );
       } catch (moveError) {
-        logger?.debug(`Mouse movement ${i + 1} failed: ${moveError.message}`);
-        // Use fallback movement to safe coordinates
-        try {
-          await page.mouse.move(targetX, targetY);
-          logger?.debug(`Fallback mouse movement completed`);
-        } catch (fallbackError) {
-          logger?.debug(
-            `Both cursor and fallback move failed: ${fallbackError.message}`
-          );
-        }
+        logger?.debug(`Random movement ${i + 1} failed: ${moveError.message}`);
+        continue;
       }
     }
-
-    logger?.debug(`Completed ${movementCount} random mouse movements`);
   } catch (error) {
     logger?.debug("Error in random mouse movements", { error: error.message });
   }
@@ -567,9 +538,16 @@ async function createPage(browser, config, logger = null, firstPage = null) {
         text.includes("hjsa") ||
         text.includes("google.search") ||
         text.includes("mobile search") ||
-        text.includes("net::ERR_BLOCKED_BY_CLIENT")
+        text.includes("net::ERR_BLOCKED_BY_CLIENT") ||
+        text.includes("Failed to load resource") ||
+        text.includes("status of 429") ||
+        text.includes("status of 404") ||
+        text.includes("the server responded with a status") ||
+        text.includes("net::ERR_") ||
+        text.includes("403 (Forbidden)") ||
+        text.includes("429 (Too Many Requests)")
       ) {
-        // Ignore these common Google internal errors
+        // Ignore these common Google internal errors and HTTP status errors
         return;
       }
 
@@ -1767,6 +1745,56 @@ function getCurrentInstances() {
   };
 }
 
+/**
+ * Initialize enhanced ghost cursor with proper error handling
+ * @param {Object} page - Puppeteer page instance
+ * @param {Object} logger - Logger instance
+ * @returns {Object} Enhanced cursor object
+ */
+async function initializeGhostCursor(page, logger = null) {
+  try {
+    // Create ghost cursor with proper import
+    const { createCursor } = await import("ghost-cursor");
+    const cursor = createCursor(page);
+
+    // Verify cursor functionality
+    if (
+      cursor &&
+      typeof cursor.move === "function" &&
+      typeof cursor.click === "function"
+    ) {
+      logger?.debug("Ghost cursor initialized successfully");
+      return cursor;
+    } else {
+      throw new Error(
+        "Ghost cursor initialization failed - invalid cursor object"
+      );
+    }
+  } catch (error) {
+    logger?.warn(
+      `Ghost cursor initialization failed: ${error.message}, using fallback mode`
+    );
+
+    // Return a fallback cursor object that uses page.mouse directly
+    return {
+      move: async (target) => {
+        const { x, y } =
+          typeof target === "object" ? target : { x: target, y: arguments[1] };
+        await page.mouse.move(x, y);
+      },
+      click: async (element) => {
+        if (typeof element === "string") {
+          await page.click(element);
+        } else if (element && typeof element.click === "function") {
+          await element.click();
+        } else {
+          await page.click(element);
+        }
+      },
+    };
+  }
+}
+
 export {
   launchBrowser,
   createPage,
@@ -1779,4 +1807,5 @@ export {
   closeBrowser,
   getCurrentInstances,
   performSafeCursorMovements,
+  initializeGhostCursor,
 };

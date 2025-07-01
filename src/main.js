@@ -11,12 +11,7 @@ import {
   displayError,
   parseCommandLineArgs,
 } from "./ui/cli.js";
-import {
-  loadDorks,
-  saveResults,
-  appendDorkResults,
-  saveUrlsToFile,
-} from "./utils/fileOperations.js";
+import { loadDorks, saveUrlsToFile } from "./utils/fileOperations.js";
 import MultiEngineDorker from "./dorker/MultiEngineDorker.js";
 import DashboardServer from "./web/dashboard.js";
 import { resetCaptchaDetectionState } from "./captcha/detector.js";
@@ -26,7 +21,6 @@ import boxen from "boxen";
 let dashboard = null;
 let dorker = null;
 let logger = null;
-let isServerMode = false; // Track if we're running in server mode
 
 /**
  * Display section separator
@@ -272,16 +266,7 @@ async function performDorking(dorks, config) {
       // Store results
       allResults[dork] = results;
 
-      // Only save to output file in CLI mode, not in server mode
-      if (config.outputFile && !isServerMode) {
-        await appendDorkResults(
-          dork,
-          results,
-          config.outputFile,
-          allResults,
-          logger
-        );
-      }
+      // Note: We no longer automatically save JSON files - only save URLs if user agrees at end
 
       // Show progress
       const percentage = Math.round(((i + 1) / dorks.length) * 100);
@@ -380,29 +365,11 @@ async function interactiveMode() {
 
     displaySection("System Initialization", "magenta");
 
-    // Start dashboard server
-    displayStatus("Starting live dashboard server...", "🌐", "magenta");
-
-    dashboard = new DashboardServer(3000);
-    await dashboard.start();
-
-    displayStatus(
-      "✅ Dashboard started at http://localhost:3000",
-      "✓",
-      "green"
-    );
-    displayStatus(
-      "📊 Open the URL above to monitor live progress",
-      "💡",
-      "cyan"
-    );
-
     // Create logger with log clearing enabled by default
     displayStatus("Initializing logging system...", "📝", "cyan");
 
     logger = await createLogger(true); // Always clear logs on startup
     logger.info("Starting Dorker application", { config });
-    dashboard.addLog("info", "Logging system initialized");
 
     displayStatus("✅ Logging system ready", "✓", "green");
 
@@ -412,11 +379,9 @@ async function interactiveMode() {
     const dorks = await loadDorks(config.dorkFile, logger);
     if (dorks.length === 0) {
       displayError("No dorks found in file", null);
-      dashboard.addLog("error", "No dorks found in file");
       process.exit(1);
     }
 
-    dashboard.addLog("info", `Loaded ${dorks.length} dorks from file`);
     displayStatus(`✅ Loaded ${dorks.length} dorks successfully`, "✓", "green");
 
     // Initialize dorker
@@ -426,20 +391,15 @@ async function interactiveMode() {
       "magenta"
     );
 
-    dorker = new MultiEngineDorker(config, logger, dashboard);
+    dorker = new MultiEngineDorker(config, logger, null);
     await dorker.initialize();
 
-    dashboard.addLog("info", "Browser and security systems initialized");
     displayStatus("✅ Browser and security systems ready", "✓", "green");
 
     displaySection("Dorking Process", "cyan");
 
     // Results storage
     const allResults = {};
-
-    // Start dashboard session
-    dashboard.startSession(dorks.length);
-    dashboard.setStatus("running");
 
     const sessionBox = boxen(
       `${chalk.bold.cyan("🚀 Dorking Session Started")}\n\n` +
@@ -453,9 +413,6 @@ async function interactiveMode() {
             : `${config.minDelay || config.delay || 10}-${
                 config.maxDelay || config.delay || 45
               }s`
-        )}\n` +
-        `${chalk.gray("Dashboard URL:")} ${chalk.white(
-          "http://localhost:3000"
         )}`,
       {
         padding: 1,
@@ -476,15 +433,7 @@ async function interactiveMode() {
         console.log(chalk.bold.cyan(`📍 Dork ${i + 1}/${dorks.length}`));
         console.log("─".repeat(40));
 
-        // Update dashboard with current dork
-        dashboard.setCurrentDork(dork);
-        dashboard.addLog(
-          "info",
-          `Processing dork ${i + 1}/${dorks.length}: ${dork.substring(
-            0,
-            50
-          )}...`
-        );
+        // Processing dork (no dashboard in CLI mode)
 
         // Display current dork info
         console.log(
@@ -506,14 +455,8 @@ async function interactiveMode() {
         // Stop spinner and show results
         searchSpinner.stop();
 
-        // Update dashboard with results
-        dashboard.incrementProcessed();
-
         if (results && results.length > 0) {
           console.log(chalk.green(`✅ Found ${results.length} results`));
-          dashboard.incrementSuccessful();
-          dashboard.addToTotalResults(results.length);
-          dashboard.addResult(dork, results);
 
           // Show quick preview in console
           if (results.length > 0) {
@@ -536,23 +479,12 @@ async function interactiveMode() {
           }
         } else {
           console.log(chalk.yellow("⚠️ No results found"));
-          dashboard.incrementFailed();
-          dashboard.addLog("warning", "No results found for dork");
         }
 
         // Store results
         allResults[dork] = results;
 
-        // Only save to output file in CLI mode, not in server mode
-        if (config.outputFile && !isServerMode) {
-          await appendDorkResults(
-            dork,
-            results,
-            config.outputFile,
-            allResults,
-            logger
-          );
-        }
+        // Note: We no longer automatically save JSON files - only save URLs if user agrees at end
 
         // Clear previous lines and display progress bar
         if (i > 0) {
@@ -580,15 +512,6 @@ async function interactiveMode() {
 
           console.log(chalk.gray(interactiveDelayMessage));
 
-          dashboard.addLog(
-            "info",
-            config.extendedDelay
-              ? "Waiting 1-5 minutes before next search (Extended Mode)..."
-              : `Waiting ${config.minDelay || config.delay || 10}-${
-                  config.maxDelay || config.delay || 45
-                }s before next search...`
-          );
-
           const delaySpinner = createSpinner(`Delay in progress`, "yellow");
           delaySpinner.start();
 
@@ -604,10 +527,6 @@ async function interactiveMode() {
           index: i + 1,
         });
 
-        dashboard.incrementProcessed();
-        dashboard.incrementFailed();
-        dashboard.addLog("error", `Failed to process dork: ${error.message}`);
-
         console.log(chalk.red(`❌ Error processing dork: ${error.message}`));
 
         // Store empty results for failed dork
@@ -617,32 +536,7 @@ async function interactiveMode() {
 
     displaySection("Session Complete", "green");
 
-    // Mark session as completed and auto-stop
-    dashboard.endSession();
-    dashboard.setStatus("completed");
-    dashboard.addLog("success", "All dorks processed successfully");
-
-    // Send completion notification to web dashboard
-    const interactiveSummary = dashboard.getSessionSummary();
-    dashboard.sendNotification(
-      `🎉 Interactive session completed! ${interactiveSummary.successRate}% success rate with ${interactiveSummary.totalResults} total results`,
-      "completion",
-      true
-    );
-
-    // Save final results (CLI mode only - creates results.json file)
-    if (config.outputFile && !isServerMode) {
-      displayStatus(
-        `Saving final results to ${config.outputFile}...`,
-        "💾",
-        "cyan"
-      );
-
-      await saveResults(allResults, config.outputFile, logger);
-
-      dashboard.addLog("info", `Results saved to ${config.outputFile}`);
-      displayStatus(`✅ Results saved to ${config.outputFile}`, "✓", "green");
-    }
+    // Note: We no longer automatically save JSON results - only save URLs if user agrees
 
     // Display final summary
     displayFinalSummary(allResults, startTime);
@@ -655,10 +549,6 @@ async function interactiveMode() {
       // Save both unique and all versions for comparison
       await saveUrlsToFile(allResults, "result.txt", logger, false); // unique version first
 
-      dashboard.addLog(
-        "info",
-        "URLs saved to result-unique.txt and result-all.txt"
-      );
       displayStatus(
         "✅ URLs saved - both unique and complete versions created",
         "✓",
@@ -687,21 +577,12 @@ async function interactiveMode() {
           "📈",
           "cyan"
         );
-        dashboard.addLog(
-          "info",
-          `Statistics: ${uniqueCount} unique URLs, ${duplicateCount} duplicates removed`
-        );
       }
     }
 
     const completionBox = boxen(
       `${chalk.bold.green("🎉 Dorking Process Completed Successfully!")}\n\n` +
-        `${chalk.gray("Dashboard:")} ${chalk.white(
-          "http://localhost:3000"
-        )}\n` +
-        `${chalk.gray(
-          "Note:"
-        )} Dashboard will remain active for result viewing`,
+        `${chalk.gray("All dorks have been processed and results saved.")}`,
       {
         padding: 1,
         margin: 1,
@@ -719,11 +600,6 @@ async function interactiveMode() {
       });
     }
 
-    if (dashboard) {
-      dashboard.addLog("error", `Fatal error: ${error.message}`);
-      dashboard.setStatus("error");
-    }
-
     displayError("Fatal application error", error);
     process.exit(1);
   } finally {
@@ -733,38 +609,11 @@ async function interactiveMode() {
 
       await dorker.cleanup();
 
-      if (dashboard) {
-        dashboard.addLog("info", "Browser resources cleaned up");
-      }
-
       displayStatus("✅ Cleanup completed", "✓", "green");
     }
 
     if (logger) {
       logger.info("Application shutdown completed");
-    }
-
-    // Keep dashboard running for viewing results
-    if (dashboard) {
-      dashboard.addLog(
-        "info",
-        "Dashboard remains available for viewing results"
-      );
-
-      const dashboardNotice = boxen(
-        `${chalk.bold.cyan("📊 Dashboard Active")}\n\n` +
-          `${chalk.gray("URL:")} ${chalk.white("http://localhost:3000")}\n` +
-          `${chalk.gray("Status:")} ${chalk.green("Running")}\n\n` +
-          `${chalk.yellow("Press Ctrl+C to shut down the dashboard")}`,
-        {
-          padding: 1,
-          margin: 1,
-          borderStyle: "round",
-          borderColor: "cyan",
-        }
-      );
-
-      console.log("\n" + dashboardNotice);
     }
   }
 }
@@ -779,11 +628,9 @@ async function main() {
 
     if (args.server) {
       // Server mode - start dashboard and wait for web configuration
-      isServerMode = true;
       await serverMode(args.port || 3000);
     } else {
       // Interactive mode - original CLI workflow
-      isServerMode = false;
       await interactiveMode();
     }
   } catch (error) {

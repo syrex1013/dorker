@@ -66,7 +66,11 @@ function displayConfig(config) {
 
   configTable.push(
     ["📁 Dork File", config.dorkFile, getStatusIcon(true, "file")],
-    ["💾 Output File", config.outputFile, getStatusIcon(true, "file")],
+    [
+      "💾 Output File",
+      config.outputFile || "URLs only at end",
+      getStatusIcon(!!config.outputFile, "file"),
+    ],
     [
       "📊 Results per Search",
       config.resultCount.toString(),
@@ -157,11 +161,13 @@ async function getConfiguration() {
 
       outputFile: () =>
         p.text({
-          message: "💾 Output file path",
-          placeholder: "results.json",
-          defaultValue: "results.json",
-          validate: (value) => {
-            if (!value.trim()) return "Output file path is required";
+          message:
+            "💾 Output file path (optional - leave empty to only save URLs at end)",
+          placeholder: "Leave empty for URL-only output",
+          defaultValue: "",
+          validate: (_value) => {
+            // Allow empty output file - will only save URLs if user agrees at end
+            return true;
           },
         }),
 
@@ -306,7 +312,7 @@ async function getConfiguration() {
 
   const processedConfig = {
     dorkFile: config.dorkFile || "dorks.txt",
-    outputFile: config.outputFile || "results.json",
+    outputFile: config.outputFile?.trim() || null,
     resultCount: parseInt(config.resultCount) || 30,
     maxPages: Math.min(parseInt(config.maxPages) || 1, 10),
     minDelay: Math.max(minDelay, 5),
