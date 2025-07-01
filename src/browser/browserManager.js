@@ -1446,9 +1446,19 @@ async function simulateHumanBrowsing(page, cursor, duration, logger = null) {
               window.scrollBy(0, distance);
             }, scrollDistance * direction);
           } catch (scrollError) {
-            logger?.debug("Scroll action failed", {
-              error: scrollError.message,
-            });
+            // Check if error is due to detached context
+            if (
+              scrollError.message.includes("detached") ||
+              scrollError.message.includes("Target closed") ||
+              scrollError.message.includes("Session closed") ||
+              scrollError.message.includes("Execution context")
+            ) {
+              // Page context lost - this is expected sometimes, don't log
+            } else {
+              logger?.debug("Scroll action failed", {
+                error: scrollError.message,
+              });
+            }
           }
           break;
         }
@@ -1509,16 +1519,34 @@ async function simulateHumanBrowsing(page, cursor, duration, logger = null) {
                 );
               }
             } catch (cursorError) {
-              logger?.debug(`Cursor move failed: ${cursorError.message}`);
-              try {
-                // Fallback: use page.mouse.move which is more reliable
-                await page.mouse.move(x, y);
-                logger?.debug(`Fallback mouse movement completed`);
-              } catch (fallbackError) {
-                logger?.debug(
-                  `Both cursor and fallback move failed: ${fallbackError.message}`
-                );
-                // Silent fallback - continue without mouse movement
+              // Check if error is due to detached context
+              if (
+                cursorError.message.includes("detached") ||
+                cursorError.message.includes("Target closed") ||
+                cursorError.message.includes("Session closed") ||
+                cursorError.message.includes("Execution context")
+              ) {
+                // Page context lost - expected, don't log
+              } else {
+                logger?.debug(`Cursor move failed: ${cursorError.message}`);
+                try {
+                  // Fallback: use page.mouse.move which is more reliable
+                  await page.mouse.move(x, y);
+                  logger?.debug(`Fallback mouse movement completed`);
+                } catch (fallbackError) {
+                  // Check if fallback error is also due to detached context
+                  if (
+                    fallbackError.message.includes("detached") ||
+                    fallbackError.message.includes("Target closed") ||
+                    fallbackError.message.includes("Session closed")
+                  ) {
+                    // Page context lost - expected, don't log
+                  } else {
+                    logger?.debug(
+                      `Both cursor and fallback move failed: ${fallbackError.message}`
+                    );
+                  }
+                }
               }
             }
           } catch (moveError) {
@@ -1750,4 +1778,5 @@ export {
   isPageLoaded,
   closeBrowser,
   getCurrentInstances,
+  performSafeCursorMovements,
 };

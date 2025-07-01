@@ -380,8 +380,6 @@ let _captchaStateChangeTime = null;
  */
 async function detectCaptcha(page, logger = null, forceLog = false) {
   try {
-    logger?.debug("Starting CAPTCHA detection");
-
     // Check if page is valid and not detached
     try {
       await page.url(); // This will throw if page is detached
@@ -390,7 +388,7 @@ async function detectCaptcha(page, logger = null, forceLog = false) {
         error.message.includes("detached") ||
         error.message.includes("Target closed")
       ) {
-        logger?.debug("Page is detached or closed, skipping CAPTCHA detection");
+        // Don't log for detached pages - too noisy
         return false;
       }
       throw error;
@@ -457,9 +455,7 @@ async function detectCaptcha(page, logger = null, forceLog = false) {
         error.message.includes("detached") ||
         error.message.includes("Target closed")
       ) {
-        logger?.debug(
-          "Page detached while getting URL, skipping CAPTCHA detection"
-        );
+        // Page detached - silently skip
         return false;
       }
       throw error;
@@ -493,9 +489,7 @@ async function detectCaptcha(page, logger = null, forceLog = false) {
         error.message.includes("detached") ||
         error.message.includes("Target closed")
       ) {
-        logger?.debug(
-          "Page detached while getting title, skipping CAPTCHA detection"
-        );
+        // Page detached - silently skip
         return false;
       }
       throw error;
@@ -535,9 +529,7 @@ async function detectCaptcha(page, logger = null, forceLog = false) {
         error.message.includes("Target closed") ||
         error.message.includes("Execution context was destroyed")
       ) {
-        logger?.debug(
-          "Page detached while evaluating body text, skipping CAPTCHA detection"
-        );
+        // Page detached - silently skip
         return false;
       }
       throw error;
@@ -580,7 +572,7 @@ async function detectCaptcha(page, logger = null, forceLog = false) {
       error.message.includes("Target closed") ||
       error.message.includes("Execution context was destroyed")
     ) {
-      logger?.debug("Page or frame is detached, skipping CAPTCHA detection");
+      // Page or frame detached - silently skip
       return false;
     }
 
@@ -695,12 +687,13 @@ function generateModernUserAgent() {
 }
 
 /**
- * Handle CAPTCHA if detected
+ * Handle CAPTCHA detection and solving
  * @param {Object} page - Puppeteer page
  * @param {Object} config - Configuration object
  * @param {Object} logger - Winston logger instance
- * @param {Function} switchProxyCallback - Callback to switch proxy
+ * @param {Function} switchProxyCallback - Callback to switch proxy if needed
  * @param {Object} dashboard - Dashboard instance for live updates
+ * @param {Object} pageData - Optional pageData object containing cursor
  * @returns {Promise<boolean>} True if CAPTCHA was handled successfully
  */
 async function handleCaptcha(
@@ -708,262 +701,153 @@ async function handleCaptcha(
   config,
   logger = null,
   switchProxyCallback = null,
-  dashboard = null
+  dashboard = null,
+  pageData = null
 ) {
   try {
-    const isCaptchaPresent = await detectCaptcha(page, logger);
-
-    if (!isCaptchaPresent) {
-      return true; // No CAPTCHA, continue normally
+    // Check if CAPTCHA is already being processed by background monitor
+    if (page._captchaBeingProcessed) {
+      logger?.info("CAPTCHA is already being handled by background monitor");
+      // Wait for background monitor to finish
+      let attempts = 0;
+      while (page._captchaBeingProcessed && attempts < 30) {
+        await sleep(1000, "waiting for background monitor", logger);
+        attempts++;
+      }
+      // Check if CAPTCHA was solved
+      const stillHasCaptcha = await detectCaptcha(page, logger);
+      return !stillHasCaptcha;
     }
 
-    logWithDedup("warning", "🚨 CAPTCHA detected!", chalk.red, logger);
-    logger?.warn("CAPTCHA detection confirmed");
+    // Check if CAPTCHA is present
+    const captchaDetected = await detectCaptcha(page, logger);
 
-    // Check for automated queries message (Google bot detection)
-    const automatedQueriesDetected = await page.evaluate(() => {
-      const pageText = document.body.textContent || "";
-      return (
-        pageText.includes(
-          "Your computer or network may be sending automated queries"
-        ) ||
-        pageText.includes(
-          "To protect our users, we can't process your request right now"
-        ) ||
-        pageText.includes("For more details visit our help page")
-      );
-    });
-
-    if (automatedQueriesDetected) {
+    if (captchaDetected) {
       logWithDedup(
         "warning",
-        "🤖 Google automated queries detection triggered!",
+        "🚨 CAPTCHA detected!",
         chalk.red,
-        logger
+        logger,
+        "captcha-warning"
       );
 
+      // Log detection confirmation
+      logger?.warn("CAPTCHA detection confirmed");
+
+      // Update dashboard status
+      if (dashboard && dashboard.setStatus) {
+        dashboard.setStatus("captcha");
+      }
       if (dashboard && dashboard.addLog) {
-        dashboard.addLog(
-          "warning",
-          "🤖 Google automated queries detection triggered!"
-        );
+        dashboard.addLog("warning", "🚨 CAPTCHA detected!");
       }
 
-      // If proxy is enabled, restart with new proxy instead of solving CAPTCHA
-      if (switchProxyCallback) {
+      // Attempt to handle CAPTCHA
+      if (config.manualCaptchaMode) {
+        // Manual mode
         logWithDedup(
           "info",
-          "🔄 Attempting proxy restart due to automated queries detection...",
+          "⏸️ Manual CAPTCHA mode - waiting for user to solve...",
           chalk.yellow,
           logger
         );
 
-        if (dashboard && dashboard.setStatus) {
-          dashboard.setStatus("captcha-proxy");
-        }
         if (dashboard && dashboard.addLog) {
           dashboard.addLog(
             "info",
-            "🔄 Attempting proxy restart due to automated queries detection..."
+            "⏸️ Manual CAPTCHA mode - waiting for user to solve..."
           );
         }
 
-        // Try switching proxy immediately
-        const proxyChanged = await switchProxyCallback();
-        if (proxyChanged) {
+        // Wait for manual solving
+        const solved = await handleManualCaptcha(page, logger);
+
+        // Update dashboard status back to normal
+        if (dashboard && dashboard.setStatus) {
+          dashboard.setStatus("running");
+        }
+
+        return solved;
+      } else {
+        // Automatic mode
+        logWithDedup(
+          "info",
+          "🤖 Attempting automatic CAPTCHA solving...",
+          chalk.cyan,
+          logger
+        );
+
+        if (dashboard && dashboard.addLog) {
+          dashboard.addLog(
+            "info",
+            "🤖 Attempting automatic CAPTCHA solving..."
+          );
+        }
+
+        // Try to solve simple checkbox CAPTCHA
+        const simpleCheckboxSolved = await solveSimpleChallenge(page, logger);
+        if (simpleCheckboxSolved) {
           logWithDedup(
             "success",
-            "✅ Proxy switched due to automated queries detection",
+            "✅ Simple CAPTCHA checkbox solved!",
             chalk.green,
             logger
           );
-
           if (dashboard && dashboard.addLog) {
-            dashboard.addLog(
-              "success",
-              "✅ Proxy switched due to automated queries detection"
+            dashboard.addLog("success", "✅ Simple CAPTCHA checkbox solved!");
+          }
+          if (dashboard && dashboard.setCaptchaStats && dashboard.stats) {
+            const currentStats = dashboard.stats;
+            dashboard.setCaptchaStats(
+              currentStats.captchaEncounters,
+              currentStats.captchaSolved + 1
             );
           }
-
-          // Wait for page to reload with new proxy
-          await sleep(5000, "waiting for proxy switch to take effect", logger);
-
-          // Check if the issue is resolved
-          const stillHasIssue = await page.evaluate(() => {
-            const pageText = document.body.textContent || "";
-            return pageText.includes(
-              "Your computer or network may be sending automated queries"
-            );
-          });
-
-          if (!stillHasIssue) {
-            logWithDedup(
-              "success",
-              "✅ Automated queries detection resolved with proxy switch!",
-              chalk.green,
-              logger
-            );
-
-            if (dashboard && dashboard.addLog) {
-              dashboard.addLog(
-                "success",
-                "✅ Automated queries detection resolved with proxy switch!"
-              );
-            }
-            return true;
-          } else {
-            logWithDedup(
-              "warning",
-              "⚠️ Automated queries detection still present after proxy switch",
-              chalk.yellow,
-              logger
-            );
+          // Update dashboard status back to normal
+          if (dashboard && dashboard.setStatus) {
+            dashboard.setStatus("running");
           }
-        } else {
+          return true;
+        }
+
+        // Try audio CAPTCHA solving
+        const audioSolved = await handleAutomaticCaptcha.call(
+          pageData || { page, cursor: null, dashboard },
+          page,
+          logger,
+          dashboard
+        );
+
+        if (audioSolved) {
+          // Update dashboard status back to normal
+          if (dashboard && dashboard.setStatus) {
+            dashboard.setStatus("running");
+          }
+          return true;
+        }
+
+        // If automatic solving failed and proxy switching is available
+        if (!audioSolved && switchProxyCallback) {
           logWithDedup(
-            "warning",
-            "⚠️ Failed to switch proxy for automated queries detection",
-            chalk.yellow,
+            "info",
+            "🔄 Switching proxy due to CAPTCHA...",
+            chalk.blue,
             logger
           );
-        }
-      } else {
-        logWithDedup(
-          "warning",
-          "⚠️ No proxy available - cannot restart for automated queries detection",
-          chalk.yellow,
-          logger
-        );
-
-        if (dashboard && dashboard.addLog) {
-          dashboard.addLog(
-            "warning",
-            "⚠️ No proxy available - cannot restart for automated queries detection"
-          );
-        }
-      }
-
-      // If proxy switch didn't work or not available, return false to avoid CAPTCHA solving
-      logWithDedup(
-        "warning",
-        "❌ Cannot proceed with CAPTCHA due to automated queries detection",
-        chalk.red,
-        logger
-      );
-
-      if (dashboard && dashboard.addLog) {
-        dashboard.addLog(
-          "error",
-          "❌ Cannot proceed with CAPTCHA due to automated queries detection"
-        );
-      }
-
-      return false;
-    }
-
-    // Update dashboard
-    if (dashboard && dashboard.setStatus) {
-      dashboard.setStatus("captcha");
-    }
-    if (dashboard && dashboard.addLog) {
-      dashboard.addLog("warning", "🚨 CAPTCHA detected!");
-    }
-
-    if (dashboard && dashboard.setCaptchaStats && dashboard.stats) {
-      const currentStats = dashboard.stats;
-      dashboard.setCaptchaStats(
-        currentStats.captchaEncounters + 1,
-        currentStats.captchaSolved
-      );
-    }
-
-    if (config.manualCaptchaMode) {
-      const solved = await handleManualCaptcha(page, logger);
-      if (solved && dashboard && dashboard.setCaptchaStats && dashboard.stats) {
-        const currentStats = dashboard.stats;
-        dashboard.setCaptchaStats(
-          currentStats.captchaEncounters,
-          currentStats.captchaSolved + 1
-        );
-      }
-      if (solved && dashboard && dashboard.addLog) {
-        dashboard.addLog("success", "✅ CAPTCHA solved manually");
-      }
-      return solved;
-    } else {
-      // Automatic CAPTCHA handling
-      logWithDedup(
-        "info",
-        "🤖 Attempting automatic CAPTCHA solving...",
-        chalk.cyan,
-        logger
-      );
-
-      if (dashboard && dashboard.addLog) {
-        dashboard.addLog("info", "🤖 Attempting automatic CAPTCHA solving...");
-      }
-
-      // First try simple challenge solving
-      const simpleSolved = await solveSimpleChallenge(page, logger);
-      if (simpleSolved) {
-        logWithDedup(
-          "success",
-          "✅ Simple challenge solved!",
-          chalk.green,
-          logger
-        );
-        if (dashboard && dashboard.addLog) {
-          dashboard.addLog("success", "✅ Simple challenge solved!");
-        }
-        return true;
-      }
-
-      // If simple challenge didn't work, try audio CAPTCHA
-      const solved = await handleAutomaticCaptcha(page, logger, dashboard);
-
-      if (!solved && switchProxyCallback) {
-        logWithDedup(
-          "warning",
-          "🔄 CAPTCHA solving failed, switching proxy...",
-          chalk.yellow,
-          logger
-        );
-
-        if (dashboard && dashboard.setStatus) {
-          dashboard.setStatus("captcha-proxy");
-        }
-        if (dashboard && dashboard.addLog) {
-          dashboard.addLog(
-            "warning",
-            "🔄 CAPTCHA solving failed, switching proxy..."
-          );
-        }
-
-        // Try switching proxy and attempting again
-        const proxyChanged = await switchProxyCallback();
-        if (proxyChanged) {
           if (dashboard && dashboard.addLog) {
-            dashboard.addLog(
-              "info",
-              "🌍 Proxy switched successfully, retrying..."
-            );
+            dashboard.addLog("info", "🔄 Switching proxy due to CAPTCHA...");
           }
 
-          // Wait for page to reload with new proxy
-          await sleep(5000);
-
-          // Check if CAPTCHA is still there after proxy change
-          const stillHasCaptcha = await detectCaptcha(page, logger);
-          if (!stillHasCaptcha) {
+          const proxySwitched = await switchProxyCallback();
+          if (proxySwitched) {
             logWithDedup(
               "success",
-              "✅ Proxy switch resolved CAPTCHA!",
+              "✅ Proxy switched successfully",
               chalk.green,
               logger
             );
-
             if (dashboard && dashboard.addLog) {
-              dashboard.addLog("success", "✅ Proxy switch resolved CAPTCHA!");
+              dashboard.addLog("success", "✅ Proxy switched successfully");
             }
             if (dashboard && dashboard.setCaptchaStats && dashboard.stats) {
               const currentStats = dashboard.stats;
@@ -972,61 +856,46 @@ async function handleCaptcha(
                 currentStats.captchaSolved + 1
               );
             }
-
+            // Update dashboard status back to normal
+            if (dashboard && dashboard.setStatus) {
+              dashboard.setStatus("running");
+            }
             return true;
-          } else {
-            // Try solving again with new proxy
-            logWithDedup(
-              "info",
-              "🔄 Retrying CAPTCHA solving with new proxy...",
-              chalk.cyan,
-              logger
-            );
-
-            if (dashboard && dashboard.addLog) {
-              dashboard.addLog(
-                "info",
-                "🔄 Retrying CAPTCHA solving with new proxy..."
-              );
-            }
-
-            const retrySolved = await handleAutomaticCaptcha(
-              page,
-              logger,
-              dashboard
-            );
-            if (
-              retrySolved &&
-              dashboard &&
-              dashboard.setCaptchaStats &&
-              dashboard.stats
-            ) {
-              const currentStats = dashboard.stats;
-              dashboard.setCaptchaStats(
-                currentStats.captchaEncounters,
-                currentStats.captchaSolved + 1
-              );
-            }
-            return retrySolved;
           }
         }
-      }
 
-      if (solved && dashboard && dashboard.setCaptchaStats && dashboard.stats) {
-        const currentStats = dashboard.stats;
-        dashboard.setCaptchaStats(
-          currentStats.captchaEncounters,
-          currentStats.captchaSolved + 1
+        // If all else fails
+        logWithDedup(
+          "error",
+          "❌ Failed to solve CAPTCHA automatically",
+          chalk.red,
+          logger
         );
+        if (dashboard && dashboard.addLog) {
+          dashboard.addLog("error", "❌ Failed to solve CAPTCHA automatically");
+        }
+        if (dashboard && dashboard.setCaptchaStats && dashboard.stats) {
+          const currentStats = dashboard.stats;
+          dashboard.setCaptchaStats(
+            currentStats.captchaEncounters + 1,
+            currentStats.captchaSolved
+          );
+        }
+        // Update dashboard status to error
+        if (dashboard && dashboard.setStatus) {
+          dashboard.setStatus("error");
+        }
+        return false;
       }
+    }
 
-      return solved;
-    }
+    // No CAPTCHA detected
+    return true;
   } catch (error) {
-    logger?.error("Error handling CAPTCHA", { error: error.message });
-    if (dashboard && dashboard.addLog) {
-      dashboard.addLog("error", `CAPTCHA handling error: ${error.message}`);
-    }
+    logger?.error("Error in CAPTCHA handling", {
+      error: error.message,
+      stack: error.stack,
+    });
     return false;
   }
 }
@@ -1091,16 +960,59 @@ async function handleAutomaticCaptcha(page, logger = null, dashboard = null) {
       }
     }
 
-    // Step 1: First click the CAPTCHA checkbox to start the challenge
-    logWithDedup(
-      "info",
-      "📋 Step 1: Clicking CAPTCHA checkbox",
-      chalk.blue,
-      logger
-    );
+    // Step 1: Find and click the checkbox in the iframe
+    logger?.info("📋 Step 1: Looking for reCAPTCHA checkbox...");
 
-    // Wait for checkbox to be available
-    const anchorFrame = await waitForRecaptchaFrame(page, "anchor", logger);
+    await sleep(2000, "waiting for frames to load", logger);
+
+    // Find the anchor frame (checkbox frame) with retries
+    let anchorFrame = null;
+    let attempts = 0;
+    const maxAttempts = 3;
+
+    while (!anchorFrame && attempts < maxAttempts) {
+      attempts++;
+      logger?.debug(
+        `Attempt ${attempts}/${maxAttempts} to find anchor frame...`
+      );
+
+      try {
+        const frames = page.frames();
+        logger?.debug(`Found ${frames.length} total frames`);
+
+        for (const frame of frames) {
+          try {
+            // Validate frame is still attached
+            const frameUrl = frame.url();
+            if (
+              frameUrl &&
+              frameUrl.includes("recaptcha") &&
+              frameUrl.includes("anchor")
+            ) {
+              // Double-check frame is accessible
+              await frame.evaluate(() => document.readyState);
+              anchorFrame = frame;
+              logger?.info(`Found anchor frame: ${frameUrl}`);
+              break;
+            }
+          } catch (e) {
+            // Skip detached or inaccessible frames
+            logger?.debug(`Skipping detached frame: ${e.message}`);
+          }
+        }
+
+        if (!anchorFrame && attempts < maxAttempts) {
+          logger?.debug(`No anchor frame found, waiting and retrying...`);
+          await sleep(2000, "waiting before retry", logger);
+        }
+      } catch (error) {
+        logger?.warn(`Error during frame search: ${error.message}`);
+        if (attempts < maxAttempts) {
+          await sleep(2000, "waiting before retry", logger);
+        }
+      }
+    }
+
     if (!anchorFrame) {
       logWithDedup(
         "warning",
@@ -1111,68 +1023,171 @@ async function handleAutomaticCaptcha(page, logger = null, dashboard = null) {
       return false;
     }
 
-    // Click the checkbox with specific selector
-    const checkboxClicked = await clickElementInFrame(
-      anchorFrame,
-      ".recaptcha-checkbox",
-      logger
-    );
+    // Click the checkbox with human-like movement if possible
+    try {
+      logger?.info("🖱️ Performing human-like checkbox interaction...");
 
-    if (!checkboxClicked) {
-      logWithDedup(
-        "warning",
-        "⚠️ Could not click CAPTCHA checkbox",
-        chalk.yellow,
-        logger
-      );
-      return false;
+      // Wait for checkbox to be ready
+      await anchorFrame.waitForSelector(".recaptcha-checkbox-border", {
+        timeout: 5000,
+      });
+
+      // Get page data for cursor
+      const pageData = this?.pageData || { cursor: null };
+      const cursor = pageData.cursor;
+
+      const checkboxElement = await anchorFrame.$(".recaptcha-checkbox-border");
+
+      if (checkboxElement && cursor && typeof cursor.click === "function") {
+        // Use human-like clicking with ghost cursor
+        try {
+          await cursor.click(checkboxElement);
+          logger?.info("✅ Ghost cursor clicked reCAPTCHA checkbox");
+        } catch (cursorError) {
+          // Fallback to direct click
+          logger?.debug(
+            `Ghost cursor failed: ${cursorError.message}, using fallback`
+          );
+          await anchorFrame.click(".recaptcha-checkbox-border");
+          logger?.info("✅ Fallback click completed on checkbox");
+        }
+      } else {
+        await anchorFrame.click(".recaptcha-checkbox-border");
+        logger?.info("✅ Direct click on reCAPTCHA checkbox");
+      }
+
+      await sleep(3000, "waiting for challenge to appear", logger);
+    } catch (error) {
+      // Check if the error is because the element is already being interacted with
+      if (
+        error.message.includes("not clickable") ||
+        error.message.includes("detached") ||
+        error.message.includes("Target closed")
+      ) {
+        logger?.info("Checkbox might already be clicked by another handler");
+        // Check if checkbox is already checked
+        try {
+          const isChecked = await anchorFrame.evaluate(() => {
+            const checkbox = document.querySelector(".recaptcha-checkbox");
+            return checkbox && checkbox.getAttribute("aria-checked") === "true";
+          });
+          if (isChecked) {
+            logger?.info("✅ Checkbox is already checked");
+            // Continue with the process
+          }
+        } catch (e) {
+          // Frame might be detached, continue anyway
+        }
+      } else {
+        logger?.error("Failed to click checkbox:", error.message);
+        return false;
+      }
     }
 
-    // Wait for challenge frame to appear
-    await sleep(2000, "waiting for challenge to load", logger);
+    // Step 2: Look for the challenge frame and click audio button
+    logger?.info("📋 Step 2: Looking for challenge frame...");
 
-    // Step 2: Wait for and access the challenge frame
-    const challengeFrame = await waitForRecaptchaFrame(page, "bframe", logger);
+    let challengeFrame = null;
+    const updatedFrames = page.frames();
+
+    for (const frame of updatedFrames) {
+      try {
+        const frameUrl = frame.url();
+        if (frameUrl.includes("recaptcha") && frameUrl.includes("bframe")) {
+          // Validate frame is accessible
+          await frame.evaluate(() => document.readyState);
+          challengeFrame = frame;
+          logger?.info(`Found challenge frame: ${frameUrl}`);
+          break;
+        }
+      } catch (e) {
+        // Skip detached frames
+        logger?.debug(`Skipping detached challenge frame: ${e.message}`);
+      }
+    }
+
     if (!challengeFrame) {
-      logWithDedup(
-        "warning",
-        "⚠️ Could not find reCAPTCHA challenge frame",
-        chalk.yellow,
-        logger
+      logger?.warn(
+        "⚠️ No challenge frame found - CAPTCHA might be solved already"
       );
+      // Sometimes clicking the checkbox is enough
+      const solved = await isCaptchaSolved(page, logger);
+      if (solved) {
+        logWithDedup(
+          "success",
+          "✅ CAPTCHA solved with just checkbox click!",
+          chalk.green,
+          logger
+        );
+        return true;
+      }
       return false;
     }
 
-    // Step 3: Click the audio button
-    logWithDedup(
-      "info",
-      "🎵 Step 2: Clicking audio challenge button",
-      chalk.blue,
-      logger
-    );
+    // Click audio button
+    try {
+      await sleep(2000, "waiting for challenge to load", logger);
 
-    // Wait for audio button to be available and click it
-    const audioButtonClicked = await waitAndClickInFrame(
-      challengeFrame,
-      "#recaptcha-audio-button",
-      logger,
-      5000
-    );
+      // Try multiple selectors for the audio button
+      const audioSelectors = [
+        "#recaptcha-audio-button",
+        ".rc-button-audio",
+        'button[aria-label*="audio"]',
+        'button[title*="audio"]',
+      ];
 
-    if (!audioButtonClicked) {
-      logWithDedup(
-        "warning",
-        "⚠️ Could not find or click audio challenge button",
-        chalk.yellow,
-        logger
-      );
+      let audioClicked = false;
+      for (const selector of audioSelectors) {
+        try {
+          await challengeFrame.waitForSelector(selector, { timeout: 5000 });
+          const audioElement = await challengeFrame.$(selector);
+
+          if (audioElement) {
+            const pageData = this?.pageData || { cursor: null };
+            const cursor = pageData.cursor;
+
+            if (cursor && typeof cursor.click === "function") {
+              try {
+                await cursor.click(audioElement);
+                logger?.info(
+                  `✅ Ghost cursor clicked audio button: ${selector}`
+                );
+                audioClicked = true;
+                break;
+              } catch (cursorError) {
+                logger?.debug(
+                  `Ghost cursor failed on audio button: ${cursorError.message}`
+                );
+                // Fallback to direct click
+                await challengeFrame.click(selector);
+                logger?.info(`✅ Fallback click on audio button: ${selector}`);
+                audioClicked = true;
+                break;
+              }
+            } else {
+              await challengeFrame.click(selector);
+              logger?.info(`✅ Direct click on audio button: ${selector}`);
+              audioClicked = true;
+              break;
+            }
+          }
+        } catch (e) {
+          logger?.debug(`Audio button not found with selector: ${selector}`);
+        }
+      }
+
+      if (!audioClicked) {
+        logger?.warn("⚠️ Could not find audio button");
+        return false;
+      }
+
+      await sleep(3000, "waiting for audio challenge", logger);
+    } catch (error) {
+      logger?.error("Audio button interaction failed:", error.message);
       return false;
     }
 
-    // Wait for audio challenge to load
-    await sleep(3000, "waiting for audio challenge to load", logger);
-
-    // Step 4: Find and download the audio
+    // Step 3: Find and download the audio
     logWithDedup(
       "info",
       "🎧 Step 3: Finding and transcribing audio",
@@ -1180,43 +1195,74 @@ async function handleAutomaticCaptcha(page, logger = null, dashboard = null) {
       logger
     );
 
-    // Wait for audio source to appear - try download link first, then audio element
-    let audioSrc = await waitForElementAndGetAttribute(
-      challengeFrame,
-      ".rc-audiochallenge-tdownload-link",
-      "href",
-      logger,
-      10000
-    );
+    // Wait for audio source to appear - try download link first
+    let audioSrc = null;
 
-    // If download link not found, try the audio element
-    if (!audioSrc) {
-      logger?.debug("Download link not found, trying audio element");
-      audioSrc = await waitForElementAndGetAttribute(
-        challengeFrame,
-        "#audio-source",
-        "src",
-        logger,
-        5000
+    try {
+      // Look for download link
+      await challengeFrame.waitForSelector(
+        ".rc-audiochallenge-tdownload-link",
+        { timeout: 10000 }
       );
+      audioSrc = await challengeFrame.$eval(
+        ".rc-audiochallenge-tdownload-link",
+        (el) => el.href
+      );
+      logger?.info(`Found audio download link: ${audioSrc}`);
+    } catch (e) {
+      logger?.debug("Download link not found, trying audio element");
+
+      // Try audio element as fallback
+      try {
+        const audioElement = await challengeFrame.$("#audio-source");
+        if (audioElement) {
+          audioSrc = await challengeFrame.$eval(
+            "#audio-source",
+            (el) => el.src
+          );
+          logger?.info(`Found audio source element: ${audioSrc}`);
+        }
+      } catch (error) {
+        logger?.debug("Audio element not found either");
+      }
+    }
+
+    if (!audioSrc) {
+      // Try more generic selectors
+      try {
+        audioSrc = await challengeFrame.evaluate(() => {
+          // Look for any audio.mp3 links
+          const audioLinks = Array.from(
+            document.querySelectorAll('a[href*="audio.mp3"]')
+          );
+          for (const link of audioLinks) {
+            if (link.href) {
+              return link.href;
+            }
+          }
+
+          // Look for audio elements
+          const audio = document.querySelector("audio");
+          return audio ? audio.src : null;
+        });
+      } catch (evalError) {
+        logger?.debug("Generic audio search failed:", evalError.message);
+      }
     }
 
     if (!audioSrc) {
       logWithDedup(
         "warning",
-        "⚠️ Could not find audio source (neither download link nor audio element)",
+        "⚠️ Could not find audio source",
         chalk.yellow,
         logger
       );
-      if (dashboard && dashboard.addLog) {
-        dashboard.addLog("warning", "⚠️ Could not find audio source");
-      }
       return false;
     }
 
-    logger?.info(`Found audio source: ${audioSrc}`);
+    logger?.info(`📍 Audio URL: ${audioSrc}`);
 
-    // Step 5: Transcribe the audio
+    // Step 4: Transcribe the audio
     if (dashboard && dashboard.setStatus) {
       dashboard.setStatus("captcha-transcribing");
     }
@@ -1242,7 +1288,7 @@ async function handleAutomaticCaptcha(page, logger = null, dashboard = null) {
       logger
     );
 
-    // Step 6: Enter the solution
+    // Step 5: Enter the solution
     logWithDedup(
       "info",
       "📝 Step 4: Entering transcription",
@@ -1250,19 +1296,34 @@ async function handleAutomaticCaptcha(page, logger = null, dashboard = null) {
       logger
     );
 
-    // Wait for and fill the audio response input
-    const inputFilled = await waitAndFillInput(
-      challengeFrame,
+    // Find and fill the audio response input
+    const inputSelectors = [
       "#audio-response",
-      solution,
-      logger,
-      5000
-    );
+      'input[id*="audio"]',
+      'input[name*="audio"]',
+      ".rc-audiochallenge-response-field",
+    ];
+
+    let inputFilled = false;
+    for (const selector of inputSelectors) {
+      try {
+        const input = await challengeFrame.$(selector);
+        if (input) {
+          await input.click();
+          await input.type(solution);
+          logger?.info(`Filled input with selector: ${selector}`);
+          inputFilled = true;
+          break;
+        }
+      } catch (e) {
+        logger?.debug(`Input not found with selector: ${selector}`);
+      }
+    }
 
     if (!inputFilled) {
       logWithDedup(
         "warning",
-        "⚠️ Could not find or fill audio response input",
+        "⚠️ Could not find audio response input",
         chalk.yellow,
         logger
       );
@@ -1271,15 +1332,29 @@ async function handleAutomaticCaptcha(page, logger = null, dashboard = null) {
 
     await sleep(1000, "after entering solution", logger);
 
-    // Step 7: Submit the solution
+    // Step 6: Submit the solution
     logWithDedup("info", "✔️ Step 5: Verifying solution", chalk.blue, logger);
 
-    const verifyClicked = await waitAndClickInFrame(
-      challengeFrame,
+    const verifySelectors = [
       "#recaptcha-verify-button",
-      logger,
-      5000
-    );
+      'button[id*="verify"]',
+      ".rc-audiochallenge-verify-button",
+    ];
+
+    let verifyClicked = false;
+    for (const selector of verifySelectors) {
+      try {
+        const verifyButton = await challengeFrame.$(selector);
+        if (verifyButton) {
+          await challengeFrame.click(selector);
+          logger?.info(`Clicked verify button: ${selector}`);
+          verifyClicked = true;
+          break;
+        }
+      } catch (e) {
+        logger?.debug(`Verify button not found with selector: ${selector}`);
+      }
+    }
 
     if (!verifyClicked) {
       logWithDedup(

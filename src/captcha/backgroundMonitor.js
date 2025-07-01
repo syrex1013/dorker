@@ -174,6 +174,9 @@ class BackgroundCaptchaMonitor {
           );
         }
 
+        // Set a flag to indicate CAPTCHA is being processed
+        page._captchaBeingProcessed = true;
+
         // Handle the CAPTCHA
         const solved = await this.handleCaptchaAutomatically();
 
@@ -212,6 +215,8 @@ class BackgroundCaptchaMonitor {
         }
 
         this.isProcessingCaptcha = false;
+        // Clear the flag
+        page._captchaBeingProcessed = false;
       }
     } catch (error) {
       // Handle detached frame errors gracefully
@@ -231,6 +236,10 @@ class BackgroundCaptchaMonitor {
         error: error.message,
       });
       this.isProcessingCaptcha = false;
+      // Clear the flag on error too
+      if (this.pageData && this.pageData.page) {
+        this.pageData.page._captchaBeingProcessed = false;
+      }
     }
   }
 
@@ -241,30 +250,133 @@ class BackgroundCaptchaMonitor {
     try {
       const { page, cursor } = this.pageData;
 
-      // Step 1: Try to find and click the CAPTCHA checkbox
-      const checkboxClicked = await this.clickCaptchaCheckbox(page, cursor);
+      // Step 1: Find and click the checkbox in the iframe
+      this.logger?.info("📋 Step 1: Looking for reCAPTCHA checkbox...");
+
+      await sleep(2000, "waiting for frames to load", this.logger);
+
+      // Find the anchor frame (checkbox frame) with retries
+      let anchorFrame = null;
+      let attempts = 0;
+      const maxAttempts = 3;
+
+      while (!anchorFrame && attempts < maxAttempts) {
+        attempts++;
+        this.logger?.debug(
+          `Attempt ${attempts}/${maxAttempts} to find anchor frame...`
+        );
+
+        try {
+          const frames = page.frames();
+          this.logger?.debug(`Found ${frames.length} total frames`);
+
+          for (const frame of frames) {
+            try {
+              // Validate frame is still attached
+              const frameUrl = frame.url();
+              if (
+                frameUrl &&
+                frameUrl.includes("recaptcha") &&
+                frameUrl.includes("anchor")
+              ) {
+                // Double-check frame is accessible
+                await frame.evaluate(() => document.readyState);
+                anchorFrame = frame;
+                this.logger?.info(`Found anchor frame: ${frameUrl}`);
+                break;
+              }
+            } catch (e) {
+              // Skip detached or inaccessible frames
+              this.logger?.debug(`Skipping detached frame: ${e.message}`);
+            }
+          }
+
+          if (!anchorFrame && attempts < maxAttempts) {
+            this.logger?.debug(
+              `No anchor frame found, waiting and retrying...`
+            );
+            await sleep(2000, "waiting before retry", this.logger);
+          }
+        } catch (error) {
+          this.logger?.warn(`Error during frame search: ${error.message}`);
+          if (attempts < maxAttempts) {
+            await sleep(2000, "waiting before retry", this.logger);
+          }
+        }
+      }
+
+      if (!anchorFrame) {
+        this.logger?.warn("Could not find reCAPTCHA anchor frame");
+        return false;
+      }
+
+      // Click the checkbox with human-like movement if possible
+      const checkboxClicked = await this.clickCaptchaCheckboxInFrame(
+        anchorFrame,
+        cursor
+      );
 
       if (!checkboxClicked) {
-        this.logger?.warn("Could not find CAPTCHA checkbox");
-        return await this.tryProxySwitch();
+        this.logger?.warn("Could not click CAPTCHA checkbox");
+        // Don't immediately switch proxy - continue to try audio solving
+        // The proxy switch should only happen after audio solving fails
       }
 
       // Wait for challenge to appear
       await sleep(3000, "waiting for CAPTCHA challenge", this.logger);
 
-      // Step 2: Try to click audio button
-      const audioButtonClicked = await this.clickAudioButton(page, cursor);
+      // Step 2: Look for the challenge frame and click audio button
+      this.logger?.info("📋 Step 2: Looking for challenge frame...");
+
+      let challengeFrame = null;
+      const updatedFrames = page.frames();
+
+      for (const frame of updatedFrames) {
+        try {
+          const frameUrl = frame.url();
+          if (frameUrl.includes("recaptcha") && frameUrl.includes("bframe")) {
+            // Validate frame is accessible
+            await frame.evaluate(() => document.readyState);
+            challengeFrame = frame;
+            this.logger?.info(`Found challenge frame: ${frameUrl}`);
+            break;
+          }
+        } catch (e) {
+          // Skip detached frames
+          this.logger?.debug(`Skipping detached challenge frame: ${e.message}`);
+        }
+      }
+
+      if (!challengeFrame) {
+        this.logger?.warn(
+          "No challenge frame found - CAPTCHA might be solved already"
+        );
+        // Sometimes clicking the checkbox is enough
+        const stillHasCaptcha = await detectCaptcha(page, this.logger);
+        if (!stillHasCaptcha) {
+          this.logger?.info("✅ CAPTCHA solved with just checkbox click!");
+          return true;
+        }
+        // Try proxy switch only if CAPTCHA still exists
+        return await this.tryProxySwitch();
+      }
+
+      // Click audio button
+      const audioButtonClicked = await this.clickAudioButtonInFrame(
+        challengeFrame,
+        cursor
+      );
 
       if (!audioButtonClicked) {
         this.logger?.warn("Could not find audio CAPTCHA button");
-        return await this.tryProxySwitch();
+        // Don't immediately switch proxy - continue anyway
       }
 
       // Wait for audio challenge to load
       await sleep(3000, "waiting for audio challenge", this.logger);
 
       // Step 3: Solve audio CAPTCHA
-      const solved = await this.solveAudioCaptcha(page);
+      const solved = await this.solveAudioCaptchaInFrame(page, challengeFrame);
 
       if (solved) {
         this.stats.audioSolved++;
@@ -282,109 +394,63 @@ class BackgroundCaptchaMonitor {
   }
 
   /**
-   * Click CAPTCHA checkbox
+   * Click CAPTCHA checkbox in a specific frame
    */
-  async clickCaptchaCheckbox(page, cursor) {
+  async clickCaptchaCheckboxInFrame(frame, cursor) {
     try {
-      // Multiple strategies to find and click CAPTCHA checkbox
-      const checkboxSelectors = [
-        ".recaptcha-checkbox-border",
-        ".recaptcha-checkbox",
-        "#recaptcha-anchor",
-        'span[role="checkbox"]',
-        ".rc-anchor-checkbox",
-        'div[class*="recaptcha-checkbox"]',
-      ];
+      this.logger?.info("🖱️ Performing human-like checkbox interaction...");
 
-      // First try in main page
-      for (const selector of checkboxSelectors) {
+      // Wait for checkbox to be ready
+      await frame.waitForSelector(".recaptcha-checkbox-border", {
+        timeout: 5000,
+      });
+
+      const checkboxElement = await frame.$(".recaptcha-checkbox-border");
+
+      if (checkboxElement && cursor && typeof cursor.click === "function") {
+        // Use human-like clicking with ghost cursor
         try {
-          const checkbox = await page.$(selector);
-          if (checkbox) {
-            this.logger?.debug(
-              `Found CAPTCHA checkbox with selector: ${selector}`
-            );
+          await cursor.click(checkboxElement);
+          this.logger?.info("✅ Ghost cursor clicked reCAPTCHA checkbox");
+        } catch (cursorError) {
+          // Fallback to direct click
+          this.logger?.debug(
+            `Ghost cursor failed: ${cursorError.message}, using fallback`
+          );
+          await frame.click(".recaptcha-checkbox-border");
+          this.logger?.info("✅ Fallback click completed on checkbox");
+        }
+      } else {
+        await frame.click(".recaptcha-checkbox-border");
+        this.logger?.info("✅ Direct click on reCAPTCHA checkbox");
+      }
 
-            // Try ghost cursor click with enhanced validation
-            try {
-              const isValidCursor =
-                cursor &&
-                typeof cursor === "object" &&
-                typeof cursor.click === "function";
-
-              if (isValidCursor) {
-                try {
-                  await cursor.click(checkbox);
-                  this.logger?.debug("Ghost cursor clicked CAPTCHA checkbox");
-                } catch (clickError) {
-                  // Check if it's a remoteObject error
-                  if (clickError.message.includes("remoteObject")) {
-                    this.logger?.debug(
-                      "Ghost cursor remoteObject error on CAPTCHA checkbox, using fallback"
-                    );
-                    throw new Error("remoteObject not available");
-                  }
-                  throw clickError;
-                }
-              } else {
-                throw new Error("Invalid cursor object");
-              }
-            } catch (cursorError) {
-              this.logger?.debug("Cursor click failed, using fallback", {
-                error: cursorError.message,
-              });
-              await checkbox.click();
-              this.logger?.debug(
-                "Fallback click completed on CAPTCHA checkbox"
-              );
-            }
-
-            await sleep(2000, "after checkbox click", this.logger);
+      return true;
+    } catch (error) {
+      // Check if the error is because the element is already being interacted with
+      if (
+        error.message.includes("not clickable") ||
+        error.message.includes("detached") ||
+        error.message.includes("Target closed")
+      ) {
+        this.logger?.info(
+          "Checkbox might already be clicked by another handler"
+        );
+        // Check if checkbox is already checked
+        try {
+          const isChecked = await frame.evaluate(() => {
+            const checkbox = document.querySelector(".recaptcha-checkbox");
+            return checkbox && checkbox.getAttribute("aria-checked") === "true";
+          });
+          if (isChecked) {
+            this.logger?.info("✅ Checkbox is already checked");
             return true;
           }
         } catch (e) {
-          // Continue to next selector
+          // Frame might be detached, continue anyway
         }
       }
 
-      // Try in reCAPTCHA iframe
-      const recaptchaFrame = page.frames().find((frame) => {
-        try {
-          return (
-            frame.url().includes("recaptcha") && frame.url().includes("anchor")
-          );
-        } catch (_frameError) {
-          // Frame might be detached, skip it
-          return false;
-        }
-      });
-
-      if (recaptchaFrame) {
-        try {
-          for (const selector of checkboxSelectors) {
-            try {
-              const checkbox = await recaptchaFrame.$(selector);
-              if (checkbox) {
-                this.logger?.debug(
-                  `Found CAPTCHA checkbox in iframe with selector: ${selector}`
-                );
-                await recaptchaFrame.click(selector);
-                await sleep(2000, "after iframe checkbox click", this.logger);
-                return true;
-              }
-            } catch (e) {
-              // Continue
-            }
-          }
-        } catch (frameError) {
-          this.logger?.debug("Error accessing reCAPTCHA frame", {
-            error: frameError.message,
-          });
-        }
-      }
-
-      return false;
-    } catch (error) {
       this.logger?.error("Error clicking CAPTCHA checkbox", {
         error: error.message,
       });
@@ -393,103 +459,54 @@ class BackgroundCaptchaMonitor {
   }
 
   /**
-   * Click audio button
+   * Click audio button in a specific frame
    */
-  async clickAudioButton(page, cursor) {
+  async clickAudioButtonInFrame(frame, cursor) {
     try {
-      const audioButtonSelectors = [
+      await sleep(2000, "waiting for challenge to load", this.logger);
+
+      // Try multiple selectors for the audio button
+      const audioSelectors = [
         "#recaptcha-audio-button",
         ".rc-button-audio",
-        'button[id*="audio"]',
         'button[aria-label*="audio"]',
         'button[title*="audio"]',
-        ".recaptcha-checkbox-borderless",
-        'span[role="button"]',
       ];
 
-      // Try in main page first
-      for (const selector of audioButtonSelectors) {
+      for (const selector of audioSelectors) {
         try {
-          const audioButton = await page.$(selector);
-          if (audioButton) {
-            this.logger?.debug(`Found audio button with selector: ${selector}`);
+          await frame.waitForSelector(selector, { timeout: 5000 });
+          const audioElement = await frame.$(selector);
 
-            try {
-              const isValidCursor =
-                cursor &&
-                typeof cursor === "object" &&
-                typeof cursor.click === "function";
-
-              if (isValidCursor) {
-                try {
-                  await cursor.click(audioButton);
-                  this.logger?.debug("Ghost cursor clicked audio button");
-                } catch (clickError) {
-                  // Check if it's a remoteObject error
-                  if (clickError.message.includes("remoteObject")) {
-                    this.logger?.debug(
-                      "Ghost cursor remoteObject error on audio button, using fallback"
-                    );
-                    throw new Error("remoteObject not available");
-                  }
-                  throw clickError;
-                }
-              } else {
-                throw new Error("Invalid cursor object");
-              }
-            } catch (cursorError) {
-              this.logger?.debug("Cursor click failed, using fallback", {
-                error: cursorError.message,
-              });
-              await audioButton.click();
-              this.logger?.debug("Fallback click completed on audio button");
-            }
-
-            await sleep(2000, "after audio button click", this.logger);
-            return true;
-          }
-        } catch (e) {
-          // Continue
-        }
-      }
-
-      // Try in challenge iframe
-      const challengeFrame = page.frames().find((frame) => {
-        try {
-          return (
-            frame.url().includes("recaptcha") && frame.url().includes("bframe")
-          );
-        } catch (_frameError) {
-          // Frame might be detached, skip it
-          return false;
-        }
-      });
-
-      if (challengeFrame) {
-        try {
-          for (const selector of audioButtonSelectors) {
-            try {
-              const audioButton = await challengeFrame.$(selector);
-              if (audioButton) {
-                this.logger?.debug(
-                  `Found audio button in challenge frame with selector: ${selector}`
+          if (audioElement) {
+            if (cursor && typeof cursor.click === "function") {
+              try {
+                await cursor.click(audioElement);
+                this.logger?.info(
+                  `✅ Ghost cursor clicked audio button: ${selector}`
                 );
-                await challengeFrame.click(selector);
-                await sleep(
-                  2000,
-                  "after iframe audio button click",
-                  this.logger
+                return true;
+              } catch (cursorError) {
+                this.logger?.debug(
+                  `Ghost cursor failed on audio button: ${cursorError.message}`
+                );
+                // Fallback to direct click
+                await frame.click(selector);
+                this.logger?.info(
+                  `✅ Fallback click on audio button: ${selector}`
                 );
                 return true;
               }
-            } catch (e) {
-              // Continue
+            } else {
+              await frame.click(selector);
+              this.logger?.info(`✅ Direct click on audio button: ${selector}`);
+              return true;
             }
           }
-        } catch (frameError) {
-          this.logger?.debug("Error accessing challenge frame", {
-            error: frameError.message,
-          });
+        } catch (e) {
+          this.logger?.debug(
+            `Audio button not found with selector: ${selector}`
+          );
         }
       }
 
@@ -503,9 +520,9 @@ class BackgroundCaptchaMonitor {
   }
 
   /**
-   * Solve audio CAPTCHA
+   * Solve audio CAPTCHA in a specific frame
    */
-  async solveAudioCaptcha(page) {
+  async solveAudioCaptchaInFrame(page, challengeFrame) {
     try {
       this.logger?.info("🎵 Attempting to solve audio CAPTCHA");
 
@@ -514,16 +531,66 @@ class BackgroundCaptchaMonitor {
       }
 
       // Find audio source
-      const audioSrc = await this.findAudioSource(page);
+      let audioSrc = null;
+
+      try {
+        // Look for download link
+        await challengeFrame.waitForSelector(
+          ".rc-audiochallenge-tdownload-link",
+          { timeout: 10000 }
+        );
+        audioSrc = await challengeFrame.$eval(
+          ".rc-audiochallenge-tdownload-link",
+          (el) => el.href
+        );
+        this.logger?.info(`Found audio download link: ${audioSrc}`);
+      } catch (e) {
+        this.logger?.debug("Download link not found, trying audio element");
+
+        // Try audio element as fallback
+        try {
+          const audioElement = await challengeFrame.$("#audio-source");
+          if (audioElement) {
+            audioSrc = await challengeFrame.$eval(
+              "#audio-source",
+              (el) => el.src
+            );
+            this.logger?.info(`Found audio source element: ${audioSrc}`);
+          }
+        } catch (error) {
+          this.logger?.debug("Audio element not found either");
+        }
+      }
+
+      if (!audioSrc) {
+        // Try more generic selectors
+        try {
+          audioSrc = await challengeFrame.evaluate(() => {
+            // Look for any audio.mp3 links
+            const audioLinks = Array.from(
+              document.querySelectorAll('a[href*="audio.mp3"]')
+            );
+            for (const link of audioLinks) {
+              if (link.href) {
+                return link.href;
+              }
+            }
+
+            // Look for audio elements
+            const audio = document.querySelector("audio");
+            return audio ? audio.src : null;
+          });
+        } catch (evalError) {
+          this.logger?.debug("Generic audio search failed:", evalError.message);
+        }
+      }
 
       if (!audioSrc) {
         this.logger?.warn("Could not find audio source for CAPTCHA");
         return false;
       }
 
-      this.logger?.debug("Found audio source", {
-        audioSrc: audioSrc.substring(0, 100) + "...",
-      });
+      this.logger?.info(`📍 Audio URL: ${audioSrc}`);
 
       // Download audio file
       const audioFilePath = await this.downloadAudioFile(audioSrc);
@@ -544,7 +611,10 @@ class BackgroundCaptchaMonitor {
       this.logger?.info("Audio transcribed successfully", { transcription });
 
       // Enter the solution
-      const success = await this.enterCaptchaSolution(page, transcription);
+      const success = await this.enterCaptchaSolutionInFrame(
+        challengeFrame,
+        transcription
+      );
 
       // Cleanup audio file
       try {
@@ -563,152 +633,69 @@ class BackgroundCaptchaMonitor {
   }
 
   /**
-   * Find audio source URL
+   * Enter CAPTCHA solution in a specific frame
    */
-  async findAudioSource(page) {
+  async enterCaptchaSolutionInFrame(frame, solution) {
     try {
-      this.logger?.info("🔍 Searching for audio CAPTCHA source...");
+      const inputSelectors = [
+        "#audio-response",
+        'input[id*="audio"]',
+        'input[name*="audio"]',
+        ".rc-audiochallenge-response-field",
+      ];
 
-      // Try main page first - look for the download link instead of audio elements
-      let audioSrc = await page.evaluate(() => {
-        // Look for the download link that appears after clicking audio button
-        const downloadLink = document.querySelector(
-          ".rc-audiochallenge-tdownload-link"
-        );
-        if (downloadLink && downloadLink.href) {
-          return downloadLink.href;
-        }
-
-        // Fallback: look for any link with audio.mp3 in href
-        const audioLinks = Array.from(
-          document.querySelectorAll('a[href*="audio.mp3"]')
-        );
-        for (const link of audioLinks) {
-          if (
-            link.href &&
-            (link.href.includes("recaptcha") || link.href.includes("captcha"))
-          ) {
-            return link.href;
+      // Find and fill the audio response input
+      let inputFilled = false;
+      for (const selector of inputSelectors) {
+        try {
+          const input = await frame.$(selector);
+          if (input) {
+            await input.click();
+            await input.type(solution);
+            this.logger?.info(`Filled input with selector: ${selector}`);
+            inputFilled = true;
+            break;
           }
+        } catch (e) {
+          this.logger?.debug(`Input not found with selector: ${selector}`);
         }
-
-        // Legacy fallback: check for audio elements (less likely to work)
-        const audioElements = Array.from(document.querySelectorAll("audio"));
-        for (const audio of audioElements) {
-          if (
-            audio.src &&
-            (audio.src.includes("recaptcha") || audio.src.includes("captcha"))
-          ) {
-            return audio.src;
-          }
-        }
-
-        return null;
-      });
-
-      this.logger?.debug(
-        `Found ${await page.$$eval(
-          'a[href*="audio.mp3"]',
-          (links) => links.length
-        )} audio download links on main page`
-      );
-
-      if (audioSrc) {
-        this.logger?.info("🎵 Found audio source on main page!");
-        this.logger?.info(`📍 Audio URL: ${audioSrc}`);
-        this.logger?.debug("Audio source details", {
-          url: audioSrc,
-          length: audioSrc.length,
-          domain: new URL(audioSrc).hostname,
-          pathname: new URL(audioSrc).pathname,
-          isDownloadLink: audioSrc.includes("payload/audio.mp3"),
-          hasRecaptchaParams:
-            audioSrc.includes("p=") && audioSrc.includes("k="),
-        });
-        return audioSrc;
       }
 
-      this.logger?.info(
-        "🔍 No audio found on main page, checking challenge iframe..."
-      );
-
-      // Try challenge iframe
-      const challengeFrame = page.frames().find((frame) => {
-        try {
-          return (
-            frame.url().includes("recaptcha") && frame.url().includes("bframe")
-          );
-        } catch (_frameError) {
-          // Frame might be detached, skip it
-          return false;
-        }
-      });
-
-      if (challengeFrame) {
-        let frameUrl;
-        try {
-          frameUrl = challengeFrame.url();
-        } catch (_frameError) {
-          frameUrl = "detached_frame";
-        }
-
-        this.logger?.debug("Found challenge iframe", {
-          frameUrl,
-        });
-
-        audioSrc = await challengeFrame.evaluate(() => {
-          // Look for download link in iframe
-          const downloadLink = document.querySelector(
-            ".rc-audiochallenge-tdownload-link"
-          );
-          if (downloadLink && downloadLink.href) {
-            return downloadLink.href;
-          }
-
-          // Fallback: look for any audio.mp3 links
-          const audioLinks = Array.from(
-            document.querySelectorAll('a[href*="audio.mp3"]')
-          );
-          for (const link of audioLinks) {
-            if (link.href) {
-              return link.href;
-            }
-          }
-
-          // Legacy fallback: audio elements
-          const audio = document.querySelector("audio");
-          return audio ? audio.src : null;
-        });
-
-        if (audioSrc) {
-          this.logger?.info("🎵 Found audio source in challenge iframe!");
-          this.logger?.info(`📍 Audio URL: ${audioSrc}`);
-          this.logger?.debug("Audio source details from iframe", {
-            url: audioSrc,
-            length: audioSrc.length,
-            domain: new URL(audioSrc).hostname,
-            pathname: new URL(audioSrc).pathname,
-            frameUrl: challengeFrame.url(),
-            isDownloadLink: audioSrc.includes("payload/audio.mp3"),
-            hasRecaptchaParams:
-              audioSrc.includes("p=") && audioSrc.includes("k="),
-          });
-          return audioSrc;
-        } else {
-          this.logger?.warn("No audio download link found in challenge iframe");
-        }
-      } else {
-        this.logger?.warn("No challenge iframe found");
+      if (!inputFilled) {
+        return false;
       }
 
-      this.logger?.error("❌ Could not find any audio source for CAPTCHA");
-      return null;
+      await sleep(1000, "after typing solution", this.logger);
+
+      // Try to submit
+      const verifySelectors = [
+        "#recaptcha-verify-button",
+        'button[id*="verify"]',
+        ".rc-audiochallenge-verify-button",
+      ];
+
+      for (const selector of verifySelectors) {
+        try {
+          const verifyButton = await frame.$(selector);
+          if (verifyButton) {
+            await frame.click(selector);
+            this.logger?.info(`Clicked verify button: ${selector}`);
+            await sleep(3000, "after submitting solution", this.logger);
+            return await this.verifyCaptchaSolved(frame.page());
+          }
+        } catch (e) {
+          this.logger?.debug(
+            `Verify button not found with selector: ${selector}`
+          );
+        }
+      }
+
+      return false;
     } catch (error) {
-      this.logger?.error("Error finding audio source", {
+      this.logger?.error("Error entering CAPTCHA solution", {
         error: error.message,
-        stack: error.stack,
       });
-      return null;
+      return false;
     }
   }
 
@@ -1036,166 +1023,6 @@ class BackgroundCaptchaMonitor {
   }
 
   /**
-   * Enter CAPTCHA solution
-   */
-  async enterCaptchaSolution(page, solution) {
-    try {
-      const inputSelectors = [
-        "#audio-response",
-        'input[id*="audio"]',
-        'input[name*="audio"]',
-        'input[type="text"]',
-        ".rc-audiochallenge-response-field",
-      ];
-
-      // Try main page first
-      for (const selector of inputSelectors) {
-        try {
-          const input = await page.$(selector);
-          if (input) {
-            this.logger?.debug(`Found input field with selector: ${selector}`);
-            await input.click();
-            await input.type(solution);
-            await sleep(1000, "after typing solution", this.logger);
-
-            // Try to submit
-            const submitted = await this.submitCaptchaSolution(page);
-            if (submitted) {
-              return await this.verifyCaptchaSolved(page);
-            }
-          }
-        } catch (e) {
-          // Continue
-        }
-      }
-
-      // Try challenge iframe
-      const challengeFrame = page.frames().find((frame) => {
-        try {
-          return (
-            frame.url().includes("recaptcha") && frame.url().includes("bframe")
-          );
-        } catch (_frameError) {
-          // Frame might be detached, skip it
-          return false;
-        }
-      });
-
-      if (challengeFrame) {
-        for (const selector of inputSelectors) {
-          try {
-            const input = await challengeFrame.$(selector);
-            if (input) {
-              this.logger?.debug(
-                `Found input field in iframe with selector: ${selector}`
-              );
-              await challengeFrame.type(selector, solution);
-              await sleep(1000, "after typing solution in iframe", this.logger);
-
-              // Try to submit in iframe
-              const submitted = await this.submitCaptchaSolutionInFrame(
-                challengeFrame
-              );
-              if (submitted) {
-                return await this.verifyCaptchaSolved(page);
-              }
-            }
-          } catch (e) {
-            // Continue
-          }
-        }
-      }
-
-      return false;
-    } catch (error) {
-      this.logger?.error("Error entering CAPTCHA solution", {
-        error: error.message,
-      });
-      return false;
-    }
-  }
-
-  /**
-   * Submit CAPTCHA solution
-   */
-  async submitCaptchaSolution(page) {
-    try {
-      const submitSelectors = [
-        "#recaptcha-verify-button",
-        'button[id*="verify"]',
-        'button[type="submit"]',
-        'input[type="submit"]',
-        ".rc-audiochallenge-verify-button",
-      ];
-
-      for (const selector of submitSelectors) {
-        try {
-          const submitButton = await page.$(selector);
-          if (submitButton) {
-            this.logger?.debug(
-              `Found submit button with selector: ${selector}`
-            );
-            await submitButton.click();
-            await sleep(3000, "after submitting solution", this.logger);
-            return true;
-          }
-        } catch (e) {
-          // Continue
-        }
-      }
-
-      return false;
-    } catch (error) {
-      this.logger?.error("Error submitting CAPTCHA solution", {
-        error: error.message,
-      });
-      return false;
-    }
-  }
-
-  /**
-   * Submit CAPTCHA solution in iframe
-   */
-  async submitCaptchaSolutionInFrame(frame) {
-    try {
-      const submitSelectors = [
-        "#recaptcha-verify-button",
-        'button[id*="verify"]',
-        'button[type="submit"]',
-        'input[type="submit"]',
-        ".rc-audiochallenge-verify-button",
-      ];
-
-      for (const selector of submitSelectors) {
-        try {
-          const submitButton = await frame.$(selector);
-          if (submitButton) {
-            this.logger?.debug(
-              `Found submit button in iframe with selector: ${selector}`
-            );
-            await frame.click(selector);
-            await sleep(
-              3000,
-              "after submitting solution in iframe",
-              this.logger
-            );
-            return true;
-          }
-        } catch (e) {
-          // Continue
-        }
-      }
-
-      return false;
-    } catch (error) {
-      this.logger?.error("Error submitting CAPTCHA solution in iframe", {
-        error: error.message,
-      });
-      return false;
-    }
-  }
-
-  /**
    * Verify CAPTCHA was solved
    */
   async verifyCaptchaSolved(page) {
@@ -1281,6 +1108,105 @@ class BackgroundCaptchaMonitor {
       audioSolved: 0,
       proxySwitches: 0,
     };
+  }
+
+  // Deprecated methods - kept for backward compatibility
+  /**
+   * @deprecated Use clickCaptchaCheckboxInFrame instead
+   */
+  async clickCaptchaCheckbox(page, cursor) {
+    // Try to find the anchor frame first
+    const frames = page.frames();
+    const anchorFrame = frames.find((frame) => {
+      try {
+        return (
+          frame.url().includes("recaptcha") && frame.url().includes("anchor")
+        );
+      } catch (_frameError) {
+        return false;
+      }
+    });
+
+    if (anchorFrame) {
+      return await this.clickCaptchaCheckboxInFrame(anchorFrame, cursor);
+    }
+
+    // Fallback to main page
+    const checkboxElement = await page.$(".recaptcha-checkbox-border");
+    if (checkboxElement) {
+      return await this.clickCaptchaCheckboxInFrame(page, cursor);
+    }
+
+    return false;
+  }
+
+  /**
+   * @deprecated Use clickAudioButtonInFrame instead
+   */
+  async clickAudioButton(page, cursor) {
+    // Try to find the challenge frame first
+    const frames = page.frames();
+    const challengeFrame = frames.find((frame) => {
+      try {
+        return (
+          frame.url().includes("recaptcha") && frame.url().includes("bframe")
+        );
+      } catch (_frameError) {
+        return false;
+      }
+    });
+
+    if (challengeFrame) {
+      return await this.clickAudioButtonInFrame(challengeFrame, cursor);
+    }
+
+    return false;
+  }
+
+  /**
+   * @deprecated Use solveAudioCaptchaInFrame instead
+   */
+  async solveAudioCaptcha(page) {
+    // Try to find the challenge frame first
+    const frames = page.frames();
+    const challengeFrame = frames.find((frame) => {
+      try {
+        return (
+          frame.url().includes("recaptcha") && frame.url().includes("bframe")
+        );
+      } catch (_frameError) {
+        return false;
+      }
+    });
+
+    if (challengeFrame) {
+      return await this.solveAudioCaptchaInFrame(page, challengeFrame);
+    }
+
+    return false;
+  }
+
+  /**
+   * @deprecated Use enterCaptchaSolutionInFrame instead
+   */
+  async enterCaptchaSolution(page, solution) {
+    // Try to find the challenge frame first
+    const frames = page.frames();
+    const challengeFrame = frames.find((frame) => {
+      try {
+        return (
+          frame.url().includes("recaptcha") && frame.url().includes("bframe")
+        );
+      } catch (_frameError) {
+        return false;
+      }
+    });
+
+    if (challengeFrame) {
+      return await this.enterCaptchaSolutionInFrame(challengeFrame, solution);
+    }
+
+    return false;
   }
 }
 

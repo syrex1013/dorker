@@ -270,7 +270,8 @@ class MultiEngineDorker {
         this.config,
         this.logger,
         switchProxyCallback,
-        this.dashboard
+        this.dashboard,
+        this.pageData
       );
       if (!captchaHandled) {
         logWithDedup(
@@ -1755,6 +1756,17 @@ class MultiEngineDorker {
 
       return results;
     } catch (error) {
+      // Check if error is due to detached frame
+      if (
+        error.message.includes("detached") ||
+        error.message.includes("Target closed") ||
+        error.message.includes("Session closed")
+      ) {
+        // Page/frame was closed or navigated away - this is expected sometimes
+        this.logger?.debug("Page context lost during extraction");
+        return [];
+      }
+
       this.logger?.error("Failed to extract results", { error: error.message });
       return [];
     }
