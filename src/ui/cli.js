@@ -79,9 +79,11 @@ function displayConfig(config) {
     ],
     [
       "⏱️ Delay Range",
-      `${config.minDelay || config.delay || 10}-${
-        config.maxDelay || config.delay || 45
-      }s`,
+      config.extendedDelay
+        ? "1-5 minutes (Extended Mode)"
+        : `${config.minDelay || config.delay || 10}-${
+            config.maxDelay || config.delay || 45
+          }s`,
       getStatusIcon(true, "number"),
     ],
     ["⏸️ Max Pause", `${config.maxPause}s`, getStatusIcon(true, "number")],
@@ -215,6 +217,14 @@ async function getConfiguration() {
           },
         }),
 
+      // Extended delay option for automated queries
+      extendedDelay: () =>
+        p.confirm({
+          message:
+            "🕐 Enable extended automated delays (1-5 minutes between queries)?\n   Recommended for stealth dorking to avoid CAPTCHAs",
+          initialValue: false,
+        }),
+
       maxPause: () =>
         p.text({
           message: "⏸️ Maximum pause length (seconds)",
@@ -301,6 +311,7 @@ async function getConfiguration() {
     maxPages: Math.min(parseInt(config.maxPages) || 1, 10),
     minDelay: Math.max(minDelay, 5),
     maxDelay: Math.min(maxDelay, 120),
+    extendedDelay: config.extendedDelay,
     maxPause: Math.min(parseInt(config.maxPause) || 60, 60),
     headless: config.headless,
     userAgent: config.userAgent?.trim() || null,

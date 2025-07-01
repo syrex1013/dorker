@@ -12,7 +12,10 @@
     "interactive": "node index.js --interactive",
     "lint": "eslint index.js --fix",
     "lint:check": "eslint index.js",
-    "test": "echo \"Error: no test specified\" && exit 1"
+    "test": "echo \"Error: no test specified\" && exit 1",
+    "test-captcha": "node test/captcha-test.js",
+    "test-delay": "node test/delay-test.js",
+    "test-simple": "node test/simple-captcha-test.js"
   },
   "keywords": [
     "dorker",

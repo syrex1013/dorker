@@ -132,6 +132,22 @@ class BackgroundCaptchaMonitor {
     try {
       const { page } = this.pageData;
 
+      // Check if page is still valid before CAPTCHA detection
+      try {
+        await page.url();
+      } catch (error) {
+        if (
+          error.message.includes("detached") ||
+          error.message.includes("Target closed")
+        ) {
+          this.logger?.debug(
+            "Page is detached, skipping background CAPTCHA check"
+          );
+          return;
+        }
+        throw error;
+      }
+
       // Quick CAPTCHA detection
       const captchaDetected = await detectCaptcha(page, this.logger);
 
@@ -198,6 +214,19 @@ class BackgroundCaptchaMonitor {
         this.isProcessingCaptcha = false;
       }
     } catch (error) {
+      // Handle detached frame errors gracefully
+      if (
+        error.message.includes("detached") ||
+        error.message.includes("Target closed") ||
+        error.message.includes("Execution context was destroyed")
+      ) {
+        this.logger?.debug(
+          "Page or frame detached during background CAPTCHA monitoring, stopping check"
+        );
+        this.isProcessingCaptcha = false;
+        return;
+      }
+
       this.logger?.error("Error in background CAPTCHA monitoring", {
         error: error.message,
       });
@@ -319,12 +348,16 @@ class BackgroundCaptchaMonitor {
       }
 
       // Try in reCAPTCHA iframe
-      const recaptchaFrame = page
-        .frames()
-        .find(
-          (frame) =>
+      const recaptchaFrame = page.frames().find((frame) => {
+        try {
+          return (
             frame.url().includes("recaptcha") && frame.url().includes("anchor")
-        );
+          );
+        } catch (_frameError) {
+          // Frame might be detached, skip it
+          return false;
+        }
+      });
 
       if (recaptchaFrame) {
         try {
@@ -421,12 +454,16 @@ class BackgroundCaptchaMonitor {
       }
 
       // Try in challenge iframe
-      const challengeFrame = page
-        .frames()
-        .find(
-          (frame) =>
+      const challengeFrame = page.frames().find((frame) => {
+        try {
+          return (
             frame.url().includes("recaptcha") && frame.url().includes("bframe")
-        );
+          );
+        } catch (_frameError) {
+          // Frame might be detached, skip it
+          return false;
+        }
+      });
 
       if (challengeFrame) {
         try {
@@ -596,16 +633,27 @@ class BackgroundCaptchaMonitor {
       );
 
       // Try challenge iframe
-      const challengeFrame = page
-        .frames()
-        .find(
-          (frame) =>
+      const challengeFrame = page.frames().find((frame) => {
+        try {
+          return (
             frame.url().includes("recaptcha") && frame.url().includes("bframe")
-        );
+          );
+        } catch (_frameError) {
+          // Frame might be detached, skip it
+          return false;
+        }
+      });
 
       if (challengeFrame) {
+        let frameUrl;
+        try {
+          frameUrl = challengeFrame.url();
+        } catch (_frameError) {
+          frameUrl = "detached_frame";
+        }
+
         this.logger?.debug("Found challenge iframe", {
-          frameUrl: challengeFrame.url(),
+          frameUrl,
         });
 
         audioSrc = await challengeFrame.evaluate(() => {
@@ -1022,12 +1070,16 @@ class BackgroundCaptchaMonitor {
       }
 
       // Try challenge iframe
-      const challengeFrame = page
-        .frames()
-        .find(
-          (frame) =>
+      const challengeFrame = page.frames().find((frame) => {
+        try {
+          return (
             frame.url().includes("recaptcha") && frame.url().includes("bframe")
-        );
+          );
+        } catch (_frameError) {
+          // Frame might be detached, skip it
+          return false;
+        }
+      });
 
       if (challengeFrame) {
         for (const selector of inputSelectors) {

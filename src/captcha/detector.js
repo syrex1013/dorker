@@ -382,6 +382,20 @@ async function detectCaptcha(page, logger = null, forceLog = false) {
   try {
     logger?.debug("Starting CAPTCHA detection");
 
+    // Check if page is valid and not detached
+    try {
+      await page.url(); // This will throw if page is detached
+    } catch (error) {
+      if (
+        error.message.includes("detached") ||
+        error.message.includes("Target closed")
+      ) {
+        logger?.debug("Page is detached or closed, skipping CAPTCHA detection");
+        return false;
+      }
+      throw error;
+    }
+
     // Multiple CAPTCHA detection strategies
     const captchaSelectors = [
       // Standard Google CAPTCHA
@@ -435,7 +449,22 @@ async function detectCaptcha(page, logger = null, forceLog = false) {
     }
 
     // Check page URL for CAPTCHA indicators
-    const currentUrl = page.url();
+    let currentUrl;
+    try {
+      currentUrl = page.url();
+    } catch (error) {
+      if (
+        error.message.includes("detached") ||
+        error.message.includes("Target closed")
+      ) {
+        logger?.debug(
+          "Page detached while getting URL, skipping CAPTCHA detection"
+        );
+        return false;
+      }
+      throw error;
+    }
+
     const captchaUrlPatterns = [
       /sorry.*index/i,
       /captcha/i,
@@ -456,7 +485,22 @@ async function detectCaptcha(page, logger = null, forceLog = false) {
     }
 
     // Check page title for CAPTCHA indicators
-    const title = await page.title();
+    let title;
+    try {
+      title = await page.title();
+    } catch (error) {
+      if (
+        error.message.includes("detached") ||
+        error.message.includes("Target closed")
+      ) {
+        logger?.debug(
+          "Page detached while getting title, skipping CAPTCHA detection"
+        );
+        return false;
+      }
+      throw error;
+    }
+
     const captchaTitlePatterns = [
       /captcha/i,
       /verify/i,
@@ -477,12 +521,28 @@ async function detectCaptcha(page, logger = null, forceLog = false) {
     }
 
     // Check for specific Google messages
-    const bodyText = await page.evaluate(() => {
-      if (!document.body || !document.body.innerText) {
-        return "";
+    let bodyText;
+    try {
+      bodyText = await page.evaluate(() => {
+        if (!document.body || !document.body.innerText) {
+          return "";
+        }
+        return document.body.innerText.toLowerCase();
+      });
+    } catch (error) {
+      if (
+        error.message.includes("detached") ||
+        error.message.includes("Target closed") ||
+        error.message.includes("Execution context was destroyed")
+      ) {
+        logger?.debug(
+          "Page detached while evaluating body text, skipping CAPTCHA detection"
+        );
+        return false;
       }
-      return document.body.innerText.toLowerCase();
-    });
+      throw error;
+    }
+
     const captchaTextPatterns = [
       /automated queries/i,
       /unusual traffic/i,
@@ -514,6 +574,16 @@ async function detectCaptcha(page, logger = null, forceLog = false) {
 
     return false;
   } catch (error) {
+    // Check for detached frame or target closed errors
+    if (
+      error.message.includes("detached") ||
+      error.message.includes("Target closed") ||
+      error.message.includes("Execution context was destroyed")
+    ) {
+      logger?.debug("Page or frame is detached, skipping CAPTCHA detection");
+      return false;
+    }
+
     logger?.error("Error during CAPTCHA detection", { error: error.message });
     // In case of error, assume no CAPTCHA to avoid false positives
     return false;
@@ -1296,14 +1366,40 @@ async function waitForRecaptchaFrame(
     const startTime = Date.now();
 
     while (Date.now() - startTime < timeout) {
-      const frames = page.frames();
-      const frame = frames.find(
-        (f) => f.url().includes("recaptcha") && f.url().includes(frameType)
-      );
+      try {
+        // Check if page is still valid
+        await page.url();
 
-      if (frame) {
-        logger?.debug(`Found reCAPTCHA ${frameType} frame`);
-        return frame;
+        const frames = page.frames();
+        const frame = frames.find((f) => {
+          try {
+            return f.url().includes("recaptcha") && f.url().includes(frameType);
+          } catch (_frameError) {
+            // Frame might be detached, skip it
+            return false;
+          }
+        });
+
+        if (frame) {
+          // Verify frame is still accessible
+          try {
+            await frame.url();
+            logger?.debug(`Found reCAPTCHA ${frameType} frame`);
+            return frame;
+          } catch (_frameError) {
+            // Frame is detached, continue searching
+            logger?.debug(`Found frame but it's detached, continuing search`);
+          }
+        }
+      } catch (pageError) {
+        if (
+          pageError.message.includes("detached") ||
+          pageError.message.includes("Target closed")
+        ) {
+          logger?.debug("Page is detached, stopping frame search");
+          return null;
+        }
+        // Other errors, continue trying
       }
 
       await sleep(500, `waiting for ${frameType} frame`, logger);
@@ -1312,6 +1408,14 @@ async function waitForRecaptchaFrame(
     logger?.warn(`Timeout waiting for reCAPTCHA ${frameType} frame`);
     return null;
   } catch (error) {
+    if (
+      error.message.includes("detached") ||
+      error.message.includes("Target closed")
+    ) {
+      logger?.debug(`Page detached while waiting for ${frameType} frame`);
+      return null;
+    }
+
     logger?.error(`Error waiting for reCAPTCHA ${frameType} frame`, {
       error: error.message,
     });
@@ -1328,6 +1432,9 @@ async function waitForRecaptchaFrame(
  */
 async function clickElementInFrame(frame, selector, logger = null) {
   try {
+    // Check if frame is still valid
+    await frame.url();
+
     const element = await frame.$(selector);
     if (element) {
       await element.click();
@@ -1336,6 +1443,15 @@ async function clickElementInFrame(frame, selector, logger = null) {
     }
     return false;
   } catch (error) {
+    if (
+      error.message.includes("detached") ||
+      error.message.includes("Target closed") ||
+      error.message.includes("Execution context was destroyed")
+    ) {
+      logger?.debug(`Frame detached while clicking element ${selector}`);
+      return false;
+    }
+
     logger?.error(`Error clicking element ${selector} in frame`, {
       error: error.message,
     });
@@ -1358,6 +1474,9 @@ async function waitAndClickInFrame(
   timeout = 10000
 ) {
   try {
+    // Check if frame is still valid
+    await frame.url();
+
     await frame.waitForSelector(selector, { visible: true, timeout });
     const element = await frame.$(selector);
     if (element) {
@@ -1367,6 +1486,17 @@ async function waitAndClickInFrame(
     }
     return false;
   } catch (error) {
+    if (
+      error.message.includes("detached") ||
+      error.message.includes("Target closed") ||
+      error.message.includes("Execution context was destroyed")
+    ) {
+      logger?.debug(
+        `Frame detached while waiting/clicking element ${selector}`
+      );
+      return false;
+    }
+
     logger?.error(`Error waiting/clicking element ${selector} in frame`, {
       error: error.message,
     });

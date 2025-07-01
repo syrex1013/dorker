@@ -1713,11 +1713,22 @@ class MultiEngineDorker {
 
       this.logger?.debug("Results extracted", { count: results.length });
 
-      // Log first few results for debugging
+      // Log every extracted URL
       if (results.length > 0) {
-        this.logger?.debug("Sample results:", {
-          firstResult: results[0],
-          totalFound: results.length,
+        this.logger?.info(
+          `🔍 URL EXTRACTION COMPLETE: ${results.length} URLs extracted from search results`
+        );
+        results.forEach((result, index) => {
+          this.logger?.info(
+            `📃 URL EXTRACTED [${index + 1}/${results.length}]: ${result.url}`,
+            {
+              title: result.title || "No title",
+              description: result.description
+                ? result.description.substring(0, 100) + "..."
+                : "No description",
+              source: "Google search extraction",
+            }
+          );
         });
       } else {
         // If no results found, log page content for debugging
@@ -2276,21 +2287,70 @@ class MultiEngineDorker {
         this.logger?.debug(
           "No filterable patterns found in dork, returning all results"
         );
+        // Log all URLs as added when no filtering is applied
+        results.forEach((result, index) => {
+          if (result.url) {
+            this.logger?.info(
+              `✅ URL ADDED [${index + 1}/${results.length}]: ${result.url}`,
+              {
+                title: result.title || "No title",
+                reason: "No filtering patterns found in dork",
+              }
+            );
+          }
+        });
         return results;
       }
 
       // Filter results based on extracted patterns
-      const filteredResults = results.filter((result) => {
+      const filteredResults = [];
+      let addedCount = 0;
+      let filteredCount = 0;
+
+      results.forEach((result, index) => {
         if (!result.url) {
-          return false; // Remove results without URLs
+          filteredCount++;
+          this.logger?.info(
+            `❌ URL FILTERED [${index + 1}/${results.length}]: (no URL)`,
+            {
+              title: result.title || "No title",
+              reason: "Missing URL",
+            }
+          );
+          return;
         }
 
         // Check if URL matches any of the dork patterns
-        return patterns.some((pattern) => this.matchesPattern(result, pattern));
+        const matchedPattern = patterns.find((pattern) =>
+          this.matchesPattern(result, pattern)
+        );
+
+        if (matchedPattern) {
+          addedCount++;
+          filteredResults.push(result);
+          this.logger?.info(
+            `✅ URL ADDED [${index + 1}/${results.length}]: ${result.url}`,
+            {
+              title: result.title || "No title",
+              matchedPattern: `${matchedPattern.type}:${matchedPattern.value}`,
+              reason: `Matches dork pattern`,
+            }
+          );
+        } else {
+          filteredCount++;
+          this.logger?.info(
+            `❌ URL FILTERED [${index + 1}/${results.length}]: ${result.url}`,
+            {
+              title: result.title || "No title",
+              patterns: patterns.map((p) => `${p.type}:${p.value}`).join(", "),
+              reason: "Does not match any dork pattern",
+            }
+          );
+        }
       });
 
-      this.logger?.debug(
-        `Dork filtering completed: ${results.length} → ${filteredResults.length} results`
+      this.logger?.info(
+        `Dork filtering completed: ${results.length} → ${filteredResults.length} results (${addedCount} added, ${filteredCount} filtered out)`
       );
       return filteredResults;
     } catch (error) {
@@ -2450,23 +2510,45 @@ class MultiEngineDorker {
    * Perform delay between searches with movement-only warmup
    */
   async delayBetweenSearches() {
-    // Use new delay range if available, fallback to old single delay for backward compatibility
-    const minDelay = (this.config.minDelay || this.config.delay || 10) * 1000;
-    const maxDelay = (this.config.maxDelay || this.config.delay || 45) * 1000;
+    let minDelay, maxDelay, randomDelay;
 
-    // Generate random delay within the specified range
-    const randomDelay =
-      Math.floor(Math.random() * (maxDelay - minDelay + 1)) + minDelay;
+    // Check if extended delay mode is enabled (1-5 minutes)
+    if (this.config.extendedDelay) {
+      minDelay = 60 * 1000; // 1 minute in milliseconds
+      maxDelay = 300 * 1000; // 5 minutes in milliseconds
+      randomDelay =
+        Math.floor(Math.random() * (maxDelay - minDelay + 1)) + minDelay;
 
-    this.logger?.info(
-      `Delaying ${
-        randomDelay / 1000
-      }s before next search with MOVEMENT-ONLY warmup`,
-      {
-        range: `${minDelay / 1000}-${maxDelay / 1000}s`,
-        selected: `${randomDelay / 1000}s`,
-      }
-    );
+      this.logger?.info(
+        `🕐 Extended delay mode: waiting ${Math.round(
+          randomDelay / 60000
+        )}m ${Math.round((randomDelay % 60000) / 1000)}s before next search`,
+        {
+          mode: "extended",
+          range: "1-5 minutes",
+          selected: `${Math.round(randomDelay / 60000)}m ${Math.round(
+            (randomDelay % 60000) / 1000
+          )}s`,
+        }
+      );
+    } else {
+      // Use standard delay range
+      minDelay = (this.config.minDelay || this.config.delay || 10) * 1000;
+      maxDelay = (this.config.maxDelay || this.config.delay || 45) * 1000;
+      randomDelay =
+        Math.floor(Math.random() * (maxDelay - minDelay + 1)) + minDelay;
+
+      this.logger?.info(
+        `Delaying ${
+          randomDelay / 1000
+        }s before next search with MOVEMENT-ONLY warmup`,
+        {
+          mode: "standard",
+          range: `${minDelay / 1000}-${maxDelay / 1000}s`,
+          selected: `${randomDelay / 1000}s`,
+        }
+      );
+    }
 
     if (this.config.humanLike && this.pageData) {
       // MOVEMENT-ONLY delay - no clicking, just cursor movements

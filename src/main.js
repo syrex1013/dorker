@@ -295,7 +295,11 @@ async function performDorking(dorks, config) {
 
       // Delay between searches (except for last dork)
       if (i < dorks.length - 1) {
-        const delayMessage = `Waiting ${config.delay}s before next search...`;
+        const delayMessage = config.extendedDelay
+          ? "Waiting 1-5 minutes before next search (Extended Mode)..."
+          : `Waiting ${config.delay || config.minDelay || 10}-${
+              config.maxDelay || config.delay || 45
+            }s before next search...`;
         dashboard.addLog("info", delayMessage);
         dashboard.setStatus("delaying-search");
         console.log(chalk.gray(`⏱️ ${delayMessage}`));
@@ -444,8 +448,12 @@ async function interactiveMode() {
           config.resultCount
         )}\n` +
         `${chalk.gray("Delay between Searches:")} ${chalk.white(
-          config.delay
-        )}s\n` +
+          config.extendedDelay
+            ? "1-5 minutes (Extended Mode)"
+            : `${config.minDelay || config.delay || 10}-${
+                config.maxDelay || config.delay || 45
+              }s`
+        )}\n` +
         `${chalk.gray("Dashboard URL:")} ${chalk.white(
           "http://localhost:3000"
         )}`,
@@ -564,13 +572,21 @@ async function interactiveMode() {
 
         // Delay between searches (except for last dork)
         if (i < dorks.length - 1) {
-          console.log(
-            chalk.gray(`⏱️ Waiting ${config.delay}s before next search...`)
-          );
+          const interactiveDelayMessage = config.extendedDelay
+            ? "⏱️ Waiting 1-5 minutes before next search (Extended Mode)..."
+            : `⏱️ Waiting ${config.minDelay || config.delay || 10}-${
+                config.maxDelay || config.delay || 45
+              }s before next search...`;
+
+          console.log(chalk.gray(interactiveDelayMessage));
 
           dashboard.addLog(
             "info",
-            `Waiting ${config.delay}s before next search...`
+            config.extendedDelay
+              ? "Waiting 1-5 minutes before next search (Extended Mode)..."
+              : `Waiting ${config.minDelay || config.delay || 10}-${
+                  config.maxDelay || config.delay || 45
+                }s before next search...`
           );
 
           const delaySpinner = createSpinner(`Delay in progress`, "yellow");
