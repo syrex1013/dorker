@@ -3,7 +3,7 @@ cl<!DOCTYPE html>
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>DORKER - Advanced Dashboard</title>
+    <title>THREATDORKER - Advanced Dashboard</title>
     <script src="/socket.io/socket.io.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.js"></script>
     <link
@@ -22,22 +22,25 @@ cl<!DOCTYPE html>
       }
 
       :root {
-        --bg-primary: #ffffff;
-        --bg-secondary: #f8fafc;
-        --bg-tertiary: #f1f5f9;
-        --text-primary: #0f172a;
-        --text-secondary: #64748b;
-        --text-accent: #3b82f6;
-        --border-color: #e2e8f0;
-        --success-color: #10b981;
-        --warning-color: #f59e0b;
-        --error-color: #ef4444;
-        --glass-bg: rgba(255, 255, 255, 0.8);
-        --shadow-sm: 0 1px 2px 0 rgb(0 0 0 / 0.05);
-        --shadow-md: 0 4px 6px -1px rgb(0 0 0 / 0.1);
-        --shadow-lg: 0 10px 15px -3px rgb(0 0 0 / 0.1);
+        --bg-primary: #000000;
+        --bg-secondary: #0a0a0a;
+        --bg-tertiary: #1a1a1a;
+        --text-primary: #ffffff;
+        --text-secondary: #cccccc;
+        --text-accent: #dc2626;
+        --border-color: #333333;
+        --success-color: #16a34a;
+        --warning-color: #ea580c;
+        --error-color: #dc2626;
+        --glass-bg: rgba(0, 0, 0, 0.8);
+        --shadow-sm: 0 1px 2px 0 rgb(220 38 38 / 0.05);
+        --shadow-md: 0 4px 6px -1px rgb(220 38 38 / 0.1);
+        --shadow-lg: 0 10px 15px -3px rgb(220 38 38 / 0.1);
         --radius: 12px;
         --transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+        --accent-red: #dc2626;
+        --accent-dark-red: #991b1b;
+        --accent-light-red: #ef4444;
       }
 
       [data-theme="dark"] {
@@ -162,19 +165,19 @@ cl<!DOCTYPE html>
       }
 
       .status-initializing {
-        background: linear-gradient(45deg, #3b82f6, #06b6d4);
+        background: linear-gradient(45deg, #dc2626, #991b1b);
         color: white;
         animation: statusPulse 2s infinite;
       }
 
       .status-warming-up {
-        background: linear-gradient(45deg, #f59e0b, #eab308);
+        background: linear-gradient(45deg, #ea580c, #c2410c);
         color: white;
         animation: statusPulse 1.5s infinite;
       }
 
       .status-searching {
-        background: linear-gradient(45deg, #10b981, #059669);
+        background: linear-gradient(45deg, #dc2626, #7f1d1d);
         color: white;
         animation: statusPulse 2s infinite;
       }
@@ -192,7 +195,7 @@ cl<!DOCTYPE html>
       }
 
       .status-captcha-transcribing {
-        background: linear-gradient(45deg, #8b5cf6, #7c3aed);
+        background: linear-gradient(45deg, #dc2626, #7f1d1d);
         color: white;
         animation: statusPulse 1.5s infinite;
       }
@@ -720,19 +723,19 @@ cl<!DOCTYPE html>
       }
 
       .main-status-pill.status-initializing {
-        background: linear-gradient(135deg, #3b82f6, #06b6d4);
+        background: linear-gradient(135deg, #dc2626, #991b1b);
         color: white;
         animation: statusPulse 2s infinite;
       }
 
       .main-status-pill.status-warming-up {
-        background: linear-gradient(135deg, #f59e0b, #eab308);
+        background: linear-gradient(135deg, #ea580c, #c2410c);
         color: white;
         animation: statusPulse 1.5s infinite;
       }
 
       .main-status-pill.status-searching {
-        background: linear-gradient(135deg, #10b981, #059669);
+        background: linear-gradient(135deg, #dc2626, #7f1d1d);
         color: white;
         animation: statusPulse 2s infinite;
       }
@@ -744,19 +747,19 @@ cl<!DOCTYPE html>
       }
 
       .main-status-pill.status-captcha-proxy {
-        background: linear-gradient(135deg, #f59e0b, #d97706);
+        background: linear-gradient(135deg, #ea580c, #c2410c);
         color: white;
         animation: statusPulse 0.8s infinite;
       }
 
       .main-status-pill.status-running {
-        background: linear-gradient(135deg, #10b981, #059669);
+        background: linear-gradient(135deg, #dc2626, #7f1d1d);
         color: white;
         animation: statusPulse 2s infinite;
       }
 
       .main-status-pill.status-completed {
-        background: linear-gradient(135deg, #8b5cf6, #7c3aed);
+        background: linear-gradient(135deg, #dc2626, #7f1d1d);
         color: white;
       }
 
@@ -1048,7 +1051,7 @@ cl<!DOCTYPE html>
             class="fas fa-search"
             style="color: var(--text-accent); font-size: 1.5rem"
           ></i>
-          <h1>DORKER</h1>
+          <h1>THREATDORKER</h1>
           <div class="live-indicator">
             <div class="live-dot"></div>
             LIVE
@@ -2056,6 +2059,19 @@ cl<!DOCTYPE html>
         console.log("🎯 New result received:", result);
       });
 
+      socket.on("processingStatus", (data) => {
+        // Update status details with the processing status (countdown, etc)
+        const detailsEl = document.getElementById("status-details");
+        const mainStatusText = document.getElementById("main-status-text");
+        
+        if (data && data.status) {
+          detailsEl.textContent = data.status;
+          if (mainStatusText) {
+            mainStatusText.textContent = data.status;
+          }
+        }
+      });
+
       socket.on("newLog", (log) => {
         addLog(log);
         sessionData.logs.unshift(log);
@@ -3060,10 +3076,14 @@ cl<!DOCTYPE html>
         const blob = new Blob([urlsText], { type: "text/plain" });
         const url = URL.createObjectURL(blob);
         const a = document.createElement("a");
+        
+        // Create timestamp for filename
+        const timestamp = new Date().toISOString().replace(/[:.]/g, '-').split('T');
+        const dateStr = timestamp[0]; // YYYY-MM-DD
+        const timeStr = timestamp[1].split('.')[0]; // HH-MM-SS
+        
         a.href = url;
-        a.download = `dorker-urls-${exportType}-${
-          new Date().toISOString().split("T")[0]
-        }.txt`;
+        a.download = `threatdorker-urls_${dateStr}_${timeStr}-${exportType}.txt`;
         a.click();
         URL.revokeObjectURL(url);
 
@@ -3107,10 +3127,14 @@ cl<!DOCTYPE html>
         });
         const url = URL.createObjectURL(blob);
         const a = document.createElement("a");
+        
+        // Create timestamp for filename
+        const timestamp = new Date().toISOString().replace(/[:.]/g, '-').split('T');
+        const dateStr = timestamp[0]; // YYYY-MM-DD
+        const timeStr = timestamp[1].split('.')[0]; // HH-MM-SS
+        
         a.href = url;
-        a.download = `dorker-export-${
-          new Date().toISOString().split("T")[0]
-        }.json`;
+        a.download = `threatdorker-export_${dateStr}_${timeStr}.json`;
         a.click();
         URL.revokeObjectURL(url);
 

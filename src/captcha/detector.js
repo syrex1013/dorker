@@ -741,6 +741,10 @@ async function handleCaptcha(
       if (dashboard && dashboard.addLog) {
         dashboard.addLog("warning", "🚨 CAPTCHA detected!");
       }
+      // Increment CAPTCHA counter
+      if (dashboard && dashboard.incrementCaptchaEncounters) {
+        dashboard.incrementCaptchaEncounters();
+      }
 
       // Attempt to handle CAPTCHA
       if (config.manualCaptchaMode) {
@@ -796,12 +800,8 @@ async function handleCaptcha(
           if (dashboard && dashboard.addLog) {
             dashboard.addLog("success", "✅ Simple CAPTCHA checkbox solved!");
           }
-          if (dashboard && dashboard.setCaptchaStats && dashboard.stats) {
-            const currentStats = dashboard.stats;
-            dashboard.setCaptchaStats(
-              currentStats.captchaEncounters,
-              currentStats.captchaSolved + 1
-            );
+          if (dashboard && dashboard.incrementCaptchaSolved) {
+            dashboard.incrementCaptchaSolved();
           }
           // Update dashboard status back to normal
           if (dashboard && dashboard.setStatus) {
@@ -849,12 +849,8 @@ async function handleCaptcha(
             if (dashboard && dashboard.addLog) {
               dashboard.addLog("success", "✅ Proxy switched successfully");
             }
-            if (dashboard && dashboard.setCaptchaStats && dashboard.stats) {
-              const currentStats = dashboard.stats;
-              dashboard.setCaptchaStats(
-                currentStats.captchaEncounters,
-                currentStats.captchaSolved + 1
-              );
+            if (dashboard && dashboard.incrementCaptchaSolved) {
+              dashboard.incrementCaptchaSolved();
             }
             // Update dashboard status back to normal
             if (dashboard && dashboard.setStatus) {
@@ -874,12 +870,8 @@ async function handleCaptcha(
         if (dashboard && dashboard.addLog) {
           dashboard.addLog("error", "❌ Failed to solve CAPTCHA automatically");
         }
-        if (dashboard && dashboard.setCaptchaStats && dashboard.stats) {
-          const currentStats = dashboard.stats;
-          dashboard.setCaptchaStats(
-            currentStats.captchaEncounters + 1,
-            currentStats.captchaSolved
-          );
+        if (dashboard && dashboard.incrementCaptchaEncounters) {
+          dashboard.incrementCaptchaEncounters();
         }
         // Update dashboard status to error
         if (dashboard && dashboard.setStatus) {
@@ -1382,12 +1374,8 @@ async function handleAutomaticCaptcha(page, logger = null, dashboard = null) {
       if (dashboard && dashboard.addLog) {
         dashboard.addLog("success", "✅ Audio CAPTCHA solved successfully!");
       }
-      if (dashboard && dashboard.setCaptchaStats && dashboard.stats) {
-        const currentStats = dashboard.stats;
-        dashboard.setCaptchaStats(
-          currentStats.captchaEncounters,
-          currentStats.captchaSolved + 1
-        );
+      if (dashboard && dashboard.incrementCaptchaSolved) {
+        dashboard.incrementCaptchaSolved();
       }
     } else {
       logWithDedup(

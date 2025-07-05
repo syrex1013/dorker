@@ -1,7 +1,7 @@
 {
-  "name": "dorker-node",
-  "version": "1.0.0",
-  "description": "A Google dorking tool written in Node.js with Puppeteer.",
+  "name": "threatdorker",
+  "version": "2.0.0",
+  "description": "Advanced Threat Research & Google Dorking Tool with Anti-Detection",
   "main": "index.js",
   "type": "module",
   "scripts": {

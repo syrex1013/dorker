@@ -1,15 +1,15 @@
-# 🔍 DORKER - Advanced Google Dorking Automation Tool
+# 🚨 THREATDORKER - Advanced Threat Research & Google Dorking Tool
 
 <div align="center">
 
-![DORKER Banner](https://img.shields.io/badge/DORKER-Advanced_Dorking_Tool-blue?style=for-the-badge&logo=google&logoColor=white)
+![THREATDORKER Banner](https://img.shields.io/badge/THREATDORKER-Advanced_Threat_Research_Tool-red?style=for-the-badge&logo=google&logoColor=white)
 
 [![Node.js](https://img.shields.io/badge/Node.js-18+-green?style=flat-square&logo=node.js)](https://nodejs.org/)
 [![Puppeteer](https://img.shields.io/badge/Puppeteer-Latest-orange?style=flat-square&logo=puppeteer)](https://pptr.dev/)
 [![License](https://img.shields.io/badge/License-MIT-yellow?style=flat-square)](LICENSE)
 [![PRs Welcome](https://img.shields.io/badge/PRs-welcome-brightgreen?style=flat-square)](CONTRIBUTING.md)
 
-**🚀 A powerful, automated Google dorking tool with AI-powered CAPTCHA solving and real-time monitoring**
+**🚀 A powerful, automated threat research & Google dorking tool with AI-powered CAPTCHA solving and real-time monitoring**
 
 [Features](#-features) • [Installation](#-installation) • [Usage](#-usage) • [Dashboard](#-web-dashboard) • [API](#-api-reference)
 
@@ -87,8 +87,8 @@
 
 ```bash
 # Clone the repository
-git clone https://github.com/yourusername/dorker.git
-cd dorker
+git clone https://github.com/yourusername/threatdorker.git
+cd threatdorker
 
 # Install dependencies
 npm install
@@ -104,10 +104,10 @@ nano .env
 
 ```bash
 # Build Docker image
-docker build -t dorker .
+docker build -t threatdorker .
 
 # Run with Docker
-docker run -d --name dorker-app -p 3000:3000 dorker
+docker run -d --name threatdorker-app -p 3000:3000 threatdorker
 ```
 
 ---

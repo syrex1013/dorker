@@ -167,11 +167,8 @@ class BackgroundCaptchaMonitor {
           this.dashboard.addLog("warning", "🚨 Background CAPTCHA detected!");
         }
 
-        if (this.dashboard && this.dashboard.setCaptchaStats) {
-          this.dashboard.setCaptchaStats(
-            this.stats.captchasDetected,
-            this.stats.captchasSolved
-          );
+        if (this.dashboard && this.dashboard.incrementCaptchaEncounters) {
+          this.dashboard.incrementCaptchaEncounters();
         }
 
         // Set a flag to indicate CAPTCHA is being processed
@@ -196,11 +193,8 @@ class BackgroundCaptchaMonitor {
             this.dashboard.addLog("success", "✅ Background CAPTCHA solved!");
           }
 
-          if (this.dashboard && this.dashboard.setCaptchaStats) {
-            this.dashboard.setCaptchaStats(
-              this.stats.captchasDetected,
-              this.stats.captchasSolved
-            );
+          if (this.dashboard && this.dashboard.incrementCaptchaSolved) {
+            this.dashboard.incrementCaptchaSolved();
           }
         } else {
           this.stats.captchasFailed++;
@@ -530,100 +524,149 @@ class BackgroundCaptchaMonitor {
         this.dashboard.addLog("info", "🎵 Processing audio CAPTCHA");
       }
 
-      // Find audio source
-      let audioSrc = null;
+      let attempts = 0;
+      const maxAttempts = 3; // Maximum number of attempts for multiple solutions
+      let solved = false;
 
-      try {
-        // Look for download link
-        await challengeFrame.waitForSelector(
-          ".rc-audiochallenge-tdownload-link",
-          { timeout: 10000 }
-        );
-        audioSrc = await challengeFrame.$eval(
-          ".rc-audiochallenge-tdownload-link",
-          (el) => el.href
-        );
-        this.logger?.info(`Found audio download link: ${audioSrc}`);
-      } catch (e) {
-        this.logger?.debug("Download link not found, trying audio element");
+      while (!solved && attempts < maxAttempts) {
+        // Find audio source
+        let audioSrc = null;
 
-        // Try audio element as fallback
         try {
-          const audioElement = await challengeFrame.$("#audio-source");
-          if (audioElement) {
-            audioSrc = await challengeFrame.$eval(
-              "#audio-source",
-              (el) => el.src
-            );
-            this.logger?.info(`Found audio source element: ${audioSrc}`);
-          }
-        } catch (error) {
-          this.logger?.debug("Audio element not found either");
-        }
-      }
+          // Look for download link
+          await challengeFrame.waitForSelector(
+            ".rc-audiochallenge-tdownload-link",
+            { timeout: 10000 }
+          );
+          audioSrc = await challengeFrame.$eval(
+            ".rc-audiochallenge-tdownload-link",
+            (el) => el.href
+          );
+          this.logger?.info(`Found audio download link: ${audioSrc}`);
+        } catch (e) {
+          this.logger?.debug("Download link not found, trying audio element");
 
-      if (!audioSrc) {
-        // Try more generic selectors
-        try {
-          audioSrc = await challengeFrame.evaluate(() => {
-            // Look for any audio.mp3 links
-            const audioLinks = Array.from(
-              document.querySelectorAll('a[href*="audio.mp3"]')
-            );
-            for (const link of audioLinks) {
-              if (link.href) {
-                return link.href;
-              }
+          // Try audio element as fallback
+          try {
+            const audioElement = await challengeFrame.$("#audio-source");
+            if (audioElement) {
+              audioSrc = await challengeFrame.$eval(
+                "#audio-source",
+                (el) => el.src
+              );
+              this.logger?.info(`Found audio source element: ${audioSrc}`);
             }
+          } catch (error) {
+            this.logger?.debug("Audio element not found either");
+          }
+        }
 
-            // Look for audio elements
-            const audio = document.querySelector("audio");
-            return audio ? audio.src : null;
-          });
-        } catch (evalError) {
-          this.logger?.debug("Generic audio search failed:", evalError.message);
+        if (!audioSrc) {
+          // Try more generic selectors
+          try {
+            audioSrc = await challengeFrame.evaluate(() => {
+              // Look for any audio.mp3 links
+              const audioLinks = Array.from(
+                document.querySelectorAll('a[href*="audio.mp3"]')
+              );
+              for (const link of audioLinks) {
+                if (link.href) {
+                  return link.href;
+                }
+              }
+
+              // Look for audio elements
+              const audio = document.querySelector("audio");
+              return audio ? audio.src : null;
+            });
+          } catch (evalError) {
+            this.logger?.debug("Generic audio search failed:", evalError.message);
+          }
+        }
+
+        if (!audioSrc) {
+          this.logger?.warn("Could not find audio source for CAPTCHA");
+          return false;
+        }
+
+        this.logger?.info(`📍 Audio URL: ${audioSrc}`);
+
+        // Download audio file
+        const audioFilePath = await this.downloadAudioFile(audioSrc);
+
+        if (!audioFilePath) {
+          this.logger?.warn("Failed to download audio file");
+          return false;
+        }
+
+        // Convert audio to text using ElevenLabs or fallback
+        const transcription = await this.transcribeAudio(audioFilePath);
+
+        if (!transcription) {
+          this.logger?.warn("Failed to transcribe audio");
+          return false;
+        }
+
+        this.logger?.info("Audio transcribed successfully", { transcription });
+
+        // Enter the solution
+        const success = await this.enterCaptchaSolutionInFrame(
+          challengeFrame,
+          transcription
+        );
+
+        // Cleanup audio file
+        try {
+          await fs.unlink(audioFilePath);
+        } catch (e) {
+          // Ignore cleanup errors
+        }
+
+        // Check if we need more solutions
+        if (success) {
+          // Wait for potential "Multiple solutions required" message
+          try {
+            const multipleRequiredSelector = 'div[class*="rc-audiochallenge-error-message"], div[class*="rc-challenge-help"]';
+            const errorMessage = await challengeFrame.waitForSelector(multipleRequiredSelector, { timeout: 3000 });
+            const errorText = await errorMessage.evaluate(el => el.textContent);
+            
+            if (errorText && errorText.toLowerCase().includes("multiple") && errorText.toLowerCase().includes("required")) {
+              this.logger?.info("Multiple solutions required, attempting another audio challenge");
+              attempts++;
+              // Wait for new audio to load
+              await sleep(2000, "waiting for new audio challenge", this.logger);
+              continue;
+            } else {
+              // No multiple solutions required, we're done
+              solved = true;
+              break;
+            }
+          } catch (e) {
+            // No error message found, assume success
+            solved = true;
+            break;
+          }
+        } else {
+          // Solution was incorrect
+          attempts++;
+          this.logger?.warn(`Audio CAPTCHA solution attempt ${attempts} failed`);
+          
+          // Check if we can try again
+          if (attempts < maxAttempts) {
+            this.logger?.info("Attempting another audio challenge");
+            await sleep(2000, "waiting before next attempt", this.logger);
+            continue;
+          }
         }
       }
 
-      if (!audioSrc) {
-        this.logger?.warn("Could not find audio source for CAPTCHA");
+      if (solved) {
+        this.logger?.info("✅ Audio CAPTCHA solved successfully!");
+        return true;
+      } else {
+        this.logger?.warn(`Failed to solve audio CAPTCHA after ${attempts} attempts`);
         return false;
       }
-
-      this.logger?.info(`📍 Audio URL: ${audioSrc}`);
-
-      // Download audio file
-      const audioFilePath = await this.downloadAudioFile(audioSrc);
-
-      if (!audioFilePath) {
-        this.logger?.warn("Failed to download audio file");
-        return false;
-      }
-
-      // Convert audio to text using ElevenLabs or fallback
-      const transcription = await this.transcribeAudio(audioFilePath);
-
-      if (!transcription) {
-        this.logger?.warn("Failed to transcribe audio");
-        return false;
-      }
-
-      this.logger?.info("Audio transcribed successfully", { transcription });
-
-      // Enter the solution
-      const success = await this.enterCaptchaSolutionInFrame(
-        challengeFrame,
-        transcription
-      );
-
-      // Cleanup audio file
-      try {
-        await fs.unlink(audioFilePath);
-      } catch (e) {
-        // Ignore cleanup errors
-      }
-
-      return success;
     } catch (error) {
       this.logger?.error("Error solving audio CAPTCHA", {
         error: error.message,

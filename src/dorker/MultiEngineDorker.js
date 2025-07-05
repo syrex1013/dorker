@@ -2385,43 +2385,196 @@ class MultiEngineDorker {
   parseDorkPatterns(dork) {
     const patterns = [];
 
-    // Pattern matching for different dork types
+    // Comprehensive pattern matching for ALL Google, Bing, and DuckDuckGo dork operators
     const dorkPatterns = [
-      // inurl: patterns
-      {
-        regex: /inurl:([^\s]+)/gi,
-        type: "inurl",
-        extract: (match) => match[1],
-      },
-      // site: patterns
+      // === Universal Operators (Google, Bing, DDG) ===
       {
         regex: /site:([^\s]+)/gi,
         type: "site",
         extract: (match) => match[1],
       },
-      // intitle: patterns
-      {
-        regex: /intitle:([^\s"]+|"[^"]*")/gi,
-        type: "intitle",
-        extract: (match) => match[1].replace(/"/g, ""),
-      },
-      // intext: patterns
-      {
-        regex: /intext:([^\s"]+|"[^"]*")/gi,
-        type: "intext",
-        extract: (match) => match[1].replace(/"/g, ""),
-      },
-      // filetype: patterns
       {
         regex: /filetype:([^\s]+)/gi,
         type: "filetype",
         extract: (match) => match[1],
       },
-      // ext: patterns (alternative to filetype)
       {
         regex: /ext:([^\s]+)/gi,
         type: "filetype",
         extract: (match) => match[1],
+      },
+      {
+        regex: /inurl:([^\s"]+|"[^"]*")/gi,
+        type: "inurl",
+        extract: (match) => match[1].replace(/"/g, ""),
+      },
+      {
+        regex: /intitle:([^\s"]+|"[^"]*")/gi,
+        type: "intitle",
+        extract: (match) => match[1].replace(/"/g, ""),
+      },
+      {
+        regex: /inanchor:([^\s"]+|"[^"]*")/gi,
+        type: "inanchor",
+        extract: (match) => match[1].replace(/"/g, ""),
+      },
+      {
+        regex: /inbody:([^\s"]+|"[^"]*")/gi,
+        type: "inbody",
+        extract: (match) => match[1].replace(/"/g, ""),
+      },
+      {
+        regex: /loc:([^\s"]+|"[^"]*")/gi,
+        type: "location",
+        extract: (match) => match[1].replace(/"/g, ""),
+      },
+      {
+        regex: /location:([^\s"]+|"[^"]*")/gi,
+        type: "location",
+        extract: (match) => match[1].replace(/"/g, ""),
+      },
+
+      // === Google-Specific Operators ===
+      {
+        regex: /allinurl:([^\s"]+|"[^"]*")/gi,
+        type: "allinurl",
+        extract: (match) => match[1].replace(/"/g, ""),
+      },
+      {
+        regex: /allintitle:([^\s"]+|"[^"]*")/gi,
+        type: "allintitle",
+        extract: (match) => match[1].replace(/"/g, ""),
+      },
+      {
+        regex: /allintext:([^\s"]+|"[^"]*")/gi,
+        type: "allintext",
+        extract: (match) => match[1].replace(/"/g, ""),
+      },
+      {
+        regex: /allinanchor:([^\s"]+|"[^"]*")/gi,
+        type: "allinanchor",
+        extract: (match) => match[1].replace(/"/g, ""),
+      },
+      {
+        regex: /cache:([^\s"]+|"[^"]*")/gi,
+        type: "cache",
+        extract: (match) => match[1].replace(/"/g, ""),
+      },
+      {
+        regex: /related:([^\s"]+|"[^"]*")/gi,
+        type: "related",
+        extract: (match) => match[1].replace(/"/g, ""),
+      },
+      {
+        regex: /daterange:(\d+-\d+)/gi,
+        type: "daterange",
+        extract: (match) => match[1],
+      },
+      {
+        regex: /author:([^\s"]+|"[^"]*")/gi,
+        type: "author",
+        extract: (match) => match[1].replace(/"/g, ""),
+      },
+      {
+        regex: /source:([^\s"]+|"[^"]*")/gi,
+        type: "source",
+        extract: (match) => match[1].replace(/"/g, ""),
+      },
+      {
+        regex: /info:([^\s"]+|"[^"]*")/gi,
+        type: "info",
+        extract: (match) => match[1].replace(/"/g, ""),
+      },
+      {
+        regex: /link:([^\s"]+|"[^"]*")/gi,
+        type: "link",
+        extract: (match) => match[1].replace(/"/g, ""),
+      },
+
+      // === Bing & DuckDuckGo Operators ===
+      {
+        regex: /ip:([^\s]+)/gi,
+        type: "ip",
+        extract: (match) => match[1],
+      },
+      {
+        regex: /language:([^\s]+)/gi,
+        type: "language",
+        extract: (match) => match[1],
+      },
+      {
+        regex: /prefer:([^\s"]+|"[^"]*")/gi,
+        type: "prefer",
+        extract: (match) => match[1].replace(/"/g, ""),
+      },
+      {
+        regex: /feed:([^\s]+)/gi,
+        type: "feed",
+        extract: (match) => match[1],
+      },
+      {
+        regex: /hasfeed:([^\s]+)/gi,
+        type: "hasfeed",
+        extract: (match) => match[1],
+      },
+      {
+        regex: /url:([^\s]+)/gi,
+        type: "url",
+        extract: (match) => match[1],
+      },
+      
+      // === DuckDuckGo-Specific Operators ===
+      {
+        regex: /-site:([^\s]+)/gi,
+        type: "exclude-site",
+        extract: (match) => match[1],
+      },
+      {
+        regex: /~"([^"]+)"/gi,
+        type: "near-phrase",
+        extract: (match) => match[1],
+      },
+
+      // === General Search Modifiers (Google, Bing, DDG) ===
+      {
+        regex: /"([^"]+)"/gi,
+        type: "phrase",
+        extract: (match) => match[1],
+      },
+      {
+        regex: /-([^\s"]+|"[^"]*")/gi,
+        type: "exclude",
+        extract: (match) => match[1].replace(/"/g, ""),
+      },
+      {
+        regex: /\+([^\s"]+|"[^"]*")/gi,
+        type: "required",
+        extract: (match) => match[1].replace(/"/g, ""),
+      },
+      {
+        regex: /(\w*\*\w*)/gi,
+        type: "wildcard",
+        extract: (match) => match[1],
+      },
+      {
+        regex: /before:(\d{4}-\d{2}-\d{2}|\d{4}\/\d{2}\/\d{2})/gi,
+        type: "before",
+        extract: (match) => match[1],
+      },
+      {
+        regex: /after:(\d{4}-\d{2}-\d{2}|\d{4}\/\d{2}\/\d{2})/gi,
+        type: "after",
+        extract: (match) => match[1],
+      },
+      {
+        regex: /numrange:(\d+)-(\d+)/gi,
+        type: "numrange",
+        extract: (match) => `${match[1]}-${match[2]}`,
+      },
+      {
+        regex: /(\d+)\.\.(\d+)/gi,
+        type: "numrange",
+        extract: (match) => `${match[1]}-${match[2]}`,
       },
     ];
 
@@ -2445,8 +2598,25 @@ class MultiEngineDorker {
       }
     }
 
+    // Handle logical operators (OR, AND)
+    if (dork.toUpperCase().includes(' OR ')) {
+      patterns.push({
+        type: "logical",
+        value: "OR",
+        original: "OR",
+      });
+    }
+    
+    if (dork.toUpperCase().includes(' AND ')) {
+      patterns.push({
+        type: "logical",
+        value: "AND",
+        original: "AND",
+      });
+    }
+
     this.logger?.debug(
-      `Extracted ${patterns.length} patterns from dork:`,
+      `Extracted ${patterns.length} patterns from dork: ${dork}`,
       patterns
     );
     return patterns;
@@ -2466,23 +2636,47 @@ class MultiEngineDorker {
 
     switch (type) {
       case "inurl": {
-        // Check if URL contains the specified pattern
+        // Check if URL contains the specified pattern with precise matching
         const urlPattern = value.toLowerCase();
-        return url.includes(urlPattern);
+        
+        if (urlPattern.includes('?') || urlPattern.includes('=') || urlPattern.includes('&')) {
+          // Precise matching for query parameter patterns
+          const escapedPattern = urlPattern
+            .replace(/[.*+?^${}()|[\]\\]/g, '\\$&')  // Escape regex special chars
+            .replace(/\\\?/g, '\\?'); // Keep ? as literal
+            
+          const regex = new RegExp(escapedPattern, 'i');
+          return regex.test(url);
+        } else {
+          // Flexible matching for simple text patterns
+          return url.includes(urlPattern);
+        }
+      }
+
+      case "allinurl": {
+        // Check if ALL words are present in URL
+        const words = value.toLowerCase().split(/\s+/);
+        return words.every(word => url.includes(word.trim()));
       }
 
       case "site": {
         // Check if URL is from the specified site/domain
         let sitePattern = value.toLowerCase();
 
-        // Handle wildcards in site patterns
         if (sitePattern.startsWith("*.")) {
           // *.example.com should match any subdomain of example.com
           const baseDomain = sitePattern.substring(2);
           return url.includes(baseDomain);
         } else {
-          // Regular site match
-          return url.includes(sitePattern);
+          // Regular site match - check domain portion of URL
+          try {
+            const urlObj = new URL(result.url);
+            const hostname = urlObj.hostname.toLowerCase();
+            return hostname === sitePattern || hostname.endsWith('.' + sitePattern);
+          } catch (e) {
+            // Fallback to simple string matching
+            return url.includes(sitePattern);
+          }
         }
       }
 
@@ -2492,24 +2686,182 @@ class MultiEngineDorker {
         return title.includes(titlePattern);
       }
 
+      case "allintitle": {
+        // Check if ALL words are present in title
+        const words = value.toLowerCase().split(/\s+/);
+        return words.every(word => title.includes(word.trim()));
+      }
+
       case "intext": {
         // Check if title or description contains the specified text
         const textPattern = value.toLowerCase();
         return title.includes(textPattern) || description.includes(textPattern);
       }
 
+      case "allintext": {
+        // Check if ALL words are present in text content
+        const words = value.toLowerCase().split(/\s+/);
+        const fullText = `${title} ${description}`.toLowerCase();
+        return words.every(word => fullText.includes(word.trim()));
+      }
+
+      case "inanchor": {
+        // Note: Anchor text is typically not available in search results
+        // This would require additional scraping to determine
+        // For now, we'll check if the pattern appears in the title as a proxy
+        const anchorPattern = value.toLowerCase();
+        return title.includes(anchorPattern);
+      }
+
+      case "allinanchor": {
+        // Check if ALL words would be in anchor text (using title as proxy)
+        const words = value.toLowerCase().split(/\s+/);
+        return words.every(word => title.includes(word.trim()));
+      }
+
       case "filetype": {
         // Check if URL ends with the specified file extension
         const filePattern = value.toLowerCase();
-
-        // Handle both with and without dot
         const extensions = [
           `.${filePattern}`,
           `.${filePattern}?`, // With query parameters
           `.${filePattern}#`, // With fragments
         ];
-
         return extensions.some((ext) => url.includes(ext));
+      }
+
+      case "phrase": {
+        // Check if exact phrase appears in title or description
+        const phrasePattern = value.toLowerCase();
+        const fullText = `${title} ${description}`.toLowerCase();
+        return fullText.includes(phrasePattern);
+      }
+
+      case "exclude": {
+        // Check if excluded term is NOT present
+        const excludePattern = value.toLowerCase();
+        const fullText = `${title} ${description} ${url}`.toLowerCase();
+        return !fullText.includes(excludePattern);
+      }
+
+      case "required": {
+        // Check if required term is present
+        const requiredPattern = value.toLowerCase();
+        const fullText = `${title} ${description} ${url}`.toLowerCase();
+        return fullText.includes(requiredPattern);
+      }
+
+      case "wildcard": {
+        // Handle wildcard patterns
+        const wildcardPattern = value.toLowerCase();
+        const regex = new RegExp(wildcardPattern.replace(/\*/g, '.*'), 'i');
+        const fullText = `${title} ${description} ${url}`.toLowerCase();
+        return regex.test(fullText);
+      }
+
+      case "numrange": {
+        // Check if numbers in the specified range appear in URL or content
+        const [min, max] = value.split('-').map(n => parseInt(n));
+        const fullText = `${title} ${description} ${url}`;
+        const numbers = fullText.match(/\d+/g) || [];
+        return numbers.some(num => {
+          const n = parseInt(num);
+          return n >= min && n <= max;
+        });
+      }
+
+      case "author": {
+        // Check if author name appears in title or description
+        const authorPattern = value.toLowerCase();
+        const fullText = `${title} ${description}`.toLowerCase();
+        return fullText.includes(authorPattern);
+      }
+
+      case "source": {
+        // Check if source appears in URL or content
+        const sourcePattern = value.toLowerCase();
+        const fullText = `${title} ${description} ${url}`.toLowerCase();
+        return fullText.includes(sourcePattern);
+      }
+
+      case "location": {
+        // Check if location appears in title or description
+        const locationPattern = value.toLowerCase();
+        const fullText = `${title} ${description}`.toLowerCase();
+        return fullText.includes(locationPattern);
+      }
+
+      // === Bing & DuckDuckGo Operators ===
+      case "ip": {
+        // IP filtering would require resolving the domain, which is out of scope for result filtering
+        // This is a search-level operator
+        return true;
+      }
+      
+      case "language": {
+        // Language detection is complex; this is a search-level operator
+        return true;
+      }
+      
+      case "prefer": {
+        // This is a search-level operator to prefer certain terms
+        const preferPattern = value.toLowerCase();
+        const fullText = `${title} ${description}`.toLowerCase();
+        return fullText.includes(preferPattern);
+      }
+      
+      case "feed":
+      case "hasfeed": {
+        // Feed detection would require inspecting page for RSS/Atom links
+        return true;
+      }
+      
+      case "url": {
+        // Similar to inurl but may have different engine-specific behavior
+        return url.includes(value.toLowerCase());
+      }
+      
+      // === DuckDuckGo-Specific Operators ===
+      case "exclude-site": {
+        // Check if URL is NOT from the specified site/domain
+        const sitePattern = value.toLowerCase();
+        try {
+          const urlObj = new URL(result.url);
+          const hostname = urlObj.hostname.toLowerCase();
+          return !(hostname === sitePattern || hostname.endsWith('.' + sitePattern));
+        } catch (e) {
+          return !url.includes(sitePattern);
+        }
+      }
+      
+      case "near-phrase": {
+        // Complex proximity search, for now, we check if all words appear
+        const words = value.toLowerCase().split(/\s+/);
+        const fullText = `${title} ${description}`.toLowerCase();
+        return words.every(word => fullText.includes(word.trim()));
+      }
+
+      case "before": 
+      case "after": 
+      case "daterange": {
+        // Date filtering is complex and would require parsing publish dates
+        // For now, we'll allow all results through as this is search-level filtering
+        this.logger?.debug(`Date filtering (${type}) not implemented for result filtering`);
+        return true;
+      }
+
+      case "cache": 
+      case "info": 
+      case "related": 
+      case "link": {
+        // These are search operators that modify the query type, not result filters
+        this.logger?.debug(`Query operator (${type}) not applicable for result filtering`);
+        return true;
+      }
+
+      case "logical": {
+        // Logical operators are handled at the pattern combination level
+        return true;
       }
 
       default:
@@ -2543,6 +2895,12 @@ class MultiEngineDorker {
           )}s`,
         }
       );
+      
+      // Send initial countdown to dashboard
+      if (this.dashboard && this.dashboard.setProcessingStatus) {
+        const totalSeconds = Math.ceil(randomDelay / 1000);
+        this.dashboard.setProcessingStatus(`⏳ Extended delay: ${Math.floor(totalSeconds / 60)}m ${totalSeconds % 60}s remaining`);
+      }
     } else {
       // Use standard delay range
       minDelay = (this.config.minDelay || this.config.delay || 10) * 1000;
@@ -2560,6 +2918,12 @@ class MultiEngineDorker {
           selected: `${randomDelay / 1000}s`,
         }
       );
+      
+      // Send initial countdown to dashboard
+      if (this.dashboard && this.dashboard.setProcessingStatus) {
+        const totalSeconds = Math.ceil(randomDelay / 1000);
+        this.dashboard.setProcessingStatus(`⏳ Delay: ${totalSeconds}s remaining`);
+      }
     }
 
     if (this.config.humanLike && this.pageData) {
@@ -2569,9 +2933,26 @@ class MultiEngineDorker {
       try {
         const delayStartTime = Date.now();
         const delayEndTime = delayStartTime + randomDelay;
+        let lastCountdownTime = Math.ceil(randomDelay / 1000);
 
         // Stay on current page and ONLY move cursor
         while (Date.now() < delayEndTime) {
+          // Update countdown every second
+          const delayRemainingTime = Math.ceil((delayEndTime - Date.now()) / 1000);
+          if (delayRemainingTime !== lastCountdownTime && delayRemainingTime > 0) {
+            lastCountdownTime = delayRemainingTime;
+            
+            // Send countdown updates to dashboard
+            if (this.dashboard && this.dashboard.setProcessingStatus) {
+              if (this.config.extendedDelay) {
+                const minutes = Math.floor(delayRemainingTime / 60);
+                const seconds = delayRemainingTime % 60;
+                this.dashboard.setProcessingStatus(`⏳ Extended delay: ${minutes}m ${seconds}s remaining`);
+              } else {
+                this.dashboard.setProcessingStatus(`⏳ Delay: ${delayRemainingTime}s remaining`);
+              }
+            }
+          }
           // Verify we're still on Google (don't navigate if we're not)
           const currentUrl = page.url();
           if (!currentUrl.includes("google.com")) {
@@ -2615,6 +2996,11 @@ class MultiEngineDorker {
         }
 
         this.logger?.debug("Movement-only delay completed successfully");
+        
+        // Clear countdown status
+        if (this.dashboard && this.dashboard.setProcessingStatus) {
+          this.dashboard.setProcessingStatus(null);
+        }
       } catch (error) {
         this.logger?.warn(
           "Error during movement-only delay, falling back to regular sleep",
@@ -2628,10 +3014,20 @@ class MultiEngineDorker {
           "fallback delay between searches",
           this.logger
         );
+        
+        // Clear countdown status
+        if (this.dashboard && this.dashboard.setProcessingStatus) {
+          this.dashboard.setProcessingStatus(null);
+        }
       }
     } else {
       // Fallback to regular sleep
       await sleep(randomDelay, "delay between searches", this.logger);
+      
+      // Clear countdown status
+      if (this.dashboard && this.dashboard.setProcessingStatus) {
+        this.dashboard.setProcessingStatus(null);
+      }
     }
   }
 
@@ -2664,3 +3060,4 @@ class MultiEngineDorker {
 }
 
 export default MultiEngineDorker;
+

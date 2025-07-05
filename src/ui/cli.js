@@ -13,25 +13,25 @@ import { Command } from "commander";
 function displayBanner() {
   console.clear();
   try {
-    const banner = figlet.textSync("DORKER", {
+    const banner = figlet.textSync("THREATDORKER", {
       font: "Big Money-nw",
       horizontalLayout: "default",
       verticalLayout: "default",
     });
     console.log(gradient.passion(banner));
   } catch (error) {
-    console.log(gradient.passion("\n=== DORKER ==="));
+    console.log(gradient.passion("\n=== THREATDORKER ==="));
   }
 
   const description = boxen(
-    `${chalk.bold.cyan("🔍 Advanced Google Dorking Tool")}\n` +
+    `${chalk.bold.red("🚨 Advanced Threat Research & Google Dorking Tool")}\n` +
       `${chalk.gray("Intelligent search automation with anti-detection")}\n` +
       `${chalk.gray("Built with Node.js & Puppeteer")}`,
     {
       padding: 1,
       margin: 1,
       borderStyle: "round",
-      borderColor: "cyan",
+      borderColor: "red",
       backgroundColor: "#1a1a1a",
     }
   );
@@ -144,7 +144,7 @@ function displayConfig(config) {
  * Interactive configuration with modern prompts
  */
 async function getConfiguration() {
-  p.intro(gradient.rainbow("🛠️ DORKER Configuration Setup"));
+  p.intro(gradient.rainbow("🛠️ THREATDORKER Configuration Setup"));
 
   const config = await p.group(
     {
@@ -162,12 +162,13 @@ async function getConfiguration() {
       outputFile: () =>
         p.text({
           message:
-            "💾 Output file path (optional - leave empty to only save URLs at end)",
-          placeholder: "Leave empty for URL-only output",
-          defaultValue: "",
-          validate: (_value) => {
-            // Allow empty output file - will only save URLs if user agrees at end
-            return true;
+            "�� Output file path (e.g., results.json or results.txt)",
+          placeholder: "Leave empty for URL-only output at the end",
+          validate: (value) => {
+            if (value && !value.endsWith('.json') && !value.endsWith('.txt')) {
+              return "Output file must end with .json or .txt";
+            }
+            return;
           },
         }),
 
@@ -658,7 +659,7 @@ function parseCommandLineArgs() {
   const program = new Command();
 
   program
-    .name("dorker")
+    .name("threatdorker")
     .description("Advanced Google Dorking Tool with Anti-Detection")
     .version("2.0.0")
     .option("-s, --server", "Run in server mode with web configuration")

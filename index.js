@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 
 /**
- * Dorker - Google Dorking Tool with Advanced Anti-Detection
+ * ThreatDorker - Advanced Threat Research & Google Dorking Tool
  *
  * This is the main entry point that uses the new modular architecture.
  * All functionality has been organized into professional modules in the src/ directory.

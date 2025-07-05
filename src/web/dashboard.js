@@ -592,6 +592,18 @@ class DashboardServer {
     this.updateStats({ status });
   }
 
+  setProcessingStatus(processingStatus) {
+    // Send real-time processing status to connected clients
+    this.io.emit("processingStatus", { 
+      status: processingStatus,
+      timestamp: new Date().toISOString()
+    });
+    
+    if (processingStatus) {
+      this.addLog("info", processingStatus);
+    }
+  }
+
   addToTotalResults(count) {
     this.updateStats({ totalResults: this.stats.totalResults + count });
   }

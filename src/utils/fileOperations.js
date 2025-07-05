@@ -165,7 +165,18 @@ async function saveResults(data, filePath, logger = null) {
       filePath,
       resultCount: Object.keys(data).length,
     });
-    const fullPath = path.resolve(filePath);
+    
+    // Add timestamp to filename
+    const pathInfo = path.parse(filePath);
+    const timestamp = new Date().toISOString().replace(/[:.]/g, '-').split('T');
+    const dateStr = timestamp[0]; // YYYY-MM-DD
+    const timeStr = timestamp[1].split('.')[0]; // HH-MM-SS
+    const timestampedPath = path.join(
+      pathInfo.dir,
+      `${pathInfo.name}_${dateStr}_${timeStr}${pathInfo.ext}`
+    );
+    
+    const fullPath = path.resolve(timestampedPath);
     await fs.writeFile(fullPath, JSON.stringify(data, null, 2), "utf-8");
     logger?.info("Results saved successfully", { filePath: fullPath });
     logWithDedup(
@@ -227,6 +238,27 @@ async function appendDorkResults(
 }
 
 /**
+ * Appends an array of URLs to a text file
+ * @param {string[]} urls - The URLs to append
+ * @param {string} filePath - The path to the output file
+ * @param {Object} logger - Winston logger instance
+ */
+async function appendUrlsToFile(urls, filePath, logger = null) {
+  if (!filePath || !urls || urls.length === 0) return;
+
+  try {
+    const urlContent = urls.join("\n") + "\n";
+    await fs.appendFile(filePath, urlContent, "utf8");
+    logger?.debug(`Appended ${urls.length} URLs to ${filePath}`);
+  } catch (error) {
+    logger?.error("Error appending URLs to file", {
+      filePath,
+      error: error.message,
+    });
+  }
+}
+
+/**
  * Save URLs to a text file, one per line
  * @param {Object} results - Results object containing dorks and their results
  * @param {string} filePath - Path to save the URLs file
@@ -269,12 +301,15 @@ async function saveUrlsToFile(
       duplicateCount = urls.length - urlsToSave.length;
     }
 
-    // Create filename with type indicator
+    // Create filename with timestamp and type indicator
     const pathInfo = path.parse(filePath);
+    const timestamp = new Date().toISOString().replace(/[:.]/g, '-').split('T');
+    const dateStr = timestamp[0]; // YYYY-MM-DD
+    const timeStr = timestamp[1].split('.')[0]; // HH-MM-SS
     const typeIndicator = includeAll ? "-all" : "-unique";
     const finalPath = path.join(
       pathInfo.dir,
-      `${pathInfo.name}${typeIndicator}${pathInfo.ext}`
+      `${pathInfo.name}_${dateStr}_${timeStr}${typeIndicator}${pathInfo.ext}`
     );
 
     // Save one URL per line
@@ -310,7 +345,7 @@ async function saveUrlsToFile(
     const altTypeIndicator = includeAll ? "-unique" : "-all";
     const altPath = path.join(
       pathInfo.dir,
-      `${pathInfo.name}${altTypeIndicator}${pathInfo.ext}`
+      `${pathInfo.name}_${dateStr}_${timeStr}${altTypeIndicator}${pathInfo.ext}`
     );
     const altUrls = includeAll ? [...new Set(urls)] : urls;
     const altContent = altUrls.join("\n") + "\n";
@@ -335,4 +370,10 @@ async function saveUrlsToFile(
   }
 }
 
-export { loadDorks, saveResults, appendDorkResults, saveUrlsToFile };
+export {
+  loadDorks,
+  saveResults,
+  appendDorkResults,
+  appendUrlsToFile,
+  saveUrlsToFile,
+};

@@ -724,7 +724,13 @@ async function performWarmup(pageData, logger = null) {
       60000
     );
 
-    logger?.info(`Warm-up session duration: ${warmupTime}ms`);
+    const warmupSeconds = Math.ceil(warmupTime / 1000);
+    logger?.info(`Warm-up session duration: ${warmupTime}ms (${warmupSeconds}s)`);
+
+    // Update dashboard with countdown
+    if (dashboard && dashboard.addLog) {
+      dashboard.addLog("info", `🔥 Starting ${warmupSeconds}s warm-up session with countdown...`);
+    }
 
     // Navigate to Google with proper loading detection
     await navigateToGoogle(pageData, logger);
@@ -739,8 +745,38 @@ async function performWarmup(pageData, logger = null) {
     const warmupStartTime = Date.now();
     const warmupEndTime = warmupStartTime + warmupTime;
 
+    // Start countdown timer
+    let lastCountdownTime = warmupSeconds;
+    logger?.info(`⏱️ Warm-up countdown: ${lastCountdownTime}s remaining`);
+    
+    if (dashboard && dashboard.addLog) {
+      dashboard.addLog("info", `⏱️ Warm-up countdown: ${lastCountdownTime}s remaining`);
+    }
+    
+    // Send initial countdown status to dashboard
+    if (dashboard && dashboard.setProcessingStatus) {
+      dashboard.setProcessingStatus(`🔥 Warming up: ${lastCountdownTime}s remaining`);
+    }
+
     // Stay on Google homepage and ONLY move cursor
     while (Date.now() < warmupEndTime) {
+      // Update countdown every second
+      const remainingTime = Math.ceil((warmupEndTime - Date.now()) / 1000);
+      if (remainingTime !== lastCountdownTime && remainingTime > 0) {
+        lastCountdownTime = remainingTime;
+        logger?.debug(`⏱️ Warm-up countdown: ${remainingTime}s remaining`);
+        
+        // Update dashboard with countdown every second
+        if (dashboard && dashboard.setProcessingStatus) {
+          dashboard.setProcessingStatus(`🔥 Warming up: ${remainingTime}s remaining`);
+        }
+        
+        // Log to dashboard (every 5 seconds to avoid spam)
+        if (remainingTime % 5 === 0 && dashboard && dashboard.addLog) {
+          dashboard.addLog("info", `⏱️ Warm-up countdown: ${remainingTime}s remaining`);
+        }
+      }
+
       // Verify we're still on Google (don't navigate if we're not)
       const currentUrl = page.url();
       if (!currentUrl.includes("google.com")) {
@@ -771,6 +807,16 @@ async function performWarmup(pageData, logger = null) {
 
     logWithDedup("info", "✅ Warm-up session completed", chalk.green, logger);
     logger?.info("Warm-up session completed successfully (movement-only)");
+    
+    // Clear countdown status
+    if (dashboard && dashboard.setProcessingStatus) {
+      dashboard.setProcessingStatus(null);
+    }
+    
+    // Final countdown completion message
+    if (dashboard && dashboard.addLog) {
+      dashboard.addLog("success", `✅ Warm-up countdown completed! Ready for dorking.`);
+    }
   } catch (error) {
     logger?.warn("Warm-up session encountered issues", {
       error: error.message,

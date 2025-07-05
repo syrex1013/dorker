@@ -103,7 +103,7 @@ const createLogger = async (clearLogs = true) => {
 
     // Add startup log entry
     const startupTime = new Date().toISOString();
-    const startupMessage = `DORKER SESSION STARTED - ${startupTime}`;
+    const startupMessage = `THREATDORKER SESSION STARTED - ${startupTime}`;
 
     // Winston logger configuration
     const logger = winston.createLogger({

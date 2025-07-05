@@ -11,7 +11,12 @@ import {
   displayError,
   parseCommandLineArgs,
 } from "./ui/cli.js";
-import { loadDorks, saveUrlsToFile } from "./utils/fileOperations.js";
+import {
+  loadDorks,
+  appendDorkResults,
+  saveUrlsToFile,
+  appendUrlsToFile,
+} from "./utils/fileOperations.js";
 import MultiEngineDorker from "./dorker/MultiEngineDorker.js";
 import DashboardServer from "./web/dashboard.js";
 import { resetCaptchaDetectionState } from "./captcha/detector.js";
@@ -223,8 +228,32 @@ async function performDorking(dorks, config) {
       dashboard.addLog("info", processMessage);
       console.log(chalk.cyan(`\n📍 ${processMessage}`));
 
-      // Perform search
-      const results = await dorker.performSearch(dork, config.resultCount);
+      // Create and start spinner for this dork
+      const dorkSpinner = createSpinner(
+        `🔍 Searching: ${dork.substring(0, 60)}${dork.length > 60 ? "..." : ""}`,
+        "cyan"
+      );
+      dorkSpinner.start();
+
+      // Update dashboard with spinner status
+      dashboard.setProcessingStatus?.(`🔄 Searching: ${dork.substring(0, 50)}...`);
+
+      let results;
+      try {
+        // Perform search
+        results = await dorker.performSearch(dork, config.resultCount);
+        
+        // Stop spinner and show success
+        dorkSpinner.succeed(`✅ Found ${results ? results.length : 0} results for dork`);
+        
+      } catch (searchError) {
+        // Stop spinner and show error
+        dorkSpinner.fail(`❌ Search failed: ${searchError.message}`);
+        results = [];
+      }
+      
+      // Clear dashboard processing status
+      dashboard.setProcessingStatus?.(null);
 
       // Update dashboard with results
       dashboard.incrementProcessed();
@@ -266,7 +295,17 @@ async function performDorking(dorks, config) {
       // Store results
       allResults[dork] = results;
 
-      // Note: We no longer automatically save JSON files - only save URLs if user agrees at end
+      // Append results to file if outputFile is specified
+      if (config.outputFile) {
+        if (config.outputFile.endsWith('.json')) {
+          await appendDorkResults(dork, results, config.outputFile, allResults, logger);
+        } else if (config.outputFile.endsWith('.txt')) {
+          const urls = results.map(r => r.url).filter(Boolean);
+          if (urls.length > 0) {
+            await appendUrlsToFile(urls, config.outputFile, logger);
+          }
+        }
+      }
 
       // Show progress
       const percentage = Math.round(((i + 1) / dorks.length) * 100);
@@ -369,7 +408,7 @@ async function interactiveMode() {
     displayStatus("Initializing logging system...", "📝", "cyan");
 
     logger = await createLogger(true); // Always clear logs on startup
-    logger.info("Starting Dorker application", { config });
+    logger.info("Starting ThreatDorker application", { config });
 
     displayStatus("✅ Logging system ready", "✓", "green");
 
@@ -444,16 +483,25 @@ async function interactiveMode() {
           console.log(chalk.gray("   ...") + chalk.white(dork.substring(80)));
         }
 
-        // Create search spinner
-        console.log(chalk.gray("\n⏳ Searching..."));
-        const searchSpinner = createSpinner(`Executing search query`, "green");
+        // Create search spinner with detailed message
+        const searchSpinner = createSpinner(
+          `🔍 Searching: ${dork.substring(0, 60)}${dork.length > 60 ? "..." : ""}`, 
+          "cyan"
+        );
         searchSpinner.start();
 
-        // Perform search
-        const results = await dorker.performSearch(dork, config.resultCount);
-
-        // Stop spinner and show results
-        searchSpinner.stop();
+        let results;
+        try {
+          // Perform search
+          results = await dorker.performSearch(dork, config.resultCount);
+          
+          // Stop spinner and show success
+          searchSpinner.succeed(`✅ Found ${results ? results.length : 0} results`);
+        } catch (searchError) {
+          // Stop spinner and show error
+          searchSpinner.fail(`❌ Search failed: ${searchError.message}`);
+          results = [];
+        }
 
         if (results && results.length > 0) {
           console.log(chalk.green(`✅ Found ${results.length} results`));
@@ -504,21 +552,17 @@ async function interactiveMode() {
 
         // Delay between searches (except for last dork)
         if (i < dorks.length - 1) {
-          const interactiveDelayMessage = config.extendedDelay
-            ? "⏱️ Waiting 1-5 minutes before next search (Extended Mode)..."
-            : `⏱️ Waiting ${config.minDelay || config.delay || 10}-${
-                config.maxDelay || config.delay || 45
-              }s before next search...`;
-
-          console.log(chalk.gray(interactiveDelayMessage));
-
-          const delaySpinner = createSpinner(`Delay in progress`, "yellow");
+          const delaySpinner = createSpinner(
+            config.extendedDelay 
+              ? `⏳ Extended delay in progress (1-5 minutes)...`
+              : `⏳ Delay in progress (${config.minDelay || config.delay || 10}-${config.maxDelay || config.delay || 45}s)...`, 
+            "yellow"
+          );
           delaySpinner.start();
 
           await dorker.delayBetweenSearches();
 
-          delaySpinner.stop();
-          console.log(chalk.green("✅ Delay completed"));
+          delaySpinner.succeed("✅ Delay completed, continuing to next dork");
         }
       } catch (error) {
         logger.error("Error processing dork", {
@@ -541,42 +585,44 @@ async function interactiveMode() {
     // Display final summary
     displayFinalSummary(allResults, startTime);
 
-    // Ask if user wants to save URLs to result.txt
-    const shouldSaveUrls = await askSaveUrls(allResults);
-    if (shouldSaveUrls) {
-      displayStatus("Saving URLs to files...", "🔗", "blue");
+    if (!config.outputFile) {
+      // Ask if user wants to save URLs to result.txt
+      const shouldSaveUrls = await askSaveUrls(allResults);
+      if (shouldSaveUrls) {
+        displayStatus("Saving URLs to files...", "🔗", "blue");
 
-      // Save both unique and all versions for comparison
-      await saveUrlsToFile(allResults, "result.txt", logger, false); // unique version first
+        // Save both unique and all versions for comparison
+        await saveUrlsToFile(allResults, "result.txt", logger, false); // unique version first
 
-      displayStatus(
-        "✅ URLs saved - both unique and complete versions created",
-        "✓",
-        "green"
-      );
-
-      // Show user the difference
-      const urls = [];
-      for (const dork in allResults) {
-        if (allResults[dork] && Array.isArray(allResults[dork])) {
-          allResults[dork].forEach((result) => {
-            if (result.url && result.url.trim()) {
-              urls.push(result.url.trim());
-            }
-          });
-        }
-      }
-
-      const uniqueCount = [...new Set(urls)].length;
-      const totalCount = urls.length;
-      const duplicateCount = totalCount - uniqueCount;
-
-      if (duplicateCount > 0) {
         displayStatus(
-          `📊 Total: ${totalCount} URLs, Unique: ${uniqueCount}, Duplicates: ${duplicateCount}`,
-          "📈",
-          "cyan"
+          "✅ URLs saved - both unique and complete versions created",
+          "✓",
+          "green"
         );
+
+        // Show user the difference
+        const urls = [];
+        for (const dork in allResults) {
+          if (allResults[dork] && Array.isArray(allResults[dork])) {
+            allResults[dork].forEach((result) => {
+              if (result.url && result.url.trim()) {
+                urls.push(result.url.trim());
+              }
+            });
+          }
+        }
+
+        const uniqueCount = [...new Set(urls)].length;
+        const totalCount = urls.length;
+        const duplicateCount = totalCount - uniqueCount;
+
+        if (duplicateCount > 0) {
+          displayStatus(
+            `📊 Total: ${totalCount} URLs, Unique: ${uniqueCount}, Duplicates: ${duplicateCount}`,
+            "📈",
+            "cyan"
+          );
+        }
       }
     }
 
