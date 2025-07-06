@@ -12,7 +12,8 @@
     "interactive": "node index.js --interactive",
     "lint": "eslint index.js --fix",
     "lint:check": "eslint index.js",
-    "test": "echo \"Error: no test specified\" && exit 1",
+    "test": "mocha test/**/*-test.js --timeout 60000",
+    "test:search": "mocha test/search-engines-test.js --timeout 60000",
     "test-captcha": "node test/captcha-test.js",
     "test-delay": "node test/delay-test.js",
     "test-simple": "node test/simple-captcha-test.js"
@@ -75,7 +76,9 @@
   },
   "devDependencies": {
     "@eslint/js": "^9.29.0",
+    "chai": "^5.2.0",
     "eslint": "^9.29.0",
-    "globals": "^16.2.0"
+    "globals": "^16.2.0",
+    "mocha": "^10.8.2"
   }
 }

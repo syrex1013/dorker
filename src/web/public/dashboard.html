@@ -1,4 +1,4 @@
-cl<!DOCTYPE html>
+<!DOCTYPE html>
 <html lang="en">
   <head>
     <meta charset="UTF-8" />
@@ -1040,6 +1040,29 @@ cl<!DOCTYPE html>
       }
 
       /* Duplicate modal CSS removed - using the definitions above */
+
+      .search-engines {
+        margin: 15px 0;
+        padding: 10px;
+        border: 1px solid #ddd;
+        border-radius: 5px;
+        background: #f9f9f9;
+      }
+
+      .search-engines label {
+        margin-right: 15px;
+        cursor: pointer;
+      }
+
+      .search-engines input[type="checkbox"] {
+        margin-right: 5px;
+      }
+
+      .search-engines-title {
+        font-weight: bold;
+        margin-bottom: 10px;
+        color: #333;
+      }
     </style>
   </head>
   <body>
@@ -1709,6 +1732,40 @@ cl<!DOCTYPE html>
                 />
                 🔍 Enable multi-engine dorking
               </label>
+
+              <div id="search-engines-container" style="margin-left: 1.5rem; margin-bottom: 1rem; display: none;">
+                <label style="display: block; margin-bottom: 0.5rem; font-weight: 500">
+                  Select Search Engines:
+                </label>
+                <label style="display: block; margin-bottom: 0.5rem">
+                  <input
+                    type="checkbox"
+                    name="searchEngine"
+                    value="google"
+                    checked
+                    style="margin-right: 0.5rem"
+                  />
+                  Google
+                </label>
+                <label style="display: block; margin-bottom: 0.5rem">
+                  <input
+                    type="checkbox"
+                    name="searchEngine"
+                    value="bing"
+                    style="margin-right: 0.5rem"
+                  />
+                  Bing
+                </label>
+                <label style="display: block; margin-bottom: 0.5rem">
+                  <input
+                    type="checkbox"
+                    name="searchEngine"
+                    value="duckduckgo"
+                    style="margin-right: 0.5rem"
+                  />
+                  DuckDuckGo
+                </label>
+              </div>
 
               <label style="display: block; margin-bottom: 1rem">
                 <input
@@ -2903,6 +2960,14 @@ cl<!DOCTYPE html>
           .getElementById("config-start-btn")
           .addEventListener("click", startDorkingWithConfig);
 
+        // Multi-engine checkbox toggle
+        document
+          .getElementById("multi-engine")
+          .addEventListener("change", (e) => {
+            const container = document.getElementById("search-engines-container");
+            container.style.display = e.target.checked ? "block" : "none";
+          });
+
         // Completion popup buttons
         document
           .getElementById("completion-close-btn")
@@ -3261,6 +3326,23 @@ cl<!DOCTYPE html>
           dorkFiltering: formData.get("dorkFiltering") === "on",
           verbose: true,
         };
+
+        // Collect selected search engines if multi-engine is enabled
+        let engines = ['google']; // Default to Google
+        if (config.multiEngine) {
+          const selectedEngines = [];
+          const engineCheckboxes = document.querySelectorAll('input[name="searchEngine"]:checked');
+          engineCheckboxes.forEach(cb => selectedEngines.push(cb.value));
+          
+          if (selectedEngines.length === 0) {
+            showNotification("Please select at least one search engine", "error");
+            document.getElementById("config-modal").classList.add("show");
+            return;
+          }
+          engines = selectedEngines;
+        }
+        
+        config.engines = engines;
 
         // IMMEDIATELY close the modal before making the request
         const configModal = document.getElementById("config-modal");

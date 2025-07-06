@@ -13,14 +13,14 @@ import {
   performWarmup,
   navigateToGoogle,
   closeBrowser,
-  simulateHumanBrowsing,
 } from "../browser/browserManager.js";
 import BackgroundCaptchaMonitor from "../captcha/backgroundMonitor.js";
+import { SEARCH_ENGINES } from "../constants/searchEngines.js";
 
 /**
  * Multi-Engine Dorker class for performing Google dorking with anti-detection
  */
-class MultiEngineDorker {
+export class MultiEngineDorker {
   constructor(config, logger = null, dashboard = null) {
     this.config = config;
     this.logger = logger;
@@ -221,26 +221,43 @@ class MultiEngineDorker {
    * Perform a single dork search with pagination support
    * @param {string} dork - The dork query
    * @param {number} maxResults - Maximum results to return
+   * @param {string[]} engines - Array of search engines to use (e.g., ['google', 'bing', 'duckduckgo'])
    * @returns {Promise<Array>} Search results
    */
-  async performSearch(dork, maxResults = 30) {
+  async performSearch(dork, maxResults = 30, engines = ['google']) {
     try {
       this.logger?.info("Performing search", {
         dork: dork.substring(0, 50),
         maxResults,
+        engines,
       });
 
-      const { page, cursor } = this.pageData;
+      let allResults = [];
+
+      for (const engine of engines) {
+        this.logger?.info(`Searching with ${engine}...`);
+        
+        if (this.dashboard && this.dashboard.addLog) {
+          this.dashboard.addLog("info", `🔍 Searching with ${engine}...`);
+        }
+
+        const { page } = this.pageData;
 
       // Check if we need to restart browser
       if (this.searchCount >= this.restartThreshold) {
         await this.restartBrowser();
       }
 
-      // Navigate to Google if not already there
-      if (!page.url().includes("google.com")) {
-        await navigateToGoogle(this.pageData, this.logger);
-      }
+        // Navigate to search engine
+        const engineConfig = SEARCH_ENGINES[engine];
+        if (!engineConfig) {
+          this.logger?.warn(`Unsupported search engine: ${engine}`);
+          continue;
+        }
+
+        // Navigate to search engine homepage
+        await page.goto(engineConfig.baseUrl, { waitUntil: 'networkidle0' });
+        await sleep(engineConfig.waitTime || 2000, `waiting for ${engine} to load`, this.logger);
 
       // Handle CAPTCHA if present with proxy switching callback
       const switchProxyCallback = this.config.autoProxy
@@ -273,581 +290,60 @@ class MultiEngineDorker {
         this.dashboard,
         this.pageData
       );
+        
       if (!captchaHandled) {
-        logWithDedup(
-          "error",
-          "❌ CAPTCHA handling failed",
-          chalk.red,
-          this.logger
-        );
-        return [];
+          this.logger?.warn(`CAPTCHA handling failed for ${engine}, trying next engine`);
+          continue;
       }
 
       // Update status to searching
       if (this.dashboard && this.dashboard.setStatus) {
         this.dashboard.setStatus("searching");
       }
-      if (this.dashboard && this.dashboard.addLog) {
-        this.dashboard.addLog(
-          "info",
-          `🔍 Searching for: ${dork.substring(0, 50)}...`
-        );
-      }
 
-      // Always check for consent page before searching (including Polish)
-      const pageInfo = await page.evaluate(() => {
-        const pageText = document.body.textContent || "";
-        const url = window.location.href;
-        return {
-          isConsentPage:
-            pageText.includes("Before you continue to Google") ||
-            pageText.includes("We use cookies and data") ||
-            pageText.includes("Zanim przejdziesz do Google") ||
-            pageText.includes("Używamy plików cookie") ||
-            pageText.includes("Zaakceptuj wszystkie") ||
-            url.includes("consent.google") ||
-            document.querySelector(".containerGm3") !== null ||
-            document.querySelector(".boxGm3") !== null ||
-            pageText.includes("Sign inSign inBefore you continue"),
-          currentUrl: url,
-          pagePreview: pageText.slice(0, 150),
+        // Find and interact with search box
+        const searchBoxSelectors = {
+          google: ['input[name="q"]', '#APjFqb', '.gLFyf'],
+          bing: ['input[name="q"]', '#sb_form_q'],
+          duckduckgo: ['input[name="q"]', '#search_form_input_homepage', '#search_form_input']
         };
-      });
 
-      const isConsentPage = pageInfo.isConsentPage;
-
-      // Log page info for debugging
-      this.logger?.debug("Page check before search:", {
-        isConsentPage,
-        currentUrl: pageInfo.currentUrl,
-        pagePreview: pageInfo.pagePreview,
-      });
-
-      if (isConsentPage) {
-        this.logger?.info("Consent page detected during search, handling...");
-        this.logger?.debug("Consent page details:", pageInfo);
-
-        const { handleConsentOptimized } = await import(
-          "../browser/browserManager.js"
-        );
-        await handleConsentOptimized(page, cursor, this.logger);
-
-        // Wait for page to settle after consent
-        await sleep(3000, "after consent handling", this.logger);
-
-        // Check if we're still on consent page
-        const stillOnConsent = await page.evaluate(() => {
-          const pageText = document.body.textContent || "";
-          return (
-            pageText.includes("Before you continue to Google") ||
-            pageText.includes("We use cookies and data")
-          );
-        });
-
-        if (stillOnConsent) {
-          this.logger?.warn(
-            "Still on consent page after handling, trying navigation..."
-          );
-          await page.goto("https://www.google.com", {
-            waitUntil: "networkidle0",
-          });
-          await sleep(2000);
-
-          // Try consent handling one more time
-          await handleConsentOptimized(page, cursor, this.logger);
-          await sleep(2000, "after consent retry", this.logger);
-        }
-
-        // Navigate back to Google if needed
-        if (
-          !page.url().includes("google.com/search") &&
-          !page.url().includes("google.com/?")
-        ) {
-          await navigateToGoogle(this.pageData, this.logger);
-          await sleep(2000, "after navigating back to Google", this.logger);
-        }
-      }
-
-      // Pre-search thinking pause (40% chance)
-      if (Math.random() < 0.4) {
-        const thinkTime = Math.floor(Math.random() * 5000) + 2000;
-        logWithDedup(
-          "info",
-          `🤔 Pre-search thinking pause: ${Math.round(thinkTime / 1000)}s`,
-          chalk.gray,
-          this.logger
-        );
-        await sleep(thinkTime, "pre-search thinking pause", this.logger);
-      }
-
-      // Find search box with multiple selectors and retries
       let searchBox = null;
-      let searchBoxSelector = null; // Track which selector worked
-      const searchBoxSelectors = [
-        'input[name="q"]',
-        'input[type="text"][title*="Search"]',
-        'input[aria-label*="Search"]',
-        'textarea[name="q"]',
-        "#APjFqb", // New Google search box ID
-        ".gLFyf", // Another Google search box class
-        'input[role="combobox"]',
-      ];
-
-      // Try multiple times to find search box
-      for (let attempt = 0; attempt < 3 && !searchBox; attempt++) {
-        if (attempt > 0) {
-          this.logger?.debug(`Search box attempt ${attempt + 1}/3`);
-          await sleep(2000, "between search box attempts", this.logger);
-        }
-
-        for (const selector of searchBoxSelectors) {
+        for (const selector of searchBoxSelectors[engine] || []) {
           searchBox = await page.$(selector);
-          if (searchBox) {
-            // Verify the element is visible and interactable
-            const isVisible = await page.evaluate((sel) => {
-              const element = document.querySelector(sel);
-              if (!element) return false;
-
-              const style = window.getComputedStyle(element);
-              const rect = element.getBoundingClientRect();
-
-              return (
-                element.offsetWidth > 0 &&
-                element.offsetHeight > 0 &&
-                style.visibility !== "hidden" &&
-                style.display !== "none" &&
-                element.type !== "hidden" &&
-                rect.width > 0 &&
-                rect.height > 0
-              );
-            }, selector);
-
-            if (isVisible) {
-              searchBoxSelector = selector; // Remember which selector worked
-              this.logger?.debug(
-                `Found visible search box with selector: ${selector}`
-              );
-
-              // Scroll the search box into view
-              await page.evaluate((sel) => {
-                const element = document.querySelector(sel);
-                if (element) {
-                  element.scrollIntoView({
-                    behavior: "smooth",
-                    block: "center",
-                    inline: "center",
-                  });
-                }
-              }, selector);
-
-              // Wait for scroll to complete
-              await sleep(
-                500,
-                "after scrolling search box into view",
-                this.logger
-              );
-              break;
-            } else {
-              this.logger?.debug(
-                `Found search box with selector ${selector} but it's not visible/interactable`
-              );
-              searchBox = null; // Reset so we keep looking
-            }
-          }
+          if (searchBox) break;
         }
 
-        // If still no search box, check if we need to handle consent again
         if (!searchBox) {
-          const stillOnConsent = await page.evaluate(() => {
-            const pageText = document.body.textContent || "";
-            return (
-              pageText.includes("Before you continue to Google") ||
-              pageText.includes("We use cookies and data") ||
-              pageText.includes("Zanim przejdziesz do Google") ||
-              pageText.includes("Używamy plików cookie") ||
-              pageText.includes("Zaakceptuj wszystkie") ||
-              document.querySelector(".containerGm3") !== null
-            );
-          });
-
-          if (stillOnConsent) {
-            this.logger?.info("Still on consent page, handling again...");
-            const { handleConsentOptimized } = await import(
-              "../browser/browserManager.js"
-            );
-            await handleConsentOptimized(page, cursor, this.logger);
-            await sleep(
-              3000,
-              "after handling consent on search retry",
-              this.logger
-            );
-          } else {
-            // Try refreshing or navigating to Google
-            this.logger?.info("Search box not found, refreshing page...");
-            await page.reload({ waitUntil: "networkidle0" });
-            await sleep(3000, "after page refresh", this.logger);
-          }
+          this.logger?.warn(`Could not find search box for ${engine}`);
+          continue;
         }
-      }
 
-      if (!searchBox) {
-        // Last resort: try to navigate to Google homepage
-        this.logger?.warn(
-          "Search box still not found, navigating to Google homepage..."
-        );
-        await page.goto("https://www.google.com", {
-          waitUntil: "networkidle0",
-        });
-        await sleep(3000, "after navigating to Google homepage", this.logger);
-
-        // Handle consent one more time if needed
-        const { handleConsentOptimized } = await import(
-          "../browser/browserManager.js"
-        );
-        await handleConsentOptimized(page, cursor, this.logger);
-        await sleep(2000, "after final consent handling", this.logger);
-
-        // Try to find search box one final time
-        for (const selector of searchBoxSelectors) {
-          searchBox = await page.$(selector);
-          if (searchBox) {
-            searchBoxSelector = selector; // Update the selector if found
-            break;
-          }
-        }
-      }
-
-      if (!searchBox || !searchBoxSelector) {
-        throw new Error(
-          "Search box not found after multiple attempts - may be blocked by consent or CAPTCHA"
-        );
-      }
-
-      // Clear search box completely and enter dork
-      this.logger?.debug(
-        `Clearing search box completely using selector: ${searchBoxSelector}`
-      );
-
-      // Click search box with human-like behavior using ghost cursor
-      this.logger?.debug("Attempting to click search box with ghost cursor");
-
-      // Add small random delay before clicking (human reaction time)
-      const reactionTime = 150 + Math.random() * 200;
-      await sleep(reactionTime, "human reaction time", this.logger);
-
-      try {
-        // Try ghost cursor click with timeout
-        if (cursor && typeof cursor.click === "function") {
-          try {
-            await Promise.race([
-              cursor.click(searchBox),
-              new Promise((_, reject) =>
-                setTimeout(() => reject(new Error("cursor timeout")), 3000)
-              ),
-            ]);
-            this.logger?.debug("Ghost cursor click on search box successful");
-          } catch (clickError) {
-            this.logger?.debug(
-              `Ghost cursor failed on search box: ${clickError.message}, using fallback`
-            );
-            throw new Error("cursor failed");
-          }
-        } else {
-          throw new Error("No valid cursor");
-        }
-      } catch (_cursorError) {
-        this.logger?.debug("Using fallback click for search box");
+        // Clear and fill search box
         await searchBox.click();
-      }
-
-      // Add delay after clicking like a human would
-      const postClickDelay = 100 + Math.random() * 150;
-      await sleep(postClickDelay, "after click delay", this.logger);
-
-      // Ensure the search box has focus
       await searchBox.focus();
-      await sleep(200, "after focusing search box", this.logger);
-
-      // Select all text in search box (cross-platform)
-      if (process.platform === "darwin") {
-        // Mac - use Command key
-        await page.keyboard.down("Meta");
+        await page.keyboard.down(process.platform === "darwin" ? "Meta" : "Control");
         await page.keyboard.press("a");
-        await page.keyboard.up("Meta");
-      } else {
-        // Windows/Linux - use Ctrl key
-        await page.keyboard.down("Control");
-        await page.keyboard.press("a");
-        await page.keyboard.up("Control");
-      }
-      await sleep(100, "after selecting all text", this.logger);
-
-      // Delete selected text
+        await page.keyboard.up(process.platform === "darwin" ? "Meta" : "Control");
       await page.keyboard.press("Delete");
-      await sleep(200, "after deleting text", this.logger);
-
-      // Double-check by getting current value and clearing if needed - using the correct selector
-      const currentValue = await page.evaluate((selector) => {
-        const input = document.querySelector(selector);
-        return input
-          ? input.value || input.textContent || input.innerText || ""
-          : "";
-      }, searchBoxSelector);
-
-      if (currentValue && currentValue.trim() !== "") {
-        this.logger?.debug(
-          `Search box still has content: "${currentValue}", force clearing...`
-        );
-        await page.evaluate((selector) => {
-          const input = document.querySelector(selector);
-          if (input) {
-            // Try multiple clearing methods
-            input.value = "";
-            input.textContent = "";
-            input.innerText = "";
-
-            // Dispatch multiple events to ensure clearing
-            input.dispatchEvent(new Event("input", { bubbles: true }));
-            input.dispatchEvent(new Event("change", { bubbles: true }));
-            input.dispatchEvent(new Event("keyup", { bubbles: true }));
-
-            // Focus and manually clear again
-            input.focus();
-            input.select();
-          }
-        }, searchBoxSelector);
-        await sleep(500, "after force clearing", this.logger);
-
-        // Verify clearing worked
-        const verifyValue = await page.evaluate((selector) => {
-          const input = document.querySelector(selector);
-          return input
-            ? input.value || input.textContent || input.innerText || ""
-            : "";
-        }, searchBoxSelector);
-
-        if (verifyValue && verifyValue.trim() !== "") {
-          this.logger?.warn(
-            `Search box still not empty after force clear: "${verifyValue}"`
-          );
-          // Last resort: type Ctrl+A and Delete again
-          await searchBox.focus();
-          await sleep(200);
-          await page.keyboard.down(
-            process.platform === "darwin" ? "Meta" : "Control"
-          );
-          await page.keyboard.press("a");
-          await page.keyboard.up(
-            process.platform === "darwin" ? "Meta" : "Control"
-          );
-          await sleep(100);
-          await page.keyboard.press("Backspace");
-          await page.keyboard.press("Delete");
-          await sleep(300, "after final clearing attempt", this.logger);
-        }
-      }
-
-      const clearDelay = 500 + Math.random() * 1000;
-      await sleep(clearDelay, "after clearing search box", this.logger);
+        await sleep(500, "after clearing search box", this.logger);
 
       // Type dork with human-like delays
       const dorkTypeDelay = 50 + Math.random() * 100;
-      this.logger?.debug(
-        `Typing dork query: "${dork.substring(0, 50)}${
-          dork.length > 50 ? "..." : ""
-        }" with ${Math.round(dorkTypeDelay)}ms delay between keystrokes`
-      );
-
-      // Disable autocomplete and suggestions before typing
-      await page.evaluate((selector) => {
-        const input = document.querySelector(selector);
-        if (input) {
-          input.setAttribute("autocomplete", "off");
-          input.setAttribute("autocorrect", "off");
-          input.setAttribute("autocapitalize", "off");
-          input.setAttribute("spellcheck", "false");
-        }
-      }, searchBoxSelector);
-
-      // Type the dork character by character with human-like behavior and verification
       for (let i = 0; i < dork.length; i++) {
-        // Add slight variation in typing speed
-        const charDelay = dorkTypeDelay + (Math.random() - 0.5) * 20; // ±10ms variation
-
         await page.keyboard.type(dork[i]);
-        await sleep(
-          Math.max(30, charDelay),
-          `typing character ${i + 1}`,
-          this.logger
-        );
-
-        // Occasionally add small pauses (like humans thinking)
-        if (Math.random() < 0.15) {
-          // 15% chance of pause
-          const thinkingPause = 50 + Math.random() * 100;
-          await sleep(
-            thinkingPause,
-            "thinking pause while typing",
-            this.logger
-          );
+          await sleep(Math.max(30, dorkTypeDelay), `typing character ${i + 1}`, this.logger);
         }
 
-        // Every few characters, verify the content hasn't been auto-corrected
-        if (i % 5 === 0 || i === dork.length - 1) {
-          const currentValue = await page.evaluate((selector) => {
-            const input = document.querySelector(selector);
-            return input ? input.value : "";
-          }, searchBoxSelector);
-
-          const expectedValue = dork.substring(0, i + 1);
-          if (currentValue !== expectedValue) {
-            this.logger?.debug(
-              `Autocomplete interference detected at position ${i}. Expected: "${expectedValue}", Got: "${currentValue}"`
-            );
-            // Correct the value immediately
-            await page.evaluate(
-              (selector, correctValue) => {
-                const input = document.querySelector(selector);
-                if (input) {
-                  input.value = correctValue;
-
-                  // Only use setSelectionRange if the element supports it
-                  if (
-                    input.type !== "hidden" &&
-                    typeof input.setSelectionRange === "function" &&
-                    input.offsetWidth > 0 &&
-                    input.offsetHeight > 0
-                  ) {
-                    try {
-                      input.setSelectionRange(
-                        correctValue.length,
-                        correctValue.length
-                      );
-                    } catch (e) {
-                      // Some input types may not support selection, ignore silently
-                      console.debug(
-                        "setSelectionRange not supported:",
-                        e.message
-                      );
-                    }
-                  }
-
-                  // Dispatch events to ensure the change is registered
-                  input.dispatchEvent(new Event("input", { bubbles: true }));
-                  input.dispatchEvent(new Event("change", { bubbles: true }));
-                }
-              },
-              searchBoxSelector,
-              expectedValue
-            );
-          }
-        }
-      }
-
-      this.logger?.debug(`Finished typing dork query`);
-
-      // Verify the dork was typed correctly - using the correct selector
-      const finalValue = await page.evaluate((selector) => {
-        const input = document.querySelector(selector);
-        return input
-          ? input.value || input.textContent || input.innerText || ""
-          : "";
-      }, searchBoxSelector);
-
-      this.logger?.debug(`Search box final value: "${finalValue}"`);
-
-      if (finalValue !== dork) {
-        this.logger?.warn(
-          `Dork mismatch! Expected: "${dork}", Got: "${finalValue}"`
-        );
-        // Try to fix by clearing and retyping
-        await page.evaluate(
-          (selector, correctDork) => {
-            const input = document.querySelector(selector);
-            if (input) {
-              // Clear completely first
-              input.value = "";
-              input.textContent = "";
-              input.innerText = "";
-
-              // Set the correct value
-              input.value = correctDork;
-              input.dispatchEvent(new Event("input", { bubbles: true }));
-              input.dispatchEvent(new Event("change", { bubbles: true }));
-            }
-          },
-          searchBoxSelector,
-          dork
-        );
-        await sleep(500, "after correcting dork value", this.logger);
-      }
-
-      const postDorkDelay = 1000 + Math.random() * 2000;
-      await sleep(postDorkDelay, "after typing dork", this.logger);
+        await sleep(1000, "after typing dork", this.logger);
 
       // Submit search
-      this.logger?.debug(`Pressing Enter to submit search`);
       await page.keyboard.press("Enter");
-      this.logger?.debug(`Enter key pressed, waiting for navigation`);
-      await page.waitForNavigation({
-        waitUntil: "networkidle0",
-        timeout: 30000,
-      });
-      this.logger?.debug(`Navigation completed`);
+        await page.waitForNavigation({ waitUntil: "networkidle0", timeout: 30000 });
 
-      // Check if we landed on consent page after search
-      const postSearchPageInfo = await page.evaluate(() => {
-        const pageText = document.body.textContent || "";
-        const url = window.location.href;
-        return {
-          isConsentPage:
-            pageText.includes("Before you continue to Google") ||
-            pageText.includes("We use cookies and data") ||
-            pageText.includes("Zanim przejdziesz do Google") ||
-            pageText.includes("Używamy plików cookie") ||
-            url.includes("consent.google") ||
-            document.querySelector(".containerGm3") !== null,
-          currentUrl: url,
-          pagePreview: pageText.slice(0, 150),
-        };
-      });
-
-      if (postSearchPageInfo.isConsentPage) {
-        this.logger?.info("Consent page appeared after search, handling...");
-        this.logger?.debug("Post-search consent details:", postSearchPageInfo);
-
-        const { handleConsentOptimized } = await import(
-          "../browser/browserManager.js"
-        );
-        await handleConsentOptimized(page, cursor, this.logger);
-
-        // Wait for navigation back to results
-        await sleep(
-          5000,
-          "waiting for navigation back to results",
-          this.logger
-        );
-
-        // Verify we're now on results page
-        const finalUrl = page.url();
-        this.logger?.debug("Final URL after consent handling:", finalUrl);
-
-        if (!finalUrl.includes("google.com/search")) {
-          this.logger?.warn(
-            "Not on search results page, may need manual intervention"
-          );
-        }
-      }
-
-      // Check for CAPTCHA after search
+        // Check for post-search CAPTCHA
       const postSearchCaptcha = await detectCaptcha(page, this.logger);
       if (postSearchCaptcha) {
-        logWithDedup(
-          "warning",
-          "🚨 CAPTCHA detected after search",
-          chalk.red,
-          this.logger
-        );
         const handled = await handleCaptcha(
           page,
           this.config,
@@ -856,186 +352,65 @@ class MultiEngineDorker {
           this.dashboard
         );
         if (!handled) {
-          return [];
+            continue;
         }
       }
 
-      // Extract results
-      let results = await this.extractResults(page, maxResults);
+        // Extract results using engine-specific selectors
+        const results = await this.extractResultsForEngine(page, maxResults, engine);
 
       // Apply dork-based filtering if enabled
+        let filteredResults = results;
       if (this.config.dorkFiltering && results.length > 0) {
-        const originalCount = results.length;
-        results = this.filterResultsByDork(results, dork);
-        const filteredCount = results.length;
-
-        if (filteredCount < originalCount) {
-          this.logger?.info(
-            `Dork filtering: ${originalCount} → ${filteredCount} results (${
-              originalCount - filteredCount
-            } filtered out)`,
-            {
-              dork: dork.substring(0, 50),
-              originalCount,
-              filteredCount,
-            }
-          );
+          filteredResults = this.filterResultsByDork(results, dork);
         }
-      }
 
-      // Handle pagination if enabled
-      const maxPages = this.config.maxPages || 1;
-      let allResults = [...results];
-      let currentPage = 1;
+        // Add engine identifier to results
+        filteredResults = filteredResults.map(result => ({
+          ...result,
+          engine: engine
+        }));
 
-      if (maxPages > 1 && results.length > 0) {
-        this.logger?.info(
-          `Pagination enabled: searching up to ${maxPages} pages`
-        );
+        allResults = [...allResults, ...filteredResults];
 
-        while (currentPage < maxPages) {
-          // Check if pagination is available
-          const hasNextPage = await this.checkPaginationAvailable(page);
-
-          if (!hasNextPage) {
-            this.logger?.info(
-              `No more pages available, stopping at page ${currentPage}`
-            );
-            break;
-          }
-
-          // Log pagination attempt
-          this.logger?.info(
-            `📄 Processing page ${currentPage + 1}/${maxPages} for dork`
-          );
-          if (this.dashboard && this.dashboard.addLog) {
-            this.dashboard.addLog(
-              "info",
-              `📄 Scraping page ${currentPage + 1}/${maxPages}`
-            );
-          }
-
-          // Navigate to next page
-          const navigated = await this.navigateToNextPage(page);
-          if (!navigated) {
-            this.logger?.warn(
-              `Failed to navigate to page ${
-                currentPage + 1
-              }, stopping pagination`
-            );
-            break;
-          }
-
-          // Wait for page load
-          await sleep(
-            2000 + Math.random() * 3000,
-            `waiting for page ${currentPage + 1} to load`,
-            this.logger
-          );
-
-          // Check for CAPTCHA after page navigation
-          const postPageCaptcha = await detectCaptcha(page, this.logger);
-          if (postPageCaptcha) {
-            logWithDedup(
-              "warning",
-              "🚨 CAPTCHA detected after pagination",
-              chalk.red,
-              this.logger
-            );
-            const handled = await handleCaptcha(
-              page,
-              this.config,
-              this.logger,
-              switchProxyCallback,
-              this.dashboard
-            );
-            if (!handled) {
-              this.logger?.warn(
-                "CAPTCHA handling failed during pagination, stopping"
-              );
-              break;
+        // Handle pagination if enabled and we haven't reached maxResults
+        if (this.config.maxPages > 1 && allResults.length < maxResults) {
+          let currentPage = 1;
+          while (currentPage < this.config.maxPages && allResults.length < maxResults) {
+            const nextPageResults = await this.handlePaginationForEngine(page, engine, maxResults);
+            if (!nextPageResults || nextPageResults.length === 0) break;
+            
+            // Filter and add engine identifier
+            let filteredPageResults = nextPageResults;
+            if (this.config.dorkFiltering) {
+              filteredPageResults = this.filterResultsByDork(nextPageResults, dork);
             }
-          }
+            filteredPageResults = filteredPageResults.map(result => ({
+              ...result,
+              engine: engine
+            }));
 
-          // Extract results from current page
-          let pageResults = await this.extractResults(page, maxResults);
+            allResults = [...allResults, ...filteredPageResults];
+            currentPage++;
 
-          // Apply dork-based filtering to pagination results if enabled
-          if (this.config.dorkFiltering && pageResults.length > 0) {
-            const originalPageCount = pageResults.length;
-            pageResults = this.filterResultsByDork(pageResults, dork);
-            const filteredPageCount = pageResults.length;
-
-            if (filteredPageCount < originalPageCount) {
-              this.logger?.info(
-                `Page ${
-                  currentPage + 1
-                } dork filtering: ${originalPageCount} → ${filteredPageCount} results (${
-                  originalPageCount - filteredPageCount
-                } filtered out)`
-              );
+            // Add delay between pages
+            if (currentPage < this.config.maxPages) {
+              await sleep(2000 + Math.random() * 2000, "between pages", this.logger);
             }
-          }
-
-          if (pageResults.length === 0) {
-            this.logger?.info(
-              `No results found on page ${currentPage + 1}, stopping pagination`
-            );
-            break;
-          }
-
-          // Add to total results
-          allResults = allResults.concat(pageResults);
-          currentPage++;
-
-          this.logger?.info(
-            `Found ${pageResults.length} results on page ${currentPage}, total: ${allResults.length}`
-          );
-
-          // Human-like pause between pages
-          if (this.config.humanLike && currentPage < maxPages) {
-            const pageDelay = Math.floor(Math.random() * 5000) + 3000;
-            this.logger?.debug(
-              `Page reading delay: ${Math.round(pageDelay / 1000)}s`
-            );
-            await sleep(
-              pageDelay,
-              "reading page before pagination",
-              this.logger
-            );
           }
         }
 
-        if (maxPages > 1) {
-          this.logger?.info(
-            `Pagination complete: ${allResults.length} total results from ${currentPage} pages`
-          );
-          if (this.dashboard && this.dashboard.addLog) {
-            this.dashboard.addLog(
-              "success",
-              `📄 Scraped ${currentPage} pages, found ${allResults.length} total results`
-            );
-          }
+        // Add delay between engines
+        if (engines.indexOf(engine) < engines.length - 1) {
+          await sleep(3000 + Math.random() * 2000, "between engines", this.logger);
         }
-      }
-
-      // Simulate human reading time
-      if (this.config.humanLike && allResults.length > 0) {
-        const readingTime = Math.floor(Math.random() * 8000) + 5000;
-        logWithDedup(
-          "info",
-          `📖 Reading results: ${Math.round(readingTime / 1000)}s`,
-          chalk.gray,
-          this.logger
-        );
-        await simulateHumanBrowsing(page, cursor, readingTime, this.logger);
       }
 
       this.searchCount++;
-      this.logger?.info("Search completed", {
+      this.logger?.info("Multi-engine search completed", {
         dork: dork.substring(0, 50),
         resultCount: allResults.length,
-        pagesScraped: currentPage,
+        engines: engines.join(", "),
         searchCount: this.searchCount,
       });
 
@@ -1045,6 +420,90 @@ class MultiEngineDorker {
         dork: dork.substring(0, 50),
         error: error.message,
       });
+      return [];
+    }
+  }
+
+  /**
+   * Extract results for a specific search engine
+   * @param {Object} page - Puppeteer page
+   * @param {number} maxResults - Maximum results to extract
+   * @param {string} engine - Search engine name
+   * @returns {Promise<Array>} Extracted results
+   */
+  async extractResultsForEngine(page, maxResults, engine) {
+    const engineConfig = SEARCH_ENGINES[engine];
+    if (!engineConfig) return [];
+
+    await sleep(2000, "waiting for results to load", this.logger);
+
+    return await page.evaluate((config, max) => {
+      const results = [];
+      const seenUrls = new Set();
+
+      // Find all result containers
+      const containers = document.querySelectorAll(config.resultsSelector);
+      
+      for (const container of containers) {
+        if (results.length >= max) break;
+
+        try {
+          // Find link and extract URL
+          const linkElement = container.querySelector(config.linkSelector);
+          if (!linkElement) continue;
+
+          const url = linkElement.href;
+          if (!url || seenUrls.has(url)) continue;
+
+          // Extract title
+          const titleElement = container.querySelector(config.titleSelector);
+          const title = titleElement ? titleElement.textContent.trim() : '';
+
+          // Extract description
+          const descElement = container.querySelector(config.descriptionSelector);
+          const description = descElement ? descElement.textContent.trim() : '';
+
+          if (url && (title || description)) {
+            seenUrls.add(url);
+            results.push({ url, title, description });
+          }
+        } catch (e) {
+          console.error('Error extracting result:', e);
+        }
+      }
+
+      return results;
+    }, engineConfig, maxResults);
+  }
+
+  /**
+   * Handle pagination for a specific search engine
+   * @param {Object} page - Puppeteer page
+   * @param {string} engine - Search engine name
+   * @param {number} maxResults - Maximum results to extract
+   * @returns {Promise<Array>} Results from next page
+   */
+  async handlePaginationForEngine(page, engine, maxResults) {
+    const nextPageSelectors = {
+      google: 'a[aria-label="Next page"]',
+      bing: 'a.sb_pagN',
+      duckduckgo: 'a.next'
+    };
+
+    const selector = nextPageSelectors[engine];
+    if (!selector) return [];
+
+    try {
+      const nextButton = await page.$(selector);
+      if (!nextButton) return [];
+
+      await nextButton.click();
+      await page.waitForNavigation({ waitUntil: 'networkidle0' });
+      await sleep(2000, "after pagination", this.logger);
+
+      return await this.extractResultsForEngine(page, maxResults, engine);
+    } catch (error) {
+      this.logger?.warn(`Pagination failed for ${engine}:`, error.message);
       return [];
     }
   }
@@ -3058,6 +2517,4 @@ class MultiEngineDorker {
     }
   }
 }
-
-export default MultiEngineDorker;
 

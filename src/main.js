@@ -17,8 +17,8 @@ import {
   saveUrlsToFile,
   appendUrlsToFile,
 } from "./utils/fileOperations.js";
-import MultiEngineDorker from "./dorker/MultiEngineDorker.js";
-import DashboardServer from "./web/dashboard.js";
+import { MultiEngineDorker } from "./dorker/MultiEngineDorker.js";
+import { Dashboard } from "./web/dashboard.js";
 import { resetCaptchaDetectionState } from "./captcha/detector.js";
 import boxen from "boxen";
 
@@ -53,7 +53,7 @@ async function serverMode(port = 3000) {
   // Start dashboard server
   displayStatus("Starting web dashboard server...", "🌐", "magenta");
 
-  dashboard = new DashboardServer(port);
+  dashboard = new Dashboard({ port }, null);
 
   // Set up server mode event handlers
   dashboard.setupServerMode({
@@ -241,7 +241,7 @@ async function performDorking(dorks, config) {
       let results;
       try {
         // Perform search
-        results = await dorker.performSearch(dork, config.resultCount);
+        results = await dorker.performSearch(dork, config.resultCount, config.engines);
         
         // Stop spinner and show success
         dorkSpinner.succeed(`✅ Found ${results ? results.length : 0} results for dork`);
@@ -493,7 +493,7 @@ async function interactiveMode() {
         let results;
         try {
           // Perform search
-          results = await dorker.performSearch(dork, config.resultCount);
+          results = await dorker.performSearch(dork, config.resultCount, config.engines || ['google']);
           
           // Stop spinner and show success
           searchSpinner.succeed(`✅ Found ${results ? results.length : 0} results`);
