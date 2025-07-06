@@ -50,10 +50,14 @@ async function serverMode(port = 3000) {
   displayBanner();
   displaySection("Server Mode", "magenta");
 
+  // Initialize logger first
+  logger = await createLogger(true);
+  logger.info("Server mode started");
+
   // Start dashboard server
   displayStatus("Starting web dashboard server...", "🌐", "magenta");
 
-  dashboard = new Dashboard({ port }, null);
+  dashboard = new Dashboard({ port }, logger);  // Pass logger here
 
   // Set up server mode event handlers
   dashboard.setupServerMode({
@@ -69,11 +73,16 @@ async function serverMode(port = 3000) {
     "green"
   );
 
-  // Initialize logger
-  logger = await createLogger(true);
-  logger.info("Server mode started");
-  dashboard.addLog("info", "Server mode started - waiting for configuration");
-
+  // Add log to dashboard
+  dashboard.addLog("info", "Server mode started");
+  dashboard.addLog("info", `Dashboard server running at http://localhost:${port}`);
+  dashboard.addLog("info", "Ready to process dorks - use the web interface to start");
+  
+  // Send server status to dashboard
+  if (dashboard.currentSocket) {
+    dashboard.sendNotification("Server is ready - connect successful!", "success");
+  }
+  
   const serverBox = boxen(
     `${chalk.bold.cyan("🖥️  Server Mode Active")}\n\n` +
       `${chalk.gray("Dashboard URL:")} ${chalk.white(
@@ -182,6 +191,8 @@ async function handleStopDorking() {
       console.log(chalk.green("✅ Browser resources cleaned up"));
     }
 
+    // End the dashboard session properly
+    dashboard.endSession();
     dashboard.setStatus("stopped");
 
     const stoppedMessage = "Dorking session stopped";

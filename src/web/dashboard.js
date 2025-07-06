@@ -3,6 +3,7 @@ import { Server } from 'socket.io';
 import { fileURLToPath } from 'url';
 import { dirname, join } from 'path';
 import { MultiEngineDorker } from '../dorker/MultiEngineDorker.js';
+import winston from 'winston';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
@@ -27,6 +28,67 @@ export class Dashboard {
             totalResults: 0,
             currentDork: null
         };
+        
+        // Set up logger transport to forward logs to WebUI if logger is provided
+        if (logger) {
+            this.setupLoggerTransport(logger);
+        }
+    }
+    
+    // Method to set up logger transport
+    setupLoggerTransport(logger) {
+        // Add a custom transport to forward logs to the WebUI
+        if (logger && logger.add) {
+            try {
+                const self = this;
+                logger.add(new winston.transports.Console({
+                    format: winston.format.combine(
+                        winston.format.timestamp(),
+                        winston.format.json()
+                    ),
+                    log(info, callback) {
+                        self.forwardLogToWebUI(info);
+                        callback();
+                    }
+                }));
+                
+                // Send initial log to confirm transport is set up
+                logger.info('Logger transport connected to WebUI');
+            } catch (error) {
+                console.error('Error setting up logger transport:', error);
+            }
+        }
+    }
+    
+    // New method to forward logs to WebUI
+    forwardLogToWebUI(logInfo) {
+        if (this.currentSocket) {
+            try {
+                // Format the log for the WebUI
+                const log = {
+                    timestamp: logInfo.timestamp || new Date().toISOString(),
+                    level: logInfo.level || 'info',
+                    message: logInfo.message || '',
+                    service: logInfo.service || 'dorker',
+                    type: logInfo.level === 'error' ? 'error' : 
+                          logInfo.level === 'warn' ? 'warning' : 'info'
+                };
+                
+                // Send the log to the WebUI
+                this.currentSocket.emit('newLog', log);
+                
+                // Also add to internal log storage for new connections
+                if (!this._recentLogs) this._recentLogs = [];
+                this._recentLogs.unshift(log);
+                
+                // Keep only the 100 most recent logs
+                if (this._recentLogs.length > 100) {
+                    this._recentLogs = this._recentLogs.slice(0, 100);
+                }
+            } catch (error) {
+                console.error('Error forwarding log to WebUI:', error);
+            }
+        }
     }
 
     // Server mode setup
@@ -40,6 +102,11 @@ export class Dashboard {
     async start() {
         const port = this.config.port || 3000;
         await this.initialize(port);
+        
+        // Log server start
+        if (this.logger) {
+            this.logger.info(`Dashboard running on http://localhost:${port}`);
+        }
     }
 
     async initialize(port = 3000) {
@@ -88,7 +155,16 @@ export class Dashboard {
 
         // Create HTTP server
         const server = this.app.listen(port, () => {
-            this.logger?.info(`Dashboard running on http://localhost:${port}`);
+            if (this.logger) {
+                this.logger.info(`Dashboard running on http://localhost:${port}`);
+                // Send initial log to WebUI when server starts
+                this.forwardLogToWebUI({
+                    timestamp: new Date().toISOString(),
+                    level: 'info',
+                    message: `Dashboard server started on port ${port}`,
+                    service: 'dorker'
+                });
+            }
         });
 
         // Initialize Socket.IO
@@ -96,11 +172,121 @@ export class Dashboard {
 
         // Handle socket connections
         this.io.on('connection', (socket) => {
-            this.logger?.info('Client connected to dashboard');
+            if (this.logger) {
+                this.logger.info('Client connected to dashboard');
+            }
+            
             this.currentSocket = socket;
-
-            // Send initial status
+            
+            // Send initial status and server logs
             socket.emit('status', 'Ready');
+            
+            // Send server started notification
+            socket.emit('notification', {
+                message: '🚀 Server is ready - connect successful!',
+                type: 'success'
+            });
+            
+            // Enable start/stop button
+            socket.emit('enableControls', {
+                canStart: !this.isSearching,
+                canStop: this.isSearching
+            });
+            
+            // If logger exists, send a welcome log
+            this.forwardLogToWebUI({
+                timestamp: new Date().toISOString(),
+                level: 'info',
+                message: 'WebUI connected to server successfully',
+                service: 'dorker'
+            });
+            
+            // Send initial session data to initialize the UI
+            this.sendInitialSessionData();
+
+            // Handle requestLogs event - send stored logs
+            socket.on('requestLogs', () => {
+                try {
+                    // Send stored logs to the client
+                    if (this._recentLogs && this._recentLogs.length > 0) {
+                        // Send logs in reverse order (oldest first) for proper display
+                        const logsToSend = [...this._recentLogs].reverse();
+                        socket.emit('initialLogs', logsToSend);
+                        this.logger?.debug(`Sent ${logsToSend.length} stored logs to client`);
+                    } else {
+                        // Send empty array if no logs
+                        socket.emit('initialLogs', []);
+                        
+                        // Also send a system startup log
+                        const startupLog = {
+                            timestamp: new Date().toISOString(),
+                            level: 'info',
+                            message: 'System started - no previous logs available',
+                            service: 'dorker'
+                        };
+                        socket.emit('newLog', startupLog);
+                    }
+                } catch (error) {
+                    console.error('Error sending logs to client:', error);
+                    socket.emit('initialLogs', []);
+                }
+            });
+            
+            // Handle requestResults event - send stored results
+            socket.on('requestResults', () => {
+                try {
+                    // Send stored results to the client
+                    if (this._storedResults && this._storedResults.length > 0) {
+                        socket.emit('initialResults', this._storedResults);
+                        this.logger?.debug(`Sent ${this._storedResults.length} stored results to client`);
+                    } else {
+                        // Send empty array if no results
+                        socket.emit('initialResults', []);
+                    }
+                } catch (error) {
+                    console.error('Error sending results to client:', error);
+                    socket.emit('initialResults', []);
+                }
+            });
+
+            // Handle requestData - send current session data
+            socket.on('requestData', () => {
+                // Send current session data
+                this.emitSessionUpdate();
+                
+                // Send current status
+                socket.emit('status', this.isSearching ? 'searching' : 'ready');
+                
+                // If we have a current dork, send it
+                if (this.sessionData.currentDork) {
+                    this.setProcessingStatus(`Processing dork: ${this.sessionData.currentDork}`);
+                }
+                
+                // Send stored results if they exist
+                if (this._storedResults && this._storedResults.length > 0) {
+                    socket.emit('initialResults', this._storedResults);
+                } else {
+                    // Send empty results array if none exist
+                    socket.emit('initialResults', []);
+                }
+                
+                // Send stored logs if they exist
+                if (this._recentLogs && this._recentLogs.length > 0) {
+                    socket.emit('initialLogs', [...this._recentLogs].reverse());
+                } else {
+                    // Send empty logs array if none exist
+                    socket.emit('initialLogs', []);
+                }
+                
+                // Send empty performance data
+                socket.emit('performanceData', []);
+                
+                // Send notification that data was refreshed
+                socket.emit('notification', {
+                    message: 'Dashboard data refreshed',
+                    type: 'info'
+                });
+            });
 
             // Handle search start
             socket.on('start_search', async (data) => {
@@ -157,7 +343,7 @@ export class Dashboard {
             socket.on('stop_search', () => {
                 this.stopSearch();
             });
-
+            
             // Handle disconnection
             socket.on('disconnect', () => {
                 this.logger?.info('Client disconnected from dashboard');
@@ -170,6 +356,25 @@ export class Dashboard {
 
     async startSearch(dorks, engines) {
         try {
+            // Reset session data
+            this.sessionData = {
+                startTime: new Date(),
+                processed: 0,
+                successful: 0,
+                failed: 0,
+                totalResults: 0,
+                currentDork: null
+            };
+
+            // Emit session start
+            if (this.currentSocket) {
+                this.currentSocket.emit('sessionStart', {
+                    startTime: this.sessionData.startTime,
+                    totalDorks: dorks.length,
+                    status: 'initializing'
+                });
+            }
+
             this.setStatus('searching');
             
             try {
@@ -179,47 +384,70 @@ export class Dashboard {
                     this.addLog('success', `✅ Found ${results.length} total results across all dorks and engines`);
                     results.forEach(result => {
                         if (this.currentSocket) {
-                            this.currentSocket.emit('result', result);
+                            this.currentSocket.emit('newResult', result);
                         }
                     });
                 } else {
                     this.addLog('warning', `⚠️ No results found for any dorks`);
                 }
+
+                // Emit successful session end
+                if (this.currentSocket) {
+                    this.currentSocket.emit('sessionEnd', {
+                        success: true,
+                        stats: this.getSessionSummary()
+                    });
+                }
             } catch (error) {
                 this.logger?.error(`Error in search process:`, error);
                 this.addLog('error', `❌ Search process error: ${error.message}`);
+                
+                // Emit failed session end
+                if (this.currentSocket) {
+                    this.currentSocket.emit('sessionEnd', {
+                        success: false,
+                        error: error.message
+                    });
+                }
             }
 
             this.setStatus('ready');
             this.isSearching = false;
-            
-            if (this.currentSocket) {
-                this.currentSocket.emit('search_complete');
-            }
         } catch (error) {
             this.logger?.error('Error in search process:', error);
-            this.addLog('error', `❌ Search process error: ${error.message}`);
+            this.addLog('error', `❌ Search initialization error: ${error.message}`);
+            
+            // Emit failed session end
+            if (this.currentSocket) {
+                this.currentSocket.emit('sessionEnd', {
+                    success: false,
+                    error: error.message
+                });
+            }
+            
             this.setStatus('error');
             this.isSearching = false;
-            
-            if (this.currentSocket) {
-                this.currentSocket.emit('search_complete');
-            }
         }
     }
 
     stopSearch() {
-        this.isSearching = false;
-        if (this.searchTimeout) {
-            clearTimeout(this.searchTimeout);
-            this.searchTimeout = null;
+        if (this.dorker) {
+            this.dorker.stop();
         }
-        this.setStatus('ready');
-        this.addLog('info', '⏹️ Search stopped by user');
         
+        this.isSearching = false;
+        this.setStatus('idle');
+        
+        // Emit session end with current stats
         if (this.currentSocket) {
-            this.currentSocket.emit('search_complete');
+            this.currentSocket.emit('sessionEnd', {
+                success: true,
+                stats: this.getSessionSummary(),
+                message: 'Search stopped by user'
+            });
         }
+        
+        this.addLog('info', '🛑 Search stopped by user');
     }
 
     setStatus(status) {
@@ -229,8 +457,15 @@ export class Dashboard {
     }
 
     addLog(type, message) {
+        const log = {
+            timestamp: new Date().toISOString(),
+            type,
+            message,
+            level: type === 'error' ? 'error' : type === 'warning' ? 'warn' : 'info'
+        };
+        
         if (this.currentSocket) {
-            this.currentSocket.emit('log', { type, message });
+            this.currentSocket.emit('newLog', log);
         }
     }
 
@@ -265,36 +500,118 @@ export class Dashboard {
             currentDork: null,
             totalDorks
         };
+
+        // Emit session start event with complete data
+        if (this.currentSocket) {
+            this.currentSocket.emit('sessionStart', {
+                startTime: this.sessionData.startTime,
+                totalDorks: totalDorks,
+                status: 'initializing'
+            });
+        }
+        
+        // Immediately emit session update to initialize UI
+        this.emitSessionUpdate();
+
+        // Start periodic runtime updates every second
+        if (this.runtimeTimer) clearInterval(this.runtimeTimer);
+        this.runtimeTimer = setInterval(() => {
+            this.emitSessionUpdate();
+        }, 1000);
     }
 
     setCurrentDork(dork) {
         this.sessionData.currentDork = dork;
+        this.emitSessionUpdate();
+        this.setProcessingStatus(`Processing dork: ${dork}`);
     }
 
     incrementProcessed() {
         this.sessionData.processed++;
+        this.emitSessionUpdate();
     }
 
     incrementSuccessful() {
         this.sessionData.successful++;
+        this.emitSessionUpdate();
     }
 
     incrementFailed() {
         this.sessionData.failed++;
+        this.emitSessionUpdate();
     }
 
     addToTotalResults(count) {
         this.sessionData.totalResults += count;
+        this.emitSessionUpdate();
     }
 
     addResult(dork, results) {
-        // Store results if needed
-        this.addLog('info', `Added ${results.length} results for dork`);
+        if (!results || !Array.isArray(results)) {
+            this.logger?.warn('Invalid results passed to addResult', { dork });
+            return;
+        }
+        
+        // Store results for new connections
+        if (!this._storedResults) this._storedResults = [];
+        
+        // Add new result to stored results
+        this._storedResults.unshift({
+            dork,
+            count: results.length,
+            results,
+            timestamp: Date.now()
+        });
+        
+        // Keep only the 50 most recent result sets
+        if (this._storedResults.length > 50) {
+            this._storedResults = this._storedResults.slice(0, 50);
+        }
+        
+        // Send to current client
+        if (this.currentSocket) {
+            this.currentSocket.emit('newResult', { 
+                dork, 
+                count: results.length, 
+                results,
+                timestamp: Date.now()
+            });
+            
+            // Also update session stats
+            this.emitSessionUpdate();
+            
+            // Log the new results
+            this.addLog('info', `📊 Found ${results.length} results for: ${dork.substring(0, 30)}${dork.length > 30 ? '...' : ''}`);
+        }
     }
 
     endSession() {
         const runtime = Date.now() - this.sessionData.startTime;
         this.sessionData.runtime = runtime;
+
+        if (this.runtimeTimer) {
+            clearInterval(this.runtimeTimer);
+            this.runtimeTimer = null;
+        }
+
+        // Send final session data
+        if (this.currentSocket) {
+            // Get complete session summary
+            const summary = this.getSessionSummary();
+            
+            // Emit session end event
+            this.currentSocket.emit('sessionEnd', {
+                success: true,
+                stats: summary,
+                message: 'Session completed'
+            });
+            
+            // Also emit final stats update
+            this.emitSessionUpdate();
+            
+            // Send notification
+            this.sendNotification('Session completed', 'success');
+        }
     }
 
     getSessionSummary() {
@@ -321,6 +638,56 @@ export class Dashboard {
     setProcessingStatus(status) {
         if (this.currentSocket) {
             this.currentSocket.emit('processing_status', status);
+        }
+    }
+
+    // Emit current sessionData summary to client
+    emitSessionUpdate() {
+        if (this.currentSocket) {
+            const stats = {
+                startTime: this.sessionData.startTime,
+                processedDorks: this.sessionData.processed,
+                successfulDorks: this.sessionData.successful,
+                failedDorks: this.sessionData.failed,
+                totalResults: this.sessionData.totalResults,
+                currentDork: this.sessionData.currentDork,
+                totalDorks: this.sessionData.totalDorks || 0,
+                status: this.isSearching ? 'searching' : 'idle',
+                captchaEncounters: this.captchaEncounters,
+                captchaSolved: this.captchaSolved,
+                proxy: this.config.proxy || null,
+                runtime: Date.now() - (this.sessionData.startTime || Date.now())
+            };
+            
+            this.currentSocket.emit('stats', stats);
+            
+            // Also emit processing status
+            if (this.sessionData.currentDork) {
+                this.setProcessingStatus(`Processing dork: ${this.sessionData.currentDork}`);
+            }
+        }
+    }
+    
+    // Send initial session data to client
+    sendInitialSessionData() {
+        if (this.currentSocket) {
+            // Send default stats to initialize UI
+            const defaultStats = {
+                startTime: null,
+                processedDorks: 0,
+                successfulDorks: 0,
+                failedDorks: 0,
+                totalResults: 0,
+                currentDork: null,
+                totalDorks: 0,
+                status: 'idle',
+                captchaEncounters: this.captchaEncounters,
+                captchaSolved: this.captchaSolved,
+                proxy: this.config.proxy || null
+            };
+            
+            this.currentSocket.emit('stats', defaultStats);
+            this.currentSocket.emit('status', 'ready');
         }
     }
 }

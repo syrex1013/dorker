@@ -1887,6 +1887,33 @@
 
         // Request initial data on connect/reconnect
         socket.emit("requestData");
+        
+        // Request server logs
+        socket.emit("requestLogs");
+        
+        // Request results
+        socket.emit("requestResults");
+        
+        // Show start button
+        const startStopBtn = document.getElementById("start-stop-btn");
+        if (startStopBtn) {
+          startStopBtn.style.display = "inline-flex";
+        }
+      });
+      
+      socket.on("enableControls", (data) => {
+        const startStopBtn = document.getElementById("start-stop-btn");
+        if (startStopBtn) {
+          startStopBtn.style.display = "inline-flex";
+          
+          if (data.canStart && !data.canStop) {
+            startStopBtn.innerHTML = '<i class="fas fa-play"></i> Start';
+            startStopBtn.className = "btn btn-primary";
+          } else if (data.canStop && !data.canStart) {
+            startStopBtn.innerHTML = '<i class="fas fa-stop"></i> Stop';
+            startStopBtn.className = "btn btn-danger";
+          }
+        }
       });
 
       socket.on("disconnect", (reason) => {
@@ -1929,6 +1956,8 @@
 
         // Request fresh data after reconnection
         socket.emit("requestData");
+        socket.emit("requestLogs");
+        socket.emit("requestResults");
       });
 
       socket.on("reconnect_failed", () => {
@@ -2260,6 +2289,9 @@
       // Update functions - Enhanced for real-time live stats
       function updateStats(stats) {
         console.log("📊 Live stats update:", stats);
+        
+        // Update session data
+        sessionData.stats = stats;
 
         // Progress with live animation
         const progress =
@@ -2273,6 +2305,12 @@
         document.getElementById("total-count").textContent =
           stats.totalDorks || 0;
         updateProgressRing(progress);
+        
+        // Update start time if it's provided
+        if (stats.startTime && !startTime) {
+          startTime = new Date(stats.startTime);
+          document.getElementById("start-time").textContent = startTime ? startTime.toLocaleTimeString() : "-";
+        }
 
         // Success rate with trend indication
         const successRate =
@@ -2291,6 +2329,14 @@
             ? Math.round(stats.totalResults / stats.successfulDorks)
             : 0;
         document.getElementById("avg-results").textContent = avgResults;
+        
+        // Update proxy information if available
+        if (stats.proxy) {
+          const proxyText = `${stats.proxy.host}:${stats.proxy.port}`;
+          document.getElementById("current-proxy").textContent = proxyText;
+        } else {
+          document.getElementById("current-proxy").textContent = "None";
+        }
 
         // Update live status metrics
         const liveProgress = document.getElementById("live-progress");
@@ -2715,6 +2761,11 @@
           container.innerHTML = "";
         }
 
+        // Ensure log has all required properties
+        if (!log.timestamp) log.timestamp = new Date().toISOString();
+        if (!log.level) log.level = log.type || 'info';
+        if (!log.message) log.message = 'No message';
+        
         // Filter for important logs
         const isImportantLog = isLogImportant(log);
 
@@ -2740,8 +2791,12 @@
           logIcon = "📊 ";
         } else if (log.level === "error") {
           logIcon = "❌ ";
-        } else if (log.level === "success") {
+        } else if (log.level === "warn" || log.level === "warning") {
+          logIcon = "⚠️ ";
+        } else if (log.level === "success" || message.includes("success")) {
           logIcon = "✅ ";
+        } else if (message.includes("server") || message.includes("started")) {
+          logIcon = "🚀 ";
         }
 
         logEl.innerHTML = `
@@ -3098,6 +3153,8 @@
           return;
         }
 
+        console.log("Exporting URLs from results:", sessionData.results);
+        
         // Collect all URLs from all results
         const allUrls = [];
         sessionData.results.forEach((result) => {

@@ -66,9 +66,7 @@ const logWithDedup = (
 const clearPreviousLogs = async (logsDir) => {
   try {
     const logFiles = [
-      "debug.log",
-      "error.log",
-      "combined.log",
+      "application.log",
       "exceptions.log",
       "rejections.log",
     ];
@@ -130,28 +128,12 @@ const createLogger = async (clearLogs = true) => {
       ),
       defaultMeta: { service: "dorker" },
       transports: [
-        // Debug file - all logs
+        // Single application log file capturing all levels
         new winston.transports.File({
-          filename: path.join(logsDir, "debug.log"),
-          level: "debug",
-          maxsize: 10 * 1024 * 1024, // 10MB
-          maxFiles: 3,
-          tailable: true,
-        }),
-        // Error file - only errors
-        new winston.transports.File({
-          filename: path.join(logsDir, "error.log"),
-          level: "error",
-          maxsize: 5 * 1024 * 1024, // 5MB
-          maxFiles: 3,
-          tailable: true,
-        }),
-        // Combined file - info and above
-        new winston.transports.File({
-          filename: path.join(logsDir, "combined.log"),
-          level: "info",
-          maxsize: 10 * 1024 * 1024, // 10MB
-          maxFiles: 3,
+          filename: path.join(logsDir, "application.log"),
+          level: "debug", // capture everything, filtering happens by level in formatter
+          maxsize: 10 * 1024 * 1024, // 10MB per file before rotation
+          maxFiles: 5, // keep last 5 rotated files
           tailable: true,
         }),
       ],

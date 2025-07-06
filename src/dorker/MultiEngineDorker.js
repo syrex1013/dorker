@@ -236,7 +236,6 @@ export class MultiEngineDorker {
       
       // Initialize session if dashboard exists
       if (this.dashboard) {
-        this.dashboard.startSession(engines.length);
         this.dashboard.setCurrentDork(dork);
       }
 
@@ -397,8 +396,59 @@ export class MultiEngineDorker {
           await searchBox.type(dork, { delay: 100 });
           await sleep(500, "after typing query", this.logger);
 
-          // Submit search
-          await page.keyboard.press("Enter");
+          // Submit search - use different methods based on engine
+          if (engine === 'bing') {
+            // For Bing, try multiple submission methods
+            this.logger?.info("Using Bing-specific search submission");
+            
+            try {
+              // First try clicking the search button
+              const searchButtonSelectors = [
+                '#search_icon', 
+                '#sb_form_go', 
+                'label[for="sb_form_go"]', 
+                '#sb_form_search',
+                'svg[role="presentation"]',
+                '#search-icon'
+              ];
+              
+              let buttonClicked = false;
+              for (const buttonSelector of searchButtonSelectors) {
+                try {
+                  const searchButton = await page.$(buttonSelector);
+                  if (searchButton) {
+                    this.logger?.info(`Found Bing search button with selector: ${buttonSelector}`);
+                    await searchButton.click();
+                    buttonClicked = true;
+                    this.logger?.info("Clicked Bing search button");
+                    break;
+                  }
+                } catch (e) {
+                  continue;
+                }
+              }
+              
+              // If button click failed, try pressing Enter
+              if (!buttonClicked) {
+                this.logger?.info("No search button found, pressing Enter");
+                await page.keyboard.press("Enter");
+              }
+              
+              // Also submit the form directly as a fallback
+              await page.evaluate(() => {
+                const form = document.querySelector('#sb_form');
+                if (form) form.submit();
+              });
+              
+            } catch (err) {
+              this.logger?.warn(`Error with Bing search submission: ${err.message}`);
+              // Fall back to Enter key
+              await page.keyboard.press("Enter");
+            }
+          } else {
+            // For other engines, just press Enter
+            await page.keyboard.press("Enter");
+          }
           
           // Wait for navigation with better error handling
           try {
@@ -412,7 +462,18 @@ export class MultiEngineDorker {
           // Wait for results with multiple selector attempts
           const resultsSelectors = {
             google: ['div.g', '#search div[data-hveid]', '#rso > div'],
-            bing: ['li.b_algo', '#b_results > li', '.b_results .b_algo'],
+            bing: [
+              'li.b_algo', 
+              '#b_results > li', 
+              '.b_results .b_algo', 
+              '.b_algo',
+              '#b_results .b_algo',
+              '#b_content .b_algo',
+              '.b_results > li',
+              '#b_results ol > li',
+              '.b_ans',
+              '.b_algo h2 a'
+            ],
             duckduckgo: ['article[data-testid="result"]', '.result', '.results .result']
           }[engine];
 
@@ -420,14 +481,45 @@ export class MultiEngineDorker {
           let workingSelector = '';
           for (const selector of resultsSelectors) {
             try {
-              await page.waitForSelector(selector, { timeout: 10000 });
-              this.logger?.info(`Found results with selector: ${selector}`);
-              resultsFound = true;
-              workingSelector = selector;
-              break;
+              await page.waitForSelector(selector, { timeout: 10000 }).catch(() => null);
+              const elements = await page.$$(selector);
+              
+              if (elements && elements.length > 0) {
+                this.logger?.info(`Found ${elements.length} results with selector: ${selector}`);
+                resultsFound = true;
+                workingSelector = selector;
+                break;
+              } else {
+                this.logger?.info(`Selector ${selector} found but no elements`);
+              }
             } catch (e) {
               this.logger?.info(`Selector ${selector} not found, trying next...`);
               continue;
+            }
+          }
+          
+          // For Bing, try additional extraction methods if normal selectors fail
+          if (!resultsFound && engine === 'bing') {
+            try {
+              this.logger?.info('Trying alternative Bing extraction method');
+              
+              // Take screenshot for debugging
+              await page.screenshot({ path: 'bing-search-debug.png' });
+              
+              // Try to find any links on the page
+              const linkCount = await page.evaluate(() => {
+                return document.querySelectorAll('a[href^="http"]').length;
+              });
+              
+              this.logger?.info(`Found ${linkCount} links on Bing page`);
+              
+              if (linkCount > 0) {
+                this.logger?.info('Using generic link extraction for Bing');
+                resultsFound = true;
+                workingSelector = 'a[href^="http"]';
+              }
+            } catch (e) {
+              this.logger?.warn(`Alternative Bing extraction failed: ${e.message}`);
             }
           }
 
@@ -663,6 +755,11 @@ export class MultiEngineDorker {
     if (!engineConfig) return [];
 
     await sleep(2000, "waiting for results to load", this.logger);
+    
+    // Use a specific extraction method for Bing
+    if (engine === 'bing') {
+      return await this.extractBingResults(page, maxResults);
+    }
 
     return await page.evaluate((config, max) => {
       const results = [];
@@ -701,6 +798,162 @@ export class MultiEngineDorker {
 
       return results;
     }, engineConfig, maxResults);
+  }
+  
+  /**
+   * Extract search results specifically from Bing
+   * @param {Object} page - Puppeteer page
+   * @param {number} maxResults - Maximum results to extract
+   * @returns {Promise<Array>} Extracted results
+   */
+  async extractBingResults(page, maxResults) {
+    this.logger?.info("Using specialized Bing extraction method");
+    
+    try {
+      // Take a screenshot for debugging
+      await page.screenshot({ path: 'bing-results.png' });
+      
+      // Use multiple selectors and extraction strategies
+      return await page.evaluate((max) => {
+        const results = [];
+        const seenUrls = new Set();
+        
+        // Helper function to clean text
+        function cleanText(text) {
+          if (!text) return '';
+          return text.replace(/\s+/g, ' ').trim();
+        }
+        
+        // Try multiple selectors for result containers
+        const containerSelectors = [
+          'li.b_algo',
+          '.b_algo',
+          '#b_results > li',
+          '.b_results .b_algo',
+          '.b_ans'
+        ];
+        
+        // Try each container selector
+        for (const selector of containerSelectors) {
+          const containers = document.querySelectorAll(selector);
+          console.log(`Found ${containers.length} results with selector: ${selector}`);
+          
+          if (containers.length === 0) continue;
+          
+          for (const container of containers) {
+            if (results.length >= max) break;
+            
+            try {
+              // Find all links in the container
+              const links = container.querySelectorAll('a[href^="http"]');
+              
+              if (links.length === 0) continue;
+              
+              // Use the first link as the main result link
+              const link = links[0];
+              const url = link.href;
+              
+              if (!url || url.includes('bing.com') || url.includes('microsoft.com') || seenUrls.has(url)) {
+                continue;
+              }
+              
+              // Try to extract title
+              let title = '';
+              const titleSelectors = ['h2', 'h3', '.b_title', '.title'];
+              
+              for (const titleSelector of titleSelectors) {
+                const titleElement = container.querySelector(titleSelector);
+                if (titleElement) {
+                  title = cleanText(titleElement.textContent);
+                  break;
+                }
+              }
+              
+              // If no title found from selectors, use link text
+              if (!title) {
+                title = cleanText(link.textContent) || 'No title';
+              }
+              
+              // Try to extract description
+              let description = '';
+              const descSelectors = ['.b_caption p', '.b_snippet', '.snippet', '.b_caption', '.b_attribution'];
+              
+              for (const descSelector of descSelectors) {
+                const descElement = container.querySelector(descSelector);
+                if (descElement) {
+                  description = cleanText(descElement.textContent);
+                  break;
+                }
+              }
+              
+              // Add the result
+              seenUrls.add(url);
+              results.push({
+                url,
+                title,
+                description
+              });
+              
+              console.log(`Extracted Bing result: ${title} -> ${url}`);
+            } catch (e) {
+              console.error('Error extracting Bing result:', e);
+            }
+          }
+          
+          // If we found results with this selector, stop trying others
+          if (results.length > 0) break;
+        }
+        
+        // Fallback: If no results found with container approach, try direct link extraction
+        if (results.length === 0) {
+          console.log('Using fallback direct link extraction for Bing');
+          
+          const allLinks = document.querySelectorAll('a[href^="http"]:not([href*="bing.com"]):not([href*="microsoft.com"])');
+          
+          for (const link of allLinks) {
+            if (results.length >= max) break;
+            
+            try {
+              const url = link.href;
+              
+              // Skip navigation links, ads, etc.
+              if (!url || 
+                  url.includes('bing.com') || 
+                  url.includes('microsoft.com') || 
+                  url.includes('msn.com') || 
+                  url.includes('live.com') || 
+                  seenUrls.has(url)) {
+                continue;
+              }
+              
+              // Get title from link text or parent element
+              const title = cleanText(link.textContent) || 
+                           cleanText(link.getAttribute('aria-label')) || 
+                           'No title';
+              
+              // Add the result if it looks like a search result (has some text content)
+              if (title && title !== 'No title' && title.length > 5) {
+                seenUrls.add(url);
+                results.push({
+                  url,
+                  title,
+                  description: ''
+                });
+                
+                console.log(`Extracted Bing fallback result: ${title} -> ${url}`);
+              }
+            } catch (e) {
+              console.error('Error extracting Bing fallback result:', e);
+            }
+          }
+        }
+        
+        return results;
+      }, maxResults);
+    } catch (error) {
+      this.logger?.error('Error in Bing extraction:', { error: error.message });
+      return [];
+    }
   }
 
   /**
@@ -2819,4 +3072,7 @@ export class MultiEngineDorker {
     }
   }
 }
+
+// Allow both named and default imports
+export default MultiEngineDorker;
 
