@@ -546,7 +546,7 @@ export class Dashboard {
         this.emitSessionUpdate();
     }
 
-    addResult(dork, results) {
+    addResult(dork, results, engine = 'unknown') {
         if (!results || !Array.isArray(results)) {
             this.logger?.warn('Invalid results passed to addResult', { dork });
             return;
@@ -560,7 +560,8 @@ export class Dashboard {
             dork,
             count: results.length,
             results,
-            timestamp: Date.now()
+            timestamp: Date.now(),
+            engine // Store the search engine that provided these results
         });
         
         // Keep only the 50 most recent result sets
@@ -574,14 +575,15 @@ export class Dashboard {
                 dork, 
                 count: results.length, 
                 results,
-                timestamp: Date.now()
+                timestamp: Date.now(),
+                engine
             });
             
             // Also update session stats
             this.emitSessionUpdate();
             
             // Log the new results
-            this.addLog('info', `📊 Found ${results.length} results for: ${dork.substring(0, 30)}${dork.length > 30 ? '...' : ''}`);
+            this.addLog('info', `📊 Found ${results.length} results for: ${dork.substring(0, 30)}${dork.length > 30 ? '...' : ''} with ${engine}`);
         }
     }
 
