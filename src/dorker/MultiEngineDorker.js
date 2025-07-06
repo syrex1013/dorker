@@ -6,7 +6,7 @@ import {
   generateProxy,
   deleteProxy,
 } from "../proxy/asocksApi.js";
-import { detectCaptcha, handleCaptcha } from "../captcha/detector.js";
+import { handleCaptcha } from "../captcha/detector.js";
 import {
   launchBrowser,
   createPage,
@@ -233,186 +233,413 @@ export class MultiEngineDorker {
       });
 
       let allResults = [];
+      
+      // Initialize session if dashboard exists
+      if (this.dashboard) {
+        this.dashboard.startSession(engines.length);
+        this.dashboard.setCurrentDork(dork);
+      }
 
       for (const engine of engines) {
-        this.logger?.info(`Searching with ${engine}...`);
-        
-        if (this.dashboard && this.dashboard.addLog) {
-          this.dashboard.addLog("info", `🔍 Searching with ${engine}...`);
-        }
-
-        const { page } = this.pageData;
-
-      // Check if we need to restart browser
-      if (this.searchCount >= this.restartThreshold) {
-        await this.restartBrowser();
-      }
-
-        // Navigate to search engine
-        const engineConfig = SEARCH_ENGINES[engine];
-        if (!engineConfig) {
-          this.logger?.warn(`Unsupported search engine: ${engine}`);
-          continue;
-        }
-
-        // Navigate to search engine homepage
-        await page.goto(engineConfig.baseUrl, { waitUntil: 'networkidle0' });
-        await sleep(engineConfig.waitTime || 2000, `waiting for ${engine} to load`, this.logger);
-
-      // Handle CAPTCHA if present with proxy switching callback
-      const switchProxyCallback = this.config.autoProxy
-        ? async () => {
-            try {
-              // Generate new proxy
-              const newProxy = await generateProxy(this.logger);
-              if (newProxy) {
-                // Restart browser with new proxy
-                await this.cleanup();
-                this.currentProxy = newProxy;
-                await this.initialize();
-                return true;
-              }
-              return false;
-            } catch (error) {
-              this.logger?.error("Error switching proxy", {
-                error: error.message,
-              });
-              return false;
-            }
+        try {
+          this.logger?.info(`Searching with ${engine}...`);
+          
+          if (this.dashboard) {
+            this.dashboard.addLog("info", `🔍 Searching with ${engine}...`);
+            this.dashboard.setProcessingStatus(`Processing with ${engine}`);
           }
-        : null;
 
-      const captchaHandled = await handleCaptcha(
-        page,
-        this.config,
-        this.logger,
-        switchProxyCallback,
-        this.dashboard,
-        this.pageData
-      );
-        
-      if (!captchaHandled) {
-          this.logger?.warn(`CAPTCHA handling failed for ${engine}, trying next engine`);
-          continue;
-      }
+          const { page } = this.pageData;
 
-      // Update status to searching
-      if (this.dashboard && this.dashboard.setStatus) {
-        this.dashboard.setStatus("searching");
-      }
+          // Check if we need to restart browser
+          if (this.searchCount >= this.restartThreshold) {
+            await this.restartBrowser();
+          }
 
-        // Find and interact with search box
-        const searchBoxSelectors = {
-          google: ['input[name="q"]', '#APjFqb', '.gLFyf'],
-          bing: ['input[name="q"]', '#sb_form_q'],
-          duckduckgo: ['input[name="q"]', '#search_form_input_homepage', '#search_form_input']
-        };
-
-      let searchBox = null;
-        for (const selector of searchBoxSelectors[engine] || []) {
-          searchBox = await page.$(selector);
-          if (searchBox) break;
-        }
-
-        if (!searchBox) {
-          this.logger?.warn(`Could not find search box for ${engine}`);
-          continue;
-        }
-
-        // Clear and fill search box
-        await searchBox.click();
-      await searchBox.focus();
-        await page.keyboard.down(process.platform === "darwin" ? "Meta" : "Control");
-        await page.keyboard.press("a");
-        await page.keyboard.up(process.platform === "darwin" ? "Meta" : "Control");
-      await page.keyboard.press("Delete");
-        await sleep(500, "after clearing search box", this.logger);
-
-      // Type dork with human-like delays
-      const dorkTypeDelay = 50 + Math.random() * 100;
-      for (let i = 0; i < dork.length; i++) {
-        await page.keyboard.type(dork[i]);
-          await sleep(Math.max(30, dorkTypeDelay), `typing character ${i + 1}`, this.logger);
-        }
-
-        await sleep(1000, "after typing dork", this.logger);
-
-      // Submit search
-      await page.keyboard.press("Enter");
-        await page.waitForNavigation({ waitUntil: "networkidle0", timeout: 30000 });
-
-        // Check for post-search CAPTCHA
-      const postSearchCaptcha = await detectCaptcha(page, this.logger);
-      if (postSearchCaptcha) {
-        const handled = await handleCaptcha(
-          page,
-          this.config,
-          this.logger,
-          switchProxyCallback,
-          this.dashboard
-        );
-        if (!handled) {
+          // Navigate to search engine
+          const engineConfig = SEARCH_ENGINES[engine];
+          if (!engineConfig) {
+            this.logger?.warn(`Unsupported search engine: ${engine}`);
+            if (this.dashboard) {
+              this.dashboard.incrementProcessed();
+              this.dashboard.incrementFailed();
+            }
             continue;
-        }
-      }
+          }
 
-        // Extract results using engine-specific selectors
-        const results = await this.extractResultsForEngine(page, maxResults, engine);
+          // Navigate to search engine homepage
+          this.logger?.info(`Navigating to ${engineConfig.baseUrl}`);
+          await page.goto(engineConfig.baseUrl, { waitUntil: 'networkidle0', timeout: 30000 });
+          await sleep(engineConfig.waitTime || 2000, `waiting for ${engine} to load`, this.logger);
 
-      // Apply dork-based filtering if enabled
-        let filteredResults = results;
-      if (this.config.dorkFiltering && results.length > 0) {
-          filteredResults = this.filterResultsByDork(results, dork);
-        }
-
-        // Add engine identifier to results
-        filteredResults = filteredResults.map(result => ({
-          ...result,
-          engine: engine
-        }));
-
-        allResults = [...allResults, ...filteredResults];
-
-        // Handle pagination if enabled and we haven't reached maxResults
-        if (this.config.maxPages > 1 && allResults.length < maxResults) {
-          let currentPage = 1;
-          while (currentPage < this.config.maxPages && allResults.length < maxResults) {
-            const nextPageResults = await this.handlePaginationForEngine(page, engine, maxResults);
-            if (!nextPageResults || nextPageResults.length === 0) break;
+          // Handle CAPTCHA and consent forms
+          const captchaHandled = await handleCaptcha(
+            page,
+            this.config,
+            this.logger,
+            this.config.autoProxy ? async () => await this.switchProxy() : null,
+            this.dashboard,
+            this.pageData
+          );
             
-            // Filter and add engine identifier
-            let filteredPageResults = nextPageResults;
-            if (this.config.dorkFiltering) {
-              filteredPageResults = this.filterResultsByDork(nextPageResults, dork);
-            }
-            filteredPageResults = filteredPageResults.map(result => ({
-              ...result,
-              engine: engine
-            }));
+          if (!captchaHandled) {
+            this.logger?.warn(`CAPTCHA handling failed for ${engine}, trying next engine`);
+            continue;
+          }
 
-            allResults = [...allResults, ...filteredPageResults];
-            currentPage++;
+          // Update status to searching
+          if (this.dashboard) {
+            this.dashboard.setStatus("searching");
+          }
 
-            // Add delay between pages
-            if (currentPage < this.config.maxPages) {
-              await sleep(2000 + Math.random() * 2000, "between pages", this.logger);
+          // Find and interact with search box using multiple selectors
+          const searchBoxSelectors = {
+            google: ['input[name="q"]', '#APjFqb', '.gLFyf'],
+            bing: ['#sb_form_q', 'input[name="q"]', '#search_box'],
+            duckduckgo: ['#search_form_input_homepage', '#search_form_input', 'input[name="q"]']
+          }[engine];
+
+          let searchBox = null;
+          for (const selector of searchBoxSelectors) {
+            try {
+              await page.waitForSelector(selector, { timeout: 5000 }).catch(() => null);
+              searchBox = await page.$(selector);
+              if (searchBox) {
+                this.logger?.info(`Found search box with selector: ${selector}`);
+                break;
+              }
+            } catch (e) {
+              continue;
             }
           }
-        }
 
-        // Add delay between engines
-        if (engines.indexOf(engine) < engines.length - 1) {
-          await sleep(3000 + Math.random() * 2000, "between engines", this.logger);
+          if (!searchBox) {
+            this.logger?.warn(`Could not find search box for ${engine}`);
+            continue;
+          }
+
+          // Handle consent forms for Bing
+          if (engine === 'bing') {
+            try {
+              const consentSelectors = [
+                '#bnp_btn_accept',
+                '#consent-banner button',
+                'button[id*="consent"]',
+                'button:has-text("Accept")',
+                'button:has-text("Agree")',
+                '#bnp_container button'
+              ];
+
+              for (const selector of consentSelectors) {
+                try {
+                  await page.waitForSelector(selector, { timeout: 2000 }).catch(() => null);
+                  const button = await page.$(selector);
+                  if (button) {
+                    await button.click();
+                    this.logger?.info(`Clicked Bing consent button with selector: ${selector}`);
+                    await sleep(1000, "after clicking Bing consent button", this.logger);
+                    break;
+                  }
+                } catch (e) {
+                  // Continue trying other selectors
+                }
+              }
+            } catch (error) {
+              this.logger?.warn('Error handling Bing consent:', error.message);
+            }
+          }
+
+          // Handle DuckDuckGo specific setup
+          if (engine === 'duckduckgo') {
+            try {
+              // Wait for page to be fully loaded
+              await sleep(2000, "waiting for DuckDuckGo to fully load", this.logger);
+              
+              // Check for any cookie/privacy banners
+              const ddgConsentSelectors = [
+                'button[data-testid="privacy-banner-accept"]',
+                '.privacy-banner button',
+                '[data-cy="accept-all"]',
+                'button:has-text("Accept")',
+                'button:has-text("Got it")',
+                'button:has-text("OK")'
+              ];
+
+              for (const selector of ddgConsentSelectors) {
+                try {
+                  await page.waitForSelector(selector, { timeout: 2000 }).catch(() => null);
+                  const button = await page.$(selector);
+                  if (button) {
+                    await button.click();
+                    this.logger?.info(`Clicked DuckDuckGo consent button with selector: ${selector}`);
+                    await sleep(1000, "after clicking DuckDuckGo consent button", this.logger);
+                    break;
+                  }
+                } catch (e) {
+                  // Continue trying other selectors
+                }
+              }
+            } catch (error) {
+              this.logger?.warn('Error handling DuckDuckGo setup:', error.message);
+            }
+          }
+
+          // Clear and fill search box
+          await searchBox.click();
+          await searchBox.focus();
+          await page.keyboard.down(process.platform === "darwin" ? "Meta" : "Control");
+          await page.keyboard.press("a");
+          await page.keyboard.up(process.platform === "darwin" ? "Meta" : "Control");
+          await page.keyboard.press("Delete");
+          await sleep(500, "after clearing search box", this.logger);
+
+          // Type query with delay
+          await searchBox.type(dork, { delay: 100 });
+          await sleep(500, "after typing query", this.logger);
+
+          // Submit search
+          await page.keyboard.press("Enter");
+          
+          // Wait for navigation with better error handling
+          try {
+            await page.waitForNavigation({ waitUntil: 'networkidle0', timeout: 30000 });
+          } catch (_navError) {
+            this.logger?.warn(`Navigation timeout for ${engine}, continuing anyway...`);
+            // Wait a bit more for the page to load
+            await sleep(3000, `waiting for ${engine} results after navigation timeout`, this.logger);
+          }
+
+          // Wait for results with multiple selector attempts
+          const resultsSelectors = {
+            google: ['div.g', '#search div[data-hveid]', '#rso > div'],
+            bing: ['li.b_algo', '#b_results > li', '.b_results .b_algo'],
+            duckduckgo: ['article[data-testid="result"]', '.result', '.results .result']
+          }[engine];
+
+          let resultsFound = false;
+          let workingSelector = '';
+          for (const selector of resultsSelectors) {
+            try {
+              await page.waitForSelector(selector, { timeout: 10000 });
+              this.logger?.info(`Found results with selector: ${selector}`);
+              resultsFound = true;
+              workingSelector = selector;
+              break;
+            } catch (e) {
+              this.logger?.info(`Selector ${selector} not found, trying next...`);
+              continue;
+            }
+          }
+
+          if (!resultsFound) {
+            this.logger?.warn('No results found with any selector');
+            if (this.dashboard) {
+              this.dashboard.incrementProcessed();
+              this.dashboard.incrementFailed();
+            }
+            continue;
+          }
+
+          // Debug: Log page content
+          this.logger?.info('Attempting to extract results...');
+          const pageContent = await page.content();
+          this.logger?.debug(`Page content length: ${pageContent.length}`);
+
+          // Extract results using engine-specific selectors with debug info
+          const results = await page.evaluate((config) => {
+            console.log('Starting result extraction...');
+            const containers = document.querySelectorAll(config.resultsSelector);
+            console.log(`Found ${containers.length} result containers`);
+            
+            const results = [];
+            const seenUrls = new Set();
+
+            function extractGoogleUrl(href) {
+              try {
+                if (!href) return null;
+                // For Google search results
+                if (href.startsWith('/url?')) {
+                  const url = new URL('https://www.google.com' + href);
+                  const realUrl = url.searchParams.get('url');
+                  return realUrl || null;
+                }
+                return href;
+              } catch (e) {
+                console.error('Error extracting URL:', e);
+                return null;
+              }
+            }
+
+            for (const container of containers) {
+              try {
+                console.log('Processing container:', container.outerHTML.substring(0, 100) + '...');
+                
+                const linkElement = container.querySelector(config.linkSelector);
+                if (!linkElement) {
+                  console.log('No link element found with selector:', config.linkSelector);
+                  continue;
+                }
+
+                let url;
+                if (config.name === 'Google') {
+                  url = extractGoogleUrl(linkElement.getAttribute('href'));
+                } else {
+                  url = linkElement.href;
+                }
+
+                if (!url || seenUrls.has(url)) {
+                  console.log('Invalid or duplicate URL:', url);
+                  continue;
+                }
+
+                const titleElement = container.querySelector(config.titleSelector);
+                const title = titleElement ? titleElement.textContent.trim() : '';
+                console.log('Found title:', title);
+
+                const descElement = container.querySelector(config.descriptionSelector);
+                const description = descElement ? descElement.textContent.trim() : '';
+                console.log('Found description:', description.substring(0, 50) + '...');
+
+                if (url && (title || description)) {
+                  seenUrls.add(url);
+                  results.push({ url, title, description });
+                  console.log('Added result:', { url, title: title.substring(0, 30) + '...' });
+                }
+              } catch (e) {
+                console.error('Error extracting result:', e);
+              }
+            }
+
+            console.log(`Extracted ${results.length} total results`);
+            return results;
+          }, engineConfig);
+
+          this.logger?.info(`Extracted ${results.length} results from ${engine}`);
+
+          // If no results found or for Google, try alternative extraction
+          if (results.length === 0 || engine === 'google') {
+            this.logger?.info(`${results.length === 0 ? 'No results extracted with primary selectors' : 'Using alternative extraction for Google'}, trying alternatives...`);
+            
+            // Try alternative extraction with more generic selectors
+            const alternativeResults = await page.evaluate((workingSelector) => {
+              console.log('Trying alternative extraction...');
+              const results = [];
+              const containers = document.querySelectorAll(workingSelector);
+              const seenUrls = new Set();
+              
+              for (const container of containers) {
+                try {
+                  // Try to find any link in the container
+                  const links = container.getElementsByTagName('a');
+                  for (const link of links) {
+                    let url = link.href;
+                    
+                    // For Google, extract real URL from redirect
+                    if (url && url.includes('/url?')) {
+                      try {
+                        const urlObj = new URL(url);
+                        const realUrl = urlObj.searchParams.get('url');
+                        if (realUrl) url = realUrl;
+                      } catch (e) {
+                        // Keep original URL if parsing fails
+                      }
+                    }
+                    
+                    if (!url || !url.startsWith('http') || seenUrls.has(url)) continue;
+                    
+                    const title = link.textContent.trim();
+                    const description = '';
+                    
+                    if (url && title) {
+                      seenUrls.add(url);
+                      results.push({ url, title, description });
+                      console.log('Added alternative result:', { url, title: title.substring(0, 30) + '...' });
+                    }
+                  }
+                } catch (e) {
+                  console.error('Error in alternative extraction:', e);
+                }
+              }
+              
+              console.log(`Extracted ${results.length} alternative results`);
+              return results;
+            }, workingSelector);
+
+            if (alternativeResults.length > 0) {
+              this.logger?.info(`Found ${alternativeResults.length} results with alternative extraction`);
+              // For Google, replace results; for others, add to existing
+              if (engine === 'google') {
+                results.length = 0; // Clear existing results
+                results.push(...alternativeResults);
+              } else {
+                results.push(...alternativeResults);
+              }
+            }
+          }
+
+          // Log found URLs for this engine
+          if (results.length > 0) {
+            this.logger?.info(`URLs found in ${engine}:`, {
+              engine,
+              count: results.length,
+              urls: results.slice(0, 5).map(r => r.url) // Log first 5 URLs
+            });
+            
+            // Log all URLs in debug mode
+            results.forEach((result, index) => {
+              this.logger?.debug(`${engine} URL ${index + 1}: ${result.url}`);
+            });
+          }
+
+          // Apply dork-based filtering if enabled
+          let filteredResults = results;
+          if (this.config.dorkFiltering && results.length > 0) {
+            filteredResults = this.filterResultsByDork(results, dork);
+            this.logger?.info(`Filtered to ${filteredResults.length} results matching dork pattern`);
+          }
+
+          // Add engine identifier to results
+          filteredResults = filteredResults.map(result => ({
+            ...result,
+            engine: engine
+          }));
+
+          allResults = [...allResults, ...filteredResults];
+
+          // Update dashboard statistics
+          if (this.dashboard) {
+            this.dashboard.incrementProcessed();
+            if (filteredResults.length > 0) {
+              this.dashboard.incrementSuccessful();
+              this.dashboard.addToTotalResults(filteredResults.length);
+            } else {
+              this.dashboard.incrementFailed();
+            }
+          }
+
+          // Add delay between engines
+          if (engines.indexOf(engine) < engines.length - 1) {
+            await sleep(3000 + Math.random() * 2000, "between engines", this.logger);
+          }
+        } catch (error) {
+          this.logger?.error(`Search failed for engine ${engine}`, {
+            error: error.message,
+          });
+          if (this.dashboard) {
+            this.dashboard.incrementProcessed();
+            this.dashboard.incrementFailed();
+          }
         }
       }
 
       this.searchCount++;
-      this.logger?.info("Multi-engine search completed", {
-        dork: dork.substring(0, 50),
-        resultCount: allResults.length,
-        engines: engines.join(", "),
-        searchCount: this.searchCount,
-      });
+      
+      // End session and get summary
+      if (this.dashboard) {
+        this.dashboard.endSession();
+        const summary = this.dashboard.getSessionSummary();
+        this.dashboard.addLog("info", `📊 Search Summary: ${JSON.stringify(summary)}`);
+      }
 
       return allResults;
     } catch (error) {
@@ -2514,6 +2741,81 @@ export class MultiEngineDorker {
       this.logger?.info("MultiEngineDorker cleanup completed");
     } catch (error) {
       this.logger?.error("Error during cleanup", { error: error.message });
+    }
+  }
+
+  /**
+   * Perform batch search of multiple dorks using specified engines
+   * @param {string[]} dorks - Array of dork queries
+   * @param {number} maxResults - Maximum results per dork
+   * @param {string[]} engines - Array of search engines to use
+   * @returns {Promise<Array>} Combined search results
+   */
+  async performBatchSearch(dorks, maxResults = 30, engines = ['google']) {
+    try {
+      this.logger?.info("Starting batch search", {
+        dorkCount: dorks.length,
+        engines: engines.join(", "),
+      });
+
+      let allResults = [];
+      
+      // Initialize session if dashboard exists
+      if (this.dashboard) {
+        this.dashboard.startSession(dorks.length * engines.length);
+      }
+
+      // Search all dorks with each engine before moving to next engine
+      for (const engine of engines) {
+        this.logger?.info(`Starting searches with ${engine}...`);
+        
+        if (this.dashboard) {
+          this.dashboard.addLog("info", `🚀 Starting batch search with ${engine}...`);
+          this.dashboard.setProcessingStatus(`Processing with ${engine}`);
+        }
+
+        for (const dork of dorks) {
+          if (this.dashboard) {
+            this.dashboard.setCurrentDork(dork);
+          }
+
+          try {
+            const results = await this.performSearch(dork, maxResults, [engine]);
+            allResults = [...allResults, ...results];
+
+            // Add delay between dorks
+            if (dorks.indexOf(dork) < dorks.length - 1) {
+              await sleep(3000 + Math.random() * 2000, "between dorks", this.logger);
+            }
+          } catch (error) {
+            this.logger?.error(`Failed to search dork with ${engine}:`, {
+              dork: dork.substring(0, 50),
+              error: error.message,
+            });
+            if (this.dashboard) {
+              this.dashboard.incrementProcessed();
+              this.dashboard.incrementFailed();
+            }
+          }
+        }
+
+        // Add longer delay between engines
+        if (engines.indexOf(engine) < engines.length - 1) {
+          await sleep(5000 + Math.random() * 3000, "between engines", this.logger);
+        }
+      }
+
+      // End session and get summary
+      if (this.dashboard) {
+        this.dashboard.endSession();
+        const summary = this.dashboard.getSessionSummary();
+        this.dashboard.addLog("info", `📊 Batch Search Summary: ${JSON.stringify(summary)}`);
+      }
+
+      return allResults;
+    } catch (error) {
+      this.logger?.error("Batch search failed", { error: error.message });
+      return [];
     }
   }
 }

@@ -7,7 +7,7 @@ import { sleep } from "../src/utils/sleep.js";
 import { generateFingerprint } from "../src/utils/fingerprint.js";
 import dotenv from "dotenv";
 import randomUseragent from "random-useragent";
-import MultiEngineDorker from "../src/dorker/MultiEngineDorker.js";
+import { MultiEngineDorker } from "../src/dorker/MultiEngineDorker.js";
 
 // Load environment variables
 dotenv.config();

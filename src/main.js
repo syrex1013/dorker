@@ -412,10 +412,45 @@ async function interactiveMode() {
 
     displayStatus("✅ Logging system ready", "✓", "green");
 
-    // Load dorks from file
-    displayStatus(`Loading dorks from ${config.dorkFile}...`, "📁", "blue");
+    // Process the configuration
+    const minDelay = parseInt(config.minDelay) || 10;
+    const maxDelay = parseInt(config.maxDelay) || 45;
 
-    const dorks = await loadDorks(config.dorkFile, logger);
+    // Validate delay range
+    if (maxDelay <= minDelay) {
+      displayError("Maximum delay must be greater than minimum delay", null);
+      process.exit(1);
+    }
+
+    // Ensure we have valid engines configuration
+    const engines = config.multiEngine && Array.isArray(config.engines) && config.engines.length > 0
+      ? config.engines
+      : ['google'];
+
+    const processedConfig = {
+      dorkFile: config.dorkFile || "dorks.txt",
+      outputFile: config.outputFile?.trim() || null,
+      resultCount: parseInt(config.resultCount) || 30,
+      maxPages: Math.min(parseInt(config.maxPages) || 1, 10),
+      minDelay: Math.max(minDelay, 5),
+      maxDelay: Math.min(maxDelay, 120),
+      extendedDelay: config.extendedDelay,
+      maxPause: Math.min(parseInt(config.maxPause) || 60, 60),
+      headless: config.headless,
+      userAgent: config.userAgent?.trim() || null,
+      manualCaptchaMode: config.manualCaptchaMode,
+      humanLike: config.humanLike,
+      autoProxy: config.autoProxy,
+      multiEngine: config.multiEngine,
+      engines: engines,
+      dorkFiltering: config.dorkFiltering,
+      verbose: true, // Always enabled
+    };
+
+    // Load dorks from file
+    displayStatus(`Loading dorks from ${processedConfig.dorkFile}...`, "📁", "blue");
+
+    const dorks = await loadDorks(processedConfig.dorkFile, logger);
     if (dorks.length === 0) {
       displayError("No dorks found in file", null);
       process.exit(1);
@@ -430,7 +465,7 @@ async function interactiveMode() {
       "magenta"
     );
 
-    dorker = new MultiEngineDorker(config, logger, null);
+    dorker = new MultiEngineDorker(processedConfig, logger, null);
     await dorker.initialize();
 
     displayStatus("✅ Browser and security systems ready", "✓", "green");
@@ -444,13 +479,13 @@ async function interactiveMode() {
       `${chalk.bold.cyan("🚀 Dorking Session Started")}\n\n` +
         `${chalk.gray("Total Dorks:")} ${chalk.white(dorks.length)}\n` +
         `${chalk.gray("Results per Search:")} ${chalk.white(
-          config.resultCount
+          processedConfig.resultCount
         )}\n` +
         `${chalk.gray("Delay between Searches:")} ${chalk.white(
-          config.extendedDelay
+          processedConfig.extendedDelay
             ? "1-5 minutes (Extended Mode)"
-            : `${config.minDelay || config.delay || 10}-${
-                config.maxDelay || config.delay || 45
+            : `${processedConfig.minDelay}-${
+                processedConfig.maxDelay
               }s`
         )}`,
       {
@@ -492,11 +527,42 @@ async function interactiveMode() {
 
         let results;
         try {
-          // Perform search
-          results = await dorker.performSearch(dork, config.resultCount, config.engines || ['google']);
+          // Perform search with selected engines
+          results = await dorker.performSearch(
+            dork, 
+            processedConfig.resultCount, 
+            processedConfig.multiEngine ? processedConfig.engines : ['google']
+          );
           
           // Stop spinner and show success
           searchSpinner.succeed(`✅ Found ${results ? results.length : 0} results`);
+
+          // Store results
+          allResults[dork] = results;
+
+          // Save results to file if specified
+          if (processedConfig.outputFile) {
+            const saveSpinner = createSpinner('💾 Saving results...', 'cyan');
+            saveSpinner.start();
+            
+            try {
+              if (processedConfig.outputFile.endsWith('.json')) {
+                await appendDorkResults(dork, results, processedConfig.outputFile, allResults, logger);
+              } else if (processedConfig.outputFile.endsWith('.txt')) {
+                const urls = results.map(r => r.url).filter(Boolean);
+                if (urls.length > 0) {
+                  // Add a header for this dork's results
+                  const header = `\n\n# Results for dork: ${dork}\n`;
+                  await appendUrlsToFile([header, ...urls], processedConfig.outputFile, logger);
+                }
+              }
+              saveSpinner.succeed('✅ Results saved successfully');
+            } catch (saveError) {
+              saveSpinner.fail(`❌ Failed to save results: ${saveError.message}`);
+              logger.error('Failed to save results', { error: saveError.message });
+            }
+          }
+          
         } catch (searchError) {
           // Stop spinner and show error
           searchSpinner.fail(`❌ Search failed: ${searchError.message}`);
@@ -529,11 +595,6 @@ async function interactiveMode() {
           console.log(chalk.yellow("⚠️ No results found"));
         }
 
-        // Store results
-        allResults[dork] = results;
-
-        // Note: We no longer automatically save JSON files - only save URLs if user agrees at end
-
         // Clear previous lines and display progress bar
         if (i > 0) {
           // Move cursor up to overwrite previous progress bar
@@ -553,9 +614,9 @@ async function interactiveMode() {
         // Delay between searches (except for last dork)
         if (i < dorks.length - 1) {
           const delaySpinner = createSpinner(
-            config.extendedDelay 
+            processedConfig.extendedDelay 
               ? `⏳ Extended delay in progress (1-5 minutes)...`
-              : `⏳ Delay in progress (${config.minDelay || config.delay || 10}-${config.maxDelay || config.delay || 45}s)...`, 
+              : `⏳ Delay in progress (${processedConfig.minDelay}-${processedConfig.maxDelay}s)...`, 
             "yellow"
           );
           delaySpinner.start();
@@ -585,7 +646,7 @@ async function interactiveMode() {
     // Display final summary
     displayFinalSummary(allResults, startTime);
 
-    if (!config.outputFile) {
+    if (!processedConfig.outputFile) {
       // Ask if user wants to save URLs to result.txt
       const shouldSaveUrls = await askSaveUrls(allResults);
       if (shouldSaveUrls) {

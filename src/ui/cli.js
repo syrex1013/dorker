@@ -117,6 +117,13 @@ function displayConfig(config) {
       getStatusIcon(config.multiEngine),
     ],
     [
+      "🎯 Search Engines",
+      config.multiEngine && config.engines
+        ? config.engines.join(', ')
+        : "Google (default)",
+      getStatusIcon(true, "file"),
+    ],
+    [
       "🎯 Dork URL Filtering",
       config.dorkFiltering ? "Enabled" : "Disabled",
       getStatusIcon(config.dorkFiltering),
@@ -301,6 +308,30 @@ async function getConfiguration() {
     }
   );
 
+  // If multi-engine is enabled, ask for engine selection separately
+  if (config.multiEngine) {
+    config.engines = await p.select({
+      message: "🔍 Select search engines to use",
+      options: [
+        { value: ['google', 'bing', 'duckduckgo'], label: 'All Engines', hint: 'Use all available engines' },
+        { value: ['google', 'bing'], label: 'Google + Bing', hint: 'Most popular engines' },
+        { value: ['google', 'duckduckgo'], label: 'Google + DuckDuckGo', hint: 'Privacy-focused option' },
+        { value: ['google'], label: 'Google Only', hint: 'Default search engine' },
+        { value: ['bing'], label: 'Bing Only', hint: 'Microsoft search engine' },
+        { value: ['duckduckgo'], label: 'DuckDuckGo Only', hint: 'Privacy-focused engine' }
+      ],
+      initialValue: ['google']
+    });
+  } else {
+    config.engines = ['google'];
+  }
+
+  // Debug: Log the raw config to see what we got
+  console.log('\n🔍 Debug - Raw config:', {
+    multiEngine: config.multiEngine,
+    engines: config.engines
+  });
+
   // Process the configuration
   const minDelay = parseInt(config.minDelay) || 10;
   const maxDelay = parseInt(config.maxDelay) || 45;
@@ -326,6 +357,7 @@ async function getConfiguration() {
     humanLike: config.humanLike,
     autoProxy: config.autoProxy,
     multiEngine: config.multiEngine,
+    engines: config.engines || ['google'],
     dorkFiltering: config.dorkFiltering,
     verbose: true, // Always enabled
   };

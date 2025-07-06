@@ -247,6 +247,18 @@ async function appendUrlsToFile(urls, filePath, logger = null) {
   if (!filePath || !urls || urls.length === 0) return;
 
   try {
+    // Ensure directory exists
+    const dir = path.dirname(filePath);
+    await fs.mkdir(dir, { recursive: true });
+
+    // Create file if it doesn't exist
+    try {
+      await fs.access(filePath);
+    } catch {
+      await fs.writeFile(filePath, '', 'utf8');
+    }
+
+    // Append URLs
     const urlContent = urls.join("\n") + "\n";
     await fs.appendFile(filePath, urlContent, "utf8");
     logger?.debug(`Appended ${urls.length} URLs to ${filePath}`);
@@ -255,6 +267,7 @@ async function appendUrlsToFile(urls, filePath, logger = null) {
       filePath,
       error: error.message,
     });
+    throw error; // Re-throw to handle in the calling function
   }
 }
 

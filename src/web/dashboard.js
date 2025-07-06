@@ -172,35 +172,22 @@ export class Dashboard {
         try {
             this.setStatus('searching');
             
-            for (const dork of dorks) {
-                if (!this.isSearching) break;
-
-                this.addLog('info', `🔍 Searching for: ${dork}`);
+            try {
+                const results = await this.dorker.performBatchSearch(dorks, 30, engines);
                 
-                try {
-                    const results = await this.dorker.performSearch(dork, 30, engines);
-                    
-                    if (results && results.length > 0) {
-                        this.addLog('success', `✅ Found ${results.length} results for: ${dork}`);
-                        results.forEach(result => {
-                            if (this.currentSocket) {
-                                this.currentSocket.emit('result', result);
-                            }
-                        });
-                    } else {
-                        this.addLog('warning', `⚠️ No results found for: ${dork}`);
-                    }
-                } catch (error) {
-                    this.logger?.error(`Error searching dork: ${dork}`, error);
-                    this.addLog('error', `❌ Error searching: ${dork} - ${error.message}`);
-                }
-
-                // Add delay between dorks
-                if (this.isSearching && dorks.indexOf(dork) < dorks.length - 1) {
-                    await new Promise(resolve => {
-                        this.searchTimeout = setTimeout(resolve, 5000);
+                if (results && results.length > 0) {
+                    this.addLog('success', `✅ Found ${results.length} total results across all dorks and engines`);
+                    results.forEach(result => {
+                        if (this.currentSocket) {
+                            this.currentSocket.emit('result', result);
+                        }
                     });
+                } else {
+                    this.addLog('warning', `⚠️ No results found for any dorks`);
                 }
+            } catch (error) {
+                this.logger?.error(`Error in search process:`, error);
+                this.addLog('error', `❌ Search process error: ${error.message}`);
             }
 
             this.setStatus('ready');
