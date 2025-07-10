@@ -2466,25 +2466,15 @@ export class MultiEngineDorker {
         let shouldInclude = false;
         
         if (hasOrOperator) {
-          // With OR operators, we need to group patterns by their position relative to OR operators
-          
-          // A result should be included if it matches ANY of the OR groups
-          shouldInclude = patternGroups.some(group => {
-            // For each group, ALL patterns in the group must match
-            return group.every(pattern => {
-              if (pattern.type === 'logical') return true;
-              if (pattern.type === 'exclude') return true; // Already handled above
-              return this.matchesPattern(result, pattern);
-            });
-          });
+          // With OR operators, include result if it satisfies any OR group entirely
+          shouldInclude = patternGroups.some(group =>
+            group.every(p => p.type === 'logical' || p.type === 'exclude' || this.matchesPattern(result, p))
+          );
         } else {
-          // With AND logic (default), all pattern types must match
-          shouldInclude = Object.keys(patternsByType).every(type => {
-            // For each type, at least one pattern must match
-            return patternsByType[type].some(pattern => 
-              this.matchesPattern(result, pattern)
-            );
-          });
+          // Default AND logic: EVERY individual non-exclude pattern must match
+          shouldInclude = patterns
+            .filter(p => p.type !== 'logical' && p.type !== 'exclude')
+            .every(p => this.matchesPattern(result, p));
         }
 
         if (shouldInclude) {
@@ -2889,11 +2879,15 @@ export class MultiEngineDorker {
       }
     }
 
-    // Extract standalone negative terms
+    // Extract standalone negative terms (e.g., -password)
     const negativeRegex = /-([^\s:"-]+)/g;
     let negativeMatch;
     while ((negativeMatch = negativeRegex.exec(dork)) !== null) {
-      // Skip if this negative is part of a dork operator we've already processed
+      const token = negativeMatch[1];
+      // Skip operator-only tokens such as "inurl:" "url:" etc.
+      if (/^[a-zA-Z]+:$/.test(token)) continue;
+
+      // Skip if this negative is part of an operator/value pair we've already processed
       let isPartOfOperator = false;
       for (const pattern of patterns) {
         if (pattern.original.includes(negativeMatch[0])) {
@@ -2905,8 +2899,8 @@ export class MultiEngineDorker {
       if (!isPartOfOperator) {
         patterns.push({
           type: "exclude",
-          originalType: "required", // We'll treat it as a required term when matching
-          value: negativeMatch[1],
+          originalType: "required", // treat like required but inverted
+          value: token,
           original: negativeMatch[0],
         });
       }
@@ -2916,9 +2910,11 @@ export class MultiEngineDorker {
     const requiredRegex = /\+([^\s:"-]+)/g;
     let requiredMatch;
     while ((requiredMatch = requiredRegex.exec(dork)) !== null) {
+      const token = requiredMatch[1];
+      if (/^[a-zA-Z]+:$/.test(token)) continue; // skip lone operator tokens
       patterns.push({
         type: "required",
-        value: requiredMatch[1],
+        value: token,
         original: requiredMatch[0],
       });
     }
@@ -2934,13 +2930,15 @@ export class MultiEngineDorker {
       .split(/\s+/);
 
     words.forEach((word) => {
-      if (word && word.length > 0) {
-        patterns.push({
-          type: "required",
-          value: word,
-          original: word,
-        });
-      }
+      if (!word || word.length === 0) return;
+      // Ignore tokens that are just operator names like "inurl:"
+      if (/^[a-zA-Z]+:$/.test(word)) return;
+
+      patterns.push({
+        type: "required",
+        value: word,
+        original: word,
+      });
     });
 
     // Extract logical operators and their positions
@@ -3117,6 +3115,15 @@ export class MultiEngineDorker {
       const { page, cursor } = this.pageData;
 
       try {
+        // Disable pointer events to avoid accidental navigation during delay cursor movements
+        await page.evaluate(() => {
+          if (!document.body.dataset.pointerEventsDisabled) {
+            document.body.dataset.pointerEventsDisabled = 'true';
+            document.body.dataset.prevPointerEvents = document.body.style.pointerEvents || '';
+            document.body.style.pointerEvents = 'none';
+          }
+        });
+        
         const delayStartTime = Date.now();
         const delayEndTime = delayStartTime + randomDelay;
         let lastCountdownTime = Math.ceil(randomDelay / 1000);
@@ -3186,6 +3193,19 @@ export class MultiEngineDorker {
           "fallback delay between searches",
           this.logger
         );
+      }
+
+      // Re-enable pointer events after delay movements
+      try {
+        await page.evaluate(() => {
+          if (document.body.dataset.pointerEventsDisabled) {
+            document.body.style.pointerEvents = document.body.dataset.prevPointerEvents || '';
+            delete document.body.dataset.pointerEventsDisabled;
+            delete document.body.dataset.prevPointerEvents;
+          }
+        });
+      } catch (restoreErr) {
+        this.logger?.debug(`Could not restore pointer events: ${restoreErr.message}`);
       }
     } else {
       // Fallback to regular sleep

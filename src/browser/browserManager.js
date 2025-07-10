@@ -857,6 +857,15 @@ async function performWarmup(pageData, logger = null) {
       dashboard.setProcessingStatus(`🔥 Warming up: ${lastCountdownTime}s remaining`);
     }
 
+    // Temporarily disable all pointer events so hover/click handlers cannot trigger navigation
+    await page.evaluate(() => {
+      if (!document.body.dataset.pointerEventsDisabled) {
+        document.body.dataset.pointerEventsDisabled = 'true';
+        document.body.dataset.prevPointerEvents = document.body.style.pointerEvents || '';
+        document.body.style.pointerEvents = 'none';
+      }
+    });
+
     // Stay on Google homepage and ONLY move cursor
     while (Date.now() < warmupEndTime) {
       // Update countdown every second
@@ -903,6 +912,15 @@ async function performWarmup(pageData, logger = null) {
       const pauseTime = Math.random() * 3000 + 2000; // 2-5 seconds
       await sleep(pauseTime, "warmup movement pause", logger);
     }
+
+    // Restore pointer events after warm-up cursor movements finish
+    await page.evaluate(() => {
+      if (document.body.dataset.pointerEventsDisabled) {
+        document.body.style.pointerEvents = document.body.dataset.prevPointerEvents || '';
+        delete document.body.dataset.pointerEventsDisabled;
+        delete document.body.dataset.prevPointerEvents;
+      }
+    });
 
     logWithDedup("info", "✅ Warm-up session completed", chalk.green, logger);
     logger?.info("Warm-up session completed successfully (movement-only)");
