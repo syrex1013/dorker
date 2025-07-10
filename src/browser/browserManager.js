@@ -145,68 +145,51 @@ async function _humanLikeMove(cursor, x, y, page, logger = null) {
 }
 
 /**
- * Random mouse movements to simulate human browsing
- * @param {Object} page - Page instance
- * @param {Object} cursor - Ghost cursor instance
- * @param {Object} logger - Logger instance
- */
-/**
- * Perform completely safe cursor movements during warmup (NO interaction)
+ * Perform safe cursor movements with error handling
  * @param {Object} page - Puppeteer page
  * @param {Object} cursor - Ghost cursor
  * @param {Object} logger - Winston logger instance
+ * @param {Number} movementCount - Number of movements to perform (default: 5)
+ * @returns {Promise<void>}
  */
-async function performSafeCursorMovements(page, cursor, logger = null) {
+async function performSafeCursorMovements(page, cursor, logger = null, movementCount = 5) {
   try {
-    const viewport = await page.viewport();
-    const maxX = Math.min(viewport?.width || 1366, 1366) - 200;
-    const maxY = Math.min(viewport?.height || 768, 768) - 200;
-
-    // Perform 3-5 very safe movements in empty areas only
-    const movementCount = Math.floor(Math.random() * 3) + 3;
-
-    logger?.debug(
-      `Performing ${movementCount} safe cursor movements (warmup mode)`
-    );
-
-    for (let i = 0; i < movementCount; i++) {
-      // Very conservative coordinates - stay in safe center area
-      const targetX = Math.random() * (maxX - 600) + 300; // Far from edges
-      const targetY = Math.random() * (maxY - 400) + 200; // Avoid header/footer
-
-      try {
-        // Use our enhanced move function
-        await _humanLikeMove(cursor, targetX, targetY, page, logger);
-        logger?.debug(`Safe cursor movement ${i + 1} completed`);
-
-        // Pause at position (simulate reading)
-        const pauseTime = Math.random() * 800 + 1200; // 1200-2000ms
-        await sleep(pauseTime, `reading pause ${i + 1}`, logger);
-      } catch (moveError) {
-        logger?.debug(
-          `Safe cursor movement ${i + 1} failed: ${moveError.message}`
-        );
-        // Don't use any fallback - just skip this movement
-        continue;
-      }
+    if (!page || !cursor) {
+      logger?.debug("Cannot perform cursor movements: page or cursor is null");
+      return;
     }
 
-    logger?.debug(`Completed safe cursor movements for warmup`);
+    // Check if page is still valid before proceeding
+    try {
+      const pageUrl = await page.url();
+      logger?.debug(`Performing cursor movements on ${pageUrl}`);
+    } catch (error) {
+      logger?.debug("Cannot perform cursor movements: page is no longer valid");
+      return;
+    }
+
+    await _performRandomMouseMovements(page, cursor, logger, movementCount);
   } catch (error) {
-    logger?.debug("Error in safe cursor movements", { error: error.message });
+    logger?.debug("Error during safe cursor movements", {
+      error: error.message,
+    });
   }
 }
 
-async function _performRandomMouseMovements(page, cursor, logger = null) {
+/**
+ * Perform random mouse movements
+ * @private
+ */
+async function _performRandomMouseMovements(page, cursor, logger = null, movementCount = 5) {
   try {
     const viewport = await page.viewport();
     const maxX = Math.min(viewport?.width || 1366, 1366) - 100;
     const maxY = Math.min(viewport?.height || 768, 768) - 100;
 
-    // Perform 4-6 random movements (reduced for safety)
-    const movementCount = Math.floor(Math.random() * 3) + 4;
+    // Use provided movementCount or fallback to 4-6 random movements
+    const actualMovementCount = movementCount || Math.floor(Math.random() * 3) + 4;
 
-    for (let i = 0; i < movementCount; i++) {
+    for (let i = 0; i < actualMovementCount; i++) {
       // Generate safe coordinates (avoid top and edges where buttons might be)
       const targetX = Math.random() * (maxX - 400) + 200; // More conservative bounds
       const targetY = Math.random() * (maxY - 300) + 150; // Avoid header area
@@ -246,8 +229,14 @@ async function _performRandomMouseMovements(page, cursor, logger = null) {
           continue;
         }
 
-        // Use our enhanced move function
-        await _humanLikeMove(cursor, targetX, targetY, page, logger);
+        // Use our enhanced move function with timeout protection
+        await Promise.race([
+          _humanLikeMove(cursor, targetX, targetY, page, logger),
+          new Promise((_, reject) => 
+            setTimeout(() => reject(new Error("Movement timeout")), 3000)
+          )
+        ]);
+        
         logger?.debug(`Random movement ${i + 1} completed`);
 
         // Pause before next movement
@@ -274,8 +263,17 @@ async function _performRandomMouseMovements(page, cursor, logger = null) {
  */
 async function launchBrowser(config, logger = null) {
   try {
-    logger?.info("Launching real browser with anti-detection configuration");
+    logger?.info("Launching browser instance");
 
+    const isHeadless = config.headless === true;
+    
+    if (isHeadless) {
+      logger?.info("Using enhanced stealth headless configuration");
+    } else {
+      logger?.info("Using visible browser with anti-detection configuration");
+    }
+
+    // Enhanced browser arguments for better stealth
     const browserArgs = [
       "--no-sandbox",
       "--disable-setuid-sandbox",
@@ -292,7 +290,7 @@ async function launchBrowser(config, logger = null) {
       "--no-pings",
       "--password-store=basic",
       "--use-mock-keychain",
-      // Anti-detection
+      // Enhanced anti-detection
       "--disable-blink-features=AutomationControlled",
       "--disable-features=UserAgentClientHint",
       "--allow-running-insecure-content",
@@ -305,6 +303,17 @@ async function launchBrowser(config, logger = null) {
       "--enable-accelerated-2d-canvas",
       "--enable-gpu-rasterization",
       "--force-color-profile=srgb",
+      // Additional stealth args
+      "--disable-infobars",
+      "--disable-notifications",
+      "--disable-popup-blocking",
+      "--disable-extensions",
+      "--disable-component-extensions-with-background-pages",
+      "--disable-ipc-flooding-protection",
+      "--enable-features=NetworkService,NetworkServiceInProcess",
+      "--font-render-hinting=none",
+      "--hide-scrollbars",
+      "--mute-audio",
     ];
 
     // Add proxy configuration if available
@@ -314,14 +323,32 @@ async function launchBrowser(config, logger = null) {
       );
     }
 
+    // Use a realistic user agent
+    const realisticUserAgents = [
+      "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/119.0.0.0 Safari/537.36",
+      "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/119.0.0.0 Safari/537.36",
+      "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/119.0.0.0 Safari/537.36",
+      "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Safari/605.1.15",
+      "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/118.0.0.0 Safari/537.36 Edg/118.0.2088.76",
+    ];
+    
+    const selectedUserAgent = realisticUserAgents[Math.floor(Math.random() * realisticUserAgents.length)];
+    browserArgs.push(`--user-agent=${selectedUserAgent}`);
+
+    // Enhanced headless configuration
+    const headlessMode = isHeadless ? "new" : false;
+    
     // Use puppeteer-real-browser for a real browser instance
     const { browser, page } = await connect({
-      headless: config.headless === true ? "new" : false,
+      headless: headlessMode,
       args: browserArgs,
       turnstile: true,
       disableXvfb: false,
       ignoreHTTPSErrors: true,
-      customConfig: {},
+      customConfig: {
+        // Add additional stealth configurations
+        defaultViewport: null, // Use default viewport of the browser
+      },
       connectOption: {
         ignoreDefaultArgs: ["--enable-automation"],
         defaultViewport: {
@@ -336,7 +363,7 @@ async function launchBrowser(config, logger = null) {
     // Get the actual user agent from the real browser
     const actualUserAgent = await page.evaluate(() => navigator.userAgent);
 
-    logger?.info("Real browser launched successfully", {
+    logger?.info("Browser launched successfully", {
       headless: config.headless,
       userAgent: actualUserAgent,
       viewport: { width: 1366, height: 768 },
@@ -344,7 +371,7 @@ async function launchBrowser(config, logger = null) {
 
     return { browser, firstPage: page };
   } catch (error) {
-    logger?.error("Failed to launch real browser", { error: error.message });
+    logger?.error("Failed to launch browser", { error: error.message });
     throw error;
   }
 }
@@ -363,21 +390,67 @@ async function createPage(browser, config, logger = null, firstPage = null) {
     const page = firstPage || (await browser.newPage());
     pageInstance = page;
 
-    // Enable stealth mode and security configuration
+    // Enhanced stealth mode configuration
     await page.evaluateOnNewDocument(() => {
-      // Remove webdriver property
-      Object.defineProperty(navigator, "webdriver", {
+      // Advanced webdriver removal
+      delete Object.getPrototypeOf(navigator).webdriver;
+      Object.defineProperty(navigator, 'webdriver', {
         get: () => undefined,
+        enumerable: false,
+        configurable: false
       });
 
-      // Mock languages and plugins
+      // Mock more realistic navigator properties
       Object.defineProperty(navigator, "languages", {
-        get: () => ["en-US", "en"],
+        get: () => ["en-US", "en", "es"],
       });
 
+      // Mock realistic plugins array
+      const mockPlugins = [
+        { name: "Chrome PDF Plugin", filename: "internal-pdf-viewer", description: "Portable Document Format" },
+        { name: "Chrome PDF Viewer", filename: "mhjfbmdgcfjbbpaeojofohoefgiehjai", description: "Portable Document Format" },
+        { name: "Native Client", filename: "internal-nacl-plugin", description: "Native Client Executable" }
+      ];
+      
       Object.defineProperty(navigator, "plugins", {
-        get: () => [1, 2, 3, 4, 5],
+        get: () => {
+          const plugins = mockPlugins.map(plugin => {
+            const pluginObj = { name: plugin.name, filename: plugin.filename, description: plugin.description };
+            Object.defineProperty(pluginObj, "length", { value: 1 });
+            Object.defineProperty(pluginObj, "item", { value: () => pluginObj });
+            return pluginObj;
+          });
+          
+          // Add array-like properties
+          plugins.item = idx => plugins[idx];
+          plugins.namedItem = name => plugins.find(plugin => plugin.name === name);
+          Object.defineProperty(plugins, "length", { value: plugins.length });
+          
+          return plugins;
+        },
+        enumerable: true,
+        configurable: false
       });
+
+      // Mock Chrome-specific properties
+      window.chrome = {
+        runtime: {},
+        loadTimes: function() {},
+        csi: function() {},
+        app: {},
+      };
+
+      // Mock permissions
+      const originalQuery = window.navigator.permissions?.query;
+      if (originalQuery) {
+        window.navigator.permissions.query = (parameters) => {
+          // Use parameters to determine the response
+          if (parameters && parameters.name === 'notifications') {
+            return Promise.resolve({ state: "prompt", onchange: null });
+          }
+          return Promise.resolve({ state: "granted", onchange: null });
+        };
+      }
 
       // Better iframe handling
       window.solveSimpleChallenge = function (challengeType) {
@@ -489,6 +562,32 @@ async function createPage(browser, config, logger = null, firstPage = null) {
         }
         return element;
       };
+      
+      // Mock WebGL fingerprinting
+      const getParameter = WebGLRenderingContext.prototype.getParameter;
+      WebGLRenderingContext.prototype.getParameter = function(parameter) {
+        // UNMASKED_VENDOR_WEBGL
+        if (parameter === 37445) {
+          return 'Google Inc. (Intel)';
+        }
+        // UNMASKED_RENDERER_WEBGL
+        if (parameter === 37446) {
+          return 'ANGLE (Intel, Intel(R) UHD Graphics Direct3D11 vs_5_0 ps_5_0, D3D11)';
+        }
+        return getParameter.apply(this, arguments);
+      };
+    });
+
+    // Set a realistic viewport size with variation
+    const viewportWidth = 1366 + Math.floor(Math.random() * 100);
+    const viewportHeight = 768 + Math.floor(Math.random() * 50);
+    await page.setViewport({ 
+      width: viewportWidth, 
+      height: viewportHeight,
+      deviceScaleFactor: 1,
+      hasTouch: false,
+      isLandscape: true,
+      isMobile: false
     });
 
     // Improve page performance and security

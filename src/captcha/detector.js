@@ -367,227 +367,132 @@ async function clickAudioButton(page, logger = null) {
   }
 }
 
-// Global state tracker for CAPTCHA detection logging
-let lastCaptchaState = null;
-let _captchaStateChangeTime = null;
-
 /**
- * Detect if CAPTCHA is present on the page
+ * Detect if a CAPTCHA is present on the page
  * @param {Object} page - Puppeteer page
  * @param {Object} logger - Winston logger instance
- * @param {boolean} forceLog - Force logging regardless of state change
- * @returns {Promise<boolean>} True if CAPTCHA detected
+ * @param {Boolean} forceLog - Whether to force logging even if duplicate
+ * @returns {Promise<boolean>} True if CAPTCHA is detected
  */
 async function detectCaptcha(page, logger = null, forceLog = false) {
   try {
-    // Check if page is valid and not detached
-    try {
-      await page.url(); // This will throw if page is detached
-    } catch (error) {
-      if (
-        error.message.includes("detached") ||
-        error.message.includes("Target closed")
-      ) {
-        // Don't log for detached pages - too noisy
-        return false;
-      }
-      throw error;
-    }
-
-    // Multiple CAPTCHA detection strategies
-    const captchaSelectors = [
-      // Standard Google CAPTCHA
-      'iframe[src*="recaptcha"]',
-      'iframe[title*="reCAPTCHA"]',
-      ".g-recaptcha",
-      "#recaptcha",
-
-      // Google's automated queries page
-      'form[action="/sorry/index"]',
-      'form[action*="sorry"]',
-      'h1:contains("automated queries")',
-      'p:contains("unusual traffic")',
-      'p:contains("automated requests")',
-
-      // Various CAPTCHA providers
-      'iframe[src*="hcaptcha"]',
-      'iframe[src*="funcaptcha"]',
-      ".h-captcha",
-      ".funcaptcha",
-
-      // Detection keywords in page content
-      'h1:contains("security check")',
-      'h1:contains("verify")',
-      'h1:contains("robot")',
-      'p:contains("verify that you")',
-      'p:contains("security check")',
-
-      // Form elements that suggest CAPTCHA
-      'input[name*="captcha"]',
-      'button:contains("verify")',
-      'button:contains("continue")',
-    ];
-
-    // Check for CAPTCHA elements
-    for (const selector of captchaSelectors) {
-      try {
-        const element = await page.$(selector);
-        if (element) {
-          // CAPTCHA detected - log state change
-          if (lastCaptchaState !== true || forceLog) {
-            logger?.info(`CAPTCHA detected with selector: ${selector}`);
-            lastCaptchaState = true;
-            _captchaStateChangeTime = Date.now();
-          }
-          return true;
-        }
-      } catch (e) {
-        // Continue checking other selectors
-      }
-    }
-
-    // Check page URL for CAPTCHA indicators
-    let currentUrl;
-    try {
-      currentUrl = page.url();
-    } catch (error) {
-      if (
-        error.message.includes("detached") ||
-        error.message.includes("Target closed")
-      ) {
-        // Page detached - silently skip
-        return false;
-      }
-      throw error;
-    }
-
-    const captchaUrlPatterns = [
-      /sorry.*index/i,
-      /captcha/i,
-      /verify/i,
-      /security.*check/i,
-      /robot.*check/i,
-    ];
-
-    for (const pattern of captchaUrlPatterns) {
-      if (pattern.test(currentUrl)) {
-        if (lastCaptchaState !== true || forceLog) {
-          logger?.info(`CAPTCHA detected in URL: ${currentUrl}`);
-          lastCaptchaState = true;
-          _captchaStateChangeTime = Date.now();
-        }
-        return true;
-      }
-    }
-
-    // Check page title for CAPTCHA indicators
-    let title;
-    try {
-      title = await page.title();
-    } catch (error) {
-      if (
-        error.message.includes("detached") ||
-        error.message.includes("Target closed")
-      ) {
-        // Page detached - silently skip
-        return false;
-      }
-      throw error;
-    }
-
-    const captchaTitlePatterns = [
-      /captcha/i,
-      /verify/i,
-      /security.*check/i,
-      /robot/i,
-      /automated.*queries/i,
-    ];
-
-    for (const pattern of captchaTitlePatterns) {
-      if (pattern.test(title)) {
-        if (lastCaptchaState !== true || forceLog) {
-          logger?.info(`CAPTCHA detected in title: ${title}`);
-          lastCaptchaState = true;
-          _captchaStateChangeTime = Date.now();
-        }
-        return true;
-      }
-    }
-
-    // Check for specific Google messages
-    let bodyText;
-    try {
-      bodyText = await page.evaluate(() => {
-        if (!document.body || !document.body.innerText) {
-          return "";
-        }
-        return document.body.innerText.toLowerCase();
-      });
-    } catch (error) {
-      if (
-        error.message.includes("detached") ||
-        error.message.includes("Target closed") ||
-        error.message.includes("Execution context was destroyed")
-      ) {
-        // Page detached - silently skip
-        return false;
-      }
-      throw error;
-    }
-
-    const captchaTextPatterns = [
-      /automated queries/i,
-      /unusual traffic/i,
-      /verify that you/i,
-      /security check/i,
-      /solve.*captcha/i,
-      /not a robot/i,
-    ];
-
-    for (const pattern of captchaTextPatterns) {
-      if (pattern.test(bodyText)) {
-        if (lastCaptchaState !== true || forceLog) {
-          logger?.info(
-            `CAPTCHA detected in page text with pattern: ${pattern}`
-          );
-          lastCaptchaState = true;
-          _captchaStateChangeTime = Date.now();
-        }
-        return true;
-      }
-    }
-
-    // No CAPTCHA detected - only log state change or if forced
-    if (lastCaptchaState !== false || forceLog) {
-      logger?.debug("No CAPTCHA detected");
-      lastCaptchaState = false;
-      _captchaStateChangeTime = Date.now();
-    }
-
-    return false;
-  } catch (error) {
-    // Check for detached frame or target closed errors
-    if (
-      error.message.includes("detached") ||
-      error.message.includes("Target closed") ||
-      error.message.includes("Execution context was destroyed")
-    ) {
-      // Page or frame detached - silently skip
+    // Skip detection if page is not available
+    if (!page) {
       return false;
     }
 
-    logger?.error("Error during CAPTCHA detection", { error: error.message });
-    // In case of error, assume no CAPTCHA to avoid false positives
+    // Check if URL is available (page might be closed)
+    let url;
+    try {
+      url = page.url();
+    } catch (e) {
+      return false;
+    }
+
+    // Quick check for obvious CAPTCHA URLs
+    if (url.includes("recaptcha") || url.includes("captcha")) {
+      if (forceLog || !detectCaptcha.lastDetected || Date.now() - detectCaptcha.lastDetected > 5000) {
+        logger?.warn("CAPTCHA detected via URL", { url });
+        detectCaptcha.lastDetected = Date.now();
+      }
+      return true;
+    }
+
+    // Check for CAPTCHA frames
+    try {
+      const frames = page.frames();
+      for (const frame of frames) {
+        try {
+          const frameUrl = frame.url();
+          if (frameUrl.includes("recaptcha") || frameUrl.includes("captcha")) {
+            if (forceLog || !detectCaptcha.lastDetected || Date.now() - detectCaptcha.lastDetected > 5000) {
+              logger?.warn("CAPTCHA detected via frame URL", { frameUrl });
+              detectCaptcha.lastDetected = Date.now();
+            }
+            return true;
+          }
+        } catch (e) {
+          // Skip frames that can't be accessed
+        }
+      }
+    } catch (e) {
+      // Skip frame check if it fails
+    }
+
+    // Check for CAPTCHA elements
+    try {
+      const hasCaptchaElements = await page.evaluate(() => {
+        // Simple check for CAPTCHA elements
+        const captchaSelectors = [
+          'iframe[src*="recaptcha"]',
+          'iframe[title*="recaptcha"]',
+          '.g-recaptcha',
+          '#captcha',
+          '.captcha',
+          '.recaptcha',
+          'div[class*="captcha"]',
+          'div[id*="captcha"]'
+        ];
+        
+        for (const selector of captchaSelectors) {
+          if (document.querySelector(selector)) {
+            return true;
+          }
+        }
+
+        // Check for CAPTCHA text in body
+        const bodyText = document.body.innerText.toLowerCase();
+        return bodyText.includes('captcha') || 
+               bodyText.includes('robot') || 
+               bodyText.includes('human verification');
+      }).catch(() => false); // Default to false on evaluation error
+
+      if (hasCaptchaElements) {
+        if (forceLog || !detectCaptcha.lastDetected || Date.now() - detectCaptcha.lastDetected > 5000) {
+          logger?.warn("CAPTCHA detected via page elements");
+          detectCaptcha.lastDetected = Date.now();
+        }
+        return true;
+      }
+    } catch (error) {
+      // Ignore page evaluation errors
+      if (error.message.includes("Execution context was destroyed") || 
+          error.message.includes("Target closed") ||
+          error.message.includes("navigation")) {
+        logger?.debug("Page navigation during CAPTCHA check - skipping element detection");
+      }
+    }
+
+    // No CAPTCHA detected
+    return false;
+  } catch (error) {
+    // Handle specific navigation errors
+    if (error.message.includes("Execution context was destroyed") || 
+        error.message.includes("Target closed") ||
+        error.message.includes("navigation")) {
+      logger?.debug("Navigation occurred during CAPTCHA detection", {
+        error: error.message,
+      });
+      return false;
+    }
+    
+    logger?.error("Error detecting CAPTCHA", {
+      error: error.message,
+      stack: error.stack,
+    });
     return false;
   }
 }
+
+// Keep track of last detection to avoid spamming logs
+detectCaptcha.lastDetected = null;
 
 /**
  * Reset CAPTCHA detection state (useful when starting new searches)
  */
 function resetCaptchaDetectionState() {
-  lastCaptchaState = null;
-  _captchaStateChangeTime = null;
+  // lastCaptchaState = null; // Removed
+  // _captchaStateChangeTime = null; // Removed
 }
 
 /**
@@ -2114,4 +2019,5 @@ export {
   waitAndFillInput,
   isCaptchaSolved,
   resetCaptchaDetectionState,
+  transcribeWithElevenLabs, // added export
 };

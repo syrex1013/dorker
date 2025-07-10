@@ -844,149 +844,103 @@ class BackgroundCaptchaMonitor {
   }
 
   /**
-   * Transcribe audio using ElevenLabs API (using proper SDK)
+   * Transcribe audio file to text
    */
   async transcribeAudio(audioFilePath) {
     try {
-      this.logger?.info("🎧 Starting audio transcription process...");
-      this.logger?.debug("Transcription details", {
-        audioFilePath,
-        elevenLabsApiKeyAvailable: !!this.elevenLabsApiKey,
-        apiKeyLength: this.elevenLabsApiKey ? this.elevenLabsApiKey.length : 0,
-      });
+      this.logger?.info("🔊 Starting audio transcription");
 
-      if (!this.elevenLabsApiKey) {
-        this.logger?.warn(
-          "No ElevenLabs API key available, using fallback transcription"
+      if (this.dashboard && this.dashboard.setStatus) {
+        this.dashboard.setStatus("captcha-transcribing");
+      }
+
+      // First try ElevenLabs if configured
+      if (this.elevenLabsApiKey) {
+        this.logger?.info("🔄 Attempting transcription with ElevenLabs API");
+
+        // Import the transcribe function dynamically
+        const { transcribeWithElevenLabs } = await import("../captcha/detector.js");
+        const transcription = await transcribeWithElevenLabs(
+          audioFilePath,
+          this.elevenLabsApiKey,
+          this.logger
         );
-        return await this.fallbackAudioTranscription(audioFilePath);
-      }
 
-      // Import ElevenLabs SDK
-      const { ElevenLabsClient } = await import("@elevenlabs/elevenlabs-js");
+        if (transcription) {
+          this.logger?.info("✅ ElevenLabs transcription successful", {
+            result: transcription,
+          });
 
-      // Read the audio file
-      this.logger?.info("📖 Reading audio file for transcription...");
-      const audioBuffer = await fs.readFile(audioFilePath);
-      const fileStats = await fs.stat(audioFilePath);
-
-      this.logger?.debug("Audio file read details", {
-        filePath: audioFilePath,
-        bufferSize: audioBuffer.length,
-        fileSize: fileStats.size,
-        fileSizeKB: (fileStats.size / 1024).toFixed(2),
-        created: fileStats.birthtime,
-        modified: fileStats.mtime,
-      });
-
-      // Initialize ElevenLabs client
-      this.logger?.info("🔧 Initializing ElevenLabs client...");
-      const elevenlabs = new ElevenLabsClient({
-        apiKey: this.elevenLabsApiKey,
-      });
-
-      // Create audio blob from buffer
-      this.logger?.info("📦 Preparing audio blob for transcription...");
-      const audioBlob = new Blob([audioBuffer], { type: "audio/mp3" });
-
-      this.logger?.debug("Audio blob details", {
-        size: audioBlob.size,
-        type: audioBlob.type,
-        blobSizeKB: (audioBlob.size / 1024).toFixed(2),
-      });
-
-      this.logger?.debug("Transcription request configuration", {
-        modelId: "scribe_v1",
-        tagAudioEvents: true,
-        languageCode: "eng",
-        diarize: false, // Set to false for CAPTCHA as it's usually single speaker
-      });
-
-      try {
-        this.logger?.info("🌐 Sending transcription request to ElevenLabs...");
-
-        // Use proper ElevenLabs SDK for speech-to-text
-        const transcription = await elevenlabs.speechToText.convert({
-          file: audioBlob,
-          modelId: "scribe_v1", // Model to use, for now only "scribe_v1" is supported
-          tagAudioEvents: true, // Tag audio events like laughter, applause, etc.
-          languageCode: "eng", // Language of the audio file
-          diarize: false, // Whether to annotate who is speaking (false for CAPTCHA)
-        });
-
-        this.logger?.info("📡 ElevenLabs transcription response received!");
-        this.logger?.debug("Transcription response details", {
-          responseType: typeof transcription,
-          responseKeys:
-            typeof transcription === "object"
-              ? Object.keys(transcription)
-              : null,
-          fullResponse: transcription,
-        });
-
-        // Extract text from response
-        let transcriptionText = null;
-        if (typeof transcription === "string") {
-          transcriptionText = transcription.trim();
-        } else if (transcription && transcription.text) {
-          transcriptionText = transcription.text.trim();
-        } else if (transcription && transcription.transcription) {
-          transcriptionText = transcription.transcription.trim();
+          if (this.dashboard && this.dashboard.addLog) {
+            this.dashboard.addLog(
+              "success",
+              `🎯 Audio CAPTCHA transcribed: "${transcription}"`
+            );
+          }
+          
+          this.stats.audioSolved++;
+          return transcription;
         }
 
-        this.logger?.debug("Transcription extraction", {
-          extractedText: transcriptionText || "null/undefined",
-          textLength: transcriptionText ? transcriptionText.length : 0,
-          extractionMethod:
-            typeof transcription === "string"
-              ? "direct_string"
-              : transcription?.text
-              ? "text_property"
-              : transcription?.transcription
-              ? "transcription_property"
-              : "unknown",
-        });
-
-        if (transcriptionText && transcriptionText.length > 0) {
-          this.logger?.info("✅ ElevenLabs transcription successful!", {
-            transcription:
-              transcriptionText.substring(0, 50) +
-              (transcriptionText.length > 50 ? "..." : ""),
-            fullLength: transcriptionText.length,
-            fullText: transcriptionText,
-          });
-          return transcriptionText;
-        } else {
-          this.logger?.warn("⚠️ Empty transcription received from ElevenLabs");
-          this.logger?.debug("Empty transcription analysis", {
-            responseData: transcription,
-            hasText: !!transcription?.text,
-            hasTranscription: !!transcription?.transcription,
-            isString: typeof transcription === "string",
-          });
-          return await this.fallbackAudioTranscription(audioFilePath);
-        }
-      } catch (apiError) {
-        this.logger?.error("❌ ElevenLabs SDK transcription failed", {
-          error: apiError.message,
-          stack: apiError.stack,
-          code: apiError.code,
-          name: apiError.name,
-          sdkError: true,
-        });
-
-        return await this.fallbackAudioTranscription(audioFilePath);
+        this.logger?.warn("⚠️ ElevenLabs transcription failed, trying alternate methods");
       }
+
+      // Try multiple backup transcription methods with retries
+      let maxAttempts = 3;
+      for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+        this.logger?.info(`Transcription attempt ${attempt}/${maxAttempts} using fallback methods`);
+        
+        // Try fallback methods
+        const fallbackTranscription = await this.fallbackAudioTranscription(audioFilePath);
+        
+        if (fallbackTranscription) {
+          this.logger?.info("✅ Fallback transcription successful", {
+            result: fallbackTranscription,
+            attempt: attempt
+          });
+          
+          if (this.dashboard && this.dashboard.addLog) {
+            this.dashboard.addLog(
+              "success", 
+              `🎯 Audio CAPTCHA transcribed (attempt ${attempt}): "${fallbackTranscription}"`
+            );
+          }
+          
+          this.stats.audioSolved++;
+          return fallbackTranscription;
+        }
+        
+        // Wait before next attempt
+        if (attempt < maxAttempts) {
+          this.logger?.debug(`Waiting before transcription attempt ${attempt + 1}`);
+          await sleep(1500, `waiting before transcription attempt ${attempt + 1}`, this.logger);
+        }
+      }
+
+      // All transcription methods failed
+      this.logger?.warn("❌ All transcription methods failed");
+      
+      if (this.dashboard && this.dashboard.addLog) {
+        this.dashboard.addLog("error", "❌ Failed to transcribe audio CAPTCHA");
+      }
+      
+      return null;
     } catch (error) {
-      this.logger?.error("❌ Error in transcribeAudio method", {
+      this.logger?.error("Error transcribing audio", {
         error: error.message,
-        stack: error.stack,
-        audioFilePath,
-        stage: "general_error",
+        stack: error.stack
       });
-
-      // Fall back to alternative methods
-      return await this.fallbackAudioTranscription(audioFilePath);
+      
+      if (this.dashboard && this.dashboard.addLog) {
+        this.dashboard.addLog("error", "❌ Error in audio transcription process");
+      }
+      
+      return null;
+    } finally {
+      // Reset status back to captcha from transcribing
+      if (this.dashboard && this.dashboard.setStatus) {
+        this.dashboard.setStatus("captcha");
+      }
     }
   }
 

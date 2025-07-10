@@ -16,6 +16,7 @@ import {
 } from "../browser/browserManager.js";
 import BackgroundCaptchaMonitor from "../captcha/backgroundMonitor.js";
 import { SEARCH_ENGINES } from "../constants/searchEngines.js";
+import { BROWSER_CONFIG } from "../config/index.js";
 
 /**
  * Multi-Engine Dorker class for performing Google dorking with anti-detection
@@ -31,6 +32,9 @@ export class MultiEngineDorker {
     this.searchCount = 0;
     this.restartThreshold = 5; // Restart browser every 5 searches
     this.backgroundMonitor = null; // Background CAPTCHA monitor
+    
+    // Track results by engine
+    this.engineResults = {};
   }
 
   /**
@@ -39,6 +43,25 @@ export class MultiEngineDorker {
   async initialize() {
     try {
       this.logger?.info("Initializing MultiEngineDorker");
+
+      // Merge browser configuration with user config
+      this.config = {
+        ...this.config,
+        // Apply browser config settings with user overrides
+        headless: this.config.headless !== undefined ? this.config.headless : BROWSER_CONFIG.headless,
+        loadImages: this.config.loadImages !== undefined ? this.config.loadImages : BROWSER_CONFIG.loadImages,
+        useProxy: this.config.autoProxy !== undefined ? this.config.autoProxy : BROWSER_CONFIG.useProxy,
+        useRandomUserAgent: BROWSER_CONFIG.useRandomUserAgent,
+        extraStealthOptions: BROWSER_CONFIG.extraStealthOptions,
+      };
+      
+      // Apply warmup settings
+      if (this.config.humanLike) {
+        this.config.warmupDuration = {
+          min: BROWSER_CONFIG.warmup.minDuration,
+          max: BROWSER_CONFIG.warmup.maxDuration
+        };
+      }
 
       // Test ASOCKS API if proxy mode is enabled
       if (this.config.autoProxy) {
@@ -266,23 +289,41 @@ export class MultiEngineDorker {
             continue;
           }
 
-          // Navigate to search engine homepage
+          // Navigate to search engine homepage - simplified error handling
           this.logger?.info(`Navigating to ${engineConfig.baseUrl}`);
-          await page.goto(engineConfig.baseUrl, { waitUntil: 'networkidle0', timeout: 30000 });
-          await sleep(engineConfig.waitTime || 2000, `waiting for ${engine} to load`, this.logger);
+          try {
+            await page.goto(engineConfig.baseUrl, { 
+              waitUntil: 'domcontentloaded', 
+              timeout: 30000 
+            });
+            await sleep(engineConfig.waitTime || 2000, `waiting for ${engine} to load`, this.logger);
+          } catch (navigationError) {
+            this.logger?.warn(`Navigation error: ${navigationError.message}, continuing anyway`);
+            // Wait a bit extra if navigation had issues
+            await sleep(3000, "after navigation error", this.logger);
+          }
 
-          // Handle CAPTCHA and consent forms
-          const captchaHandled = await handleCaptcha(
-            page,
-            this.config,
-            this.logger,
-            this.config.autoProxy ? async () => await this.switchProxy() : null,
-            this.dashboard,
-            this.pageData
-          );
-            
+          // Check for CAPTCHA with simplified error handling
+          let captchaHandled = true; // Assume success by default
+          try {
+            captchaHandled = await handleCaptcha(
+              page,
+              this.config,
+              this.logger,
+              this.config.autoProxy ? async () => await this.switchProxy() : null,
+              this.dashboard,
+              this.pageData
+            );
+          } catch (captchaError) {
+            this.logger?.warn(`CAPTCHA handling error: ${captchaError.message}, continuing anyway`);
+          }
+              
           if (!captchaHandled) {
             this.logger?.warn(`CAPTCHA handling failed for ${engine}, trying next engine`);
+            if (this.dashboard) {
+              this.dashboard.incrementProcessed();
+              this.dashboard.incrementFailed();
+            }
             continue;
           }
 
@@ -317,129 +358,142 @@ export class MultiEngineDorker {
             continue;
           }
 
-          // Handle consent forms for Bing
+          // Handle consent forms for Bing - use safer evaluation method
           if (engine === 'bing') {
             try {
-              const consentSelectors = [
-                '#bnp_btn_accept',
-                '#consent-banner button',
-                'button[id*="consent"]',
-                'button:has-text("Accept")',
-                'button:has-text("Agree")',
-                '#bnp_container button'
-              ];
-
-              for (const selector of consentSelectors) {
-                try {
-                  await page.waitForSelector(selector, { timeout: 2000 }).catch(() => null);
-                  const button = await page.$(selector);
-                  if (button) {
-                    await button.click();
-                    this.logger?.info(`Clicked Bing consent button with selector: ${selector}`);
-                    await sleep(1000, "after clicking Bing consent button", this.logger);
-                    break;
+              // Use evaluate to safely find and click consent buttons without causing redirects
+              await page.evaluate(() => {
+                const consentSelectors = [
+                  '#bnp_btn_accept',
+                  '#consent-banner button',
+                  'button[id*="consent"]',
+                  'button:contains("Accept")',
+                  'button:contains("Agree")',
+                  '#bnp_container button'
+                ];
+                
+                for (const selector of consentSelectors) {
+                  try {
+                    const buttons = document.querySelectorAll(selector);
+                    for (const button of buttons) {
+                      if (button && 
+                          button.offsetParent !== null && 
+                          (button.textContent.includes('Accept') || 
+                           button.textContent.includes('Agree') || 
+                           button.id.includes('accept'))) {
+                        console.log(`Clicking Bing consent button: ${selector}`);
+                        button.click();
+                        return true;
+                      }
+                    }
+                  } catch (e) {
+                    console.error(`Error with selector ${selector}:`, e);
                   }
-                } catch (e) {
-                  // Continue trying other selectors
                 }
-              }
+                return false;
+              });
+              
+              // Give time for consent action to complete
+              await sleep(1500, "after handling Bing consent", this.logger);
             } catch (error) {
               this.logger?.warn('Error handling Bing consent:', error.message);
             }
           }
 
-          // Handle DuckDuckGo specific setup
+          // Handle DuckDuckGo specific setup - use safer evaluation method
           if (engine === 'duckduckgo') {
             try {
               // Wait for page to be fully loaded
               await sleep(2000, "waiting for DuckDuckGo to fully load", this.logger);
               
-              // Check for any cookie/privacy banners
-              const ddgConsentSelectors = [
-                'button[data-testid="privacy-banner-accept"]',
-                '.privacy-banner button',
-                '[data-cy="accept-all"]',
-                'button:has-text("Accept")',
-                'button:has-text("Got it")',
-                'button:has-text("OK")'
-              ];
-
-              for (const selector of ddgConsentSelectors) {
-                try {
-                  await page.waitForSelector(selector, { timeout: 2000 }).catch(() => null);
-                  const button = await page.$(selector);
-                  if (button) {
-                    await button.click();
-                    this.logger?.info(`Clicked DuckDuckGo consent button with selector: ${selector}`);
-                    await sleep(1000, "after clicking DuckDuckGo consent button", this.logger);
-                    break;
+              // Use evaluate to safely find and click consent buttons without causing redirects
+              await page.evaluate(() => {
+                const consentSelectors = [
+                  'button[data-testid="privacy-banner-accept"]',
+                  '.privacy-banner button',
+                  '[data-cy="accept-all"]',
+                  'button:contains("Accept")',
+                  'button:contains("Got it")',
+                  'button:contains("OK")'
+                ];
+                
+                for (const selector of consentSelectors) {
+                  try {
+                    const buttons = document.querySelectorAll(selector);
+                    for (const button of buttons) {
+                      if (button && 
+                          button.offsetParent !== null && 
+                          (button.textContent.includes('Accept') || 
+                           button.textContent.includes('Got it') || 
+                           button.textContent.includes('OK'))) {
+                        console.log(`Clicking DuckDuckGo consent button: ${selector}`);
+                        button.click();
+                        return true;
+                      }
+                    }
+                  } catch (e) {
+                    console.error(`Error with selector ${selector}:`, e);
                   }
-                } catch (e) {
-                  // Continue trying other selectors
                 }
-              }
+                return false;
+              });
+              
+              // Give time for consent action to complete
+              await sleep(1500, "after handling DuckDuckGo consent", this.logger);
             } catch (error) {
               this.logger?.warn('Error handling DuckDuckGo setup:', error.message);
             }
           }
 
-          // Clear and fill search box
-          await searchBox.click();
-          await searchBox.focus();
-          await page.keyboard.down(process.platform === "darwin" ? "Meta" : "Control");
-          await page.keyboard.press("a");
-          await page.keyboard.up(process.platform === "darwin" ? "Meta" : "Control");
-          await page.keyboard.press("Delete");
-          await sleep(500, "after clearing search box", this.logger);
+          // Clear and fill search box using safer method
+          try {
+            // Focus on search box using evaluate to avoid potential click issues
+            await page.evaluate((selector) => {
+              const element = document.querySelector(selector);
+              if (element) {
+                element.focus();
+                // Clear any existing value
+                element.value = '';
+              }
+            }, searchBoxSelectors[0]);
+            
+            // Type the query directly
+            await page.keyboard.type(dork, { delay: 50 });
+            await sleep(500, "after typing query", this.logger);
+          } catch (typeError) {
+            this.logger?.warn(`Error typing search query: ${typeError.message}`);
+            // Try alternative method if typing fails
+            try {
+              await searchBox.click({ clickCount: 3 }); // Triple click to select all text
+              await searchBox.type(dork, { delay: 50 });
+            } catch (altTypeError) {
+              this.logger?.warn(`Alternative typing method failed: ${altTypeError.message}`);
+              continue; // Skip to next engine if we can't type the query
+            }
+          }
 
-          // Type query with delay
-          await searchBox.type(dork, { delay: 100 });
-          await sleep(500, "after typing query", this.logger);
-
-          // Submit search - use different methods based on engine
+          // Submit search using safer methods based on engine
           if (engine === 'bing') {
-            // For Bing, try multiple submission methods
+            // For Bing, use form submission via evaluate to avoid clicking elements
             this.logger?.info("Using Bing-specific search submission");
             
             try {
-              // First try clicking the search button
-              const searchButtonSelectors = [
-                '#search_icon', 
-                '#sb_form_go', 
-                'label[for="sb_form_go"]', 
-                '#sb_form_search',
-                'svg[role="presentation"]',
-                '#search-icon'
-              ];
-              
-              let buttonClicked = false;
-              for (const buttonSelector of searchButtonSelectors) {
-                try {
-                  const searchButton = await page.$(buttonSelector);
-                  if (searchButton) {
-                    this.logger?.info(`Found Bing search button with selector: ${buttonSelector}`);
-                    await searchButton.click();
-                    buttonClicked = true;
-                    this.logger?.info("Clicked Bing search button");
-                    break;
-                  }
-                } catch (e) {
-                  continue;
-                }
-              }
-              
-              // If button click failed, try pressing Enter
-              if (!buttonClicked) {
-                this.logger?.info("No search button found, pressing Enter");
-                await page.keyboard.press("Enter");
-              }
-              
-              // Also submit the form directly as a fallback
-              await page.evaluate(() => {
+              const submitted = await page.evaluate(() => {
+                // Try to submit the form directly first
                 const form = document.querySelector('#sb_form');
-                if (form) form.submit();
+                if (form) {
+                  console.log('Submitting Bing search form directly');
+                  form.submit();
+                  return true;
+                }
+                return false;
               });
               
+              // If form submission failed, use keyboard
+              if (!submitted) {
+                this.logger?.info("Form submission failed, using keyboard Enter");
+                await page.keyboard.press("Enter");
+              }
             } catch (err) {
               this.logger?.warn(`Error with Bing search submission: ${err.message}`);
               // Fall back to Enter key
@@ -490,7 +544,7 @@ export class MultiEngineDorker {
                 workingSelector = selector;
                 break;
               } else {
-                this.logger?.info(`Selector ${selector} found but no elements`);
+                this.logger?.debug(`Selector ${selector} found but no elements`);
               }
             } catch (e) {
               this.logger?.info(`Selector ${selector} not found, trying next...`);
@@ -666,6 +720,25 @@ export class MultiEngineDorker {
               } else {
                 results.push(...alternativeResults);
               }
+            }
+          }
+
+          // Filter out internal Bing URLs before logging and further processing
+          if (engine === 'bing' && results.length > 0) {
+            const filtered = results.filter(r => {
+              try {
+                const host = new URL(r.url).hostname.toLowerCase();
+                return host && !host.includes('bing.com');
+              } catch {
+                return false; // Exclude malformed URLs
+              }
+            });
+            const removed = results.length - filtered.length;
+            if (removed > 0) {
+              // Replace array contents without reassigning to keep const reference
+              results.length = 0;
+              results.push(...filtered);
+              this.logger?.info(`Filtered out ${removed} internal Bing URLs`);
             }
           }
 
@@ -3047,8 +3120,8 @@ export class MultiEngineDorker {
         const delayStartTime = Date.now();
         const delayEndTime = delayStartTime + randomDelay;
         let lastCountdownTime = Math.ceil(randomDelay / 1000);
-
-        // Stay on current page and ONLY move cursor
+        
+        // Simplified delay with movement - no page navigation checks or changes
         while (Date.now() < delayEndTime) {
           // Update countdown every second
           const delayRemainingTime = Math.ceil((delayEndTime - Date.now()) / 1000);
@@ -3066,54 +3139,40 @@ export class MultiEngineDorker {
               }
             }
           }
-          // Verify we're still on Google (don't navigate if we're not)
-          const currentUrl = page.url();
-          if (!currentUrl.includes("google.com")) {
-            this.logger?.warn(
-              `⚠️ Navigated away from Google during delay to: ${currentUrl}`
-            );
-            this.logger?.info("🔄 Returning to Google for remainder of delay");
-
-            // Go back to Google
-            await page.goto("https://www.google.com", {
-              waitUntil: "domcontentloaded",
-              timeout: 15000,
-            });
-            await sleep(
-              2000,
-              "after returning to Google during delay",
-              this.logger
-            );
-          }
-
-          // Perform ONLY safe cursor movements (absolutely NO clicking or interaction)
-          this.logger?.debug(
-            "Performing MOVEMENT-ONLY delay - no interactions"
-          );
-
-          // Import and use performSafeCursorMovements
-          const { performSafeCursorMovements } = await import(
-            "../browser/browserManager.js"
-          );
-          await performSafeCursorMovements(page, cursor, this.logger);
-
-          // Pause between movement sessions
-          const pauseTime = Math.random() * 3000 + 2000; // 2-5 seconds
-          const remainingTime = delayEndTime - Date.now();
-
-          // Don't pause longer than remaining time
-          const actualPauseTime = Math.min(pauseTime, remainingTime);
-          if (actualPauseTime > 0) {
-            await sleep(actualPauseTime, "delay movement pause", this.logger);
+          
+          try {
+            this.logger?.debug("Performing MOVEMENT-ONLY delay - no interactions");
+            
+            // Import performSafeCursorMovements function
+            const { performSafeCursorMovements } = await import("../browser/browserManager.js");
+            
+            // Use a try-catch block specifically for the cursor movements
+            try {
+              // Perform safe cursor movements with fewer attempts to reduce errors
+              const movementCount = Math.floor(Math.random() * 3) + 1; // 1-3 movements
+              await performSafeCursorMovements(page, cursor, this.logger, movementCount);
+            } catch (movementError) {
+              this.logger?.debug(`Safe cursor movement failed: ${movementError.message}`);
+              // Continue with the delay even if movements fail
+            }
+            
+            // Calculate remaining time and pause between movements
+            const remainingTime = delayEndTime - Date.now();
+            if (remainingTime <= 0) break;
+            
+            // Shorter pauses to allow more frequent countdown updates
+            const pauseTime = Math.min(remainingTime, 1000 + Math.random() * 1000);
+            if (pauseTime > 0) {
+              await sleep(pauseTime, "delay movement pause", this.logger);
+            }
+          } catch (iterationError) {
+            // If an iteration fails, log and continue
+            this.logger?.debug(`Delay iteration error: ${iterationError.message}`);
+            await sleep(1000, "after delay error", this.logger);
           }
         }
 
         this.logger?.debug("Movement-only delay completed successfully");
-        
-        // Clear countdown status
-        if (this.dashboard && this.dashboard.setProcessingStatus) {
-          this.dashboard.setProcessingStatus(null);
-        }
       } catch (error) {
         this.logger?.warn(
           "Error during movement-only delay, falling back to regular sleep",
@@ -3127,20 +3186,15 @@ export class MultiEngineDorker {
           "fallback delay between searches",
           this.logger
         );
-        
-        // Clear countdown status
-        if (this.dashboard && this.dashboard.setProcessingStatus) {
-          this.dashboard.setProcessingStatus(null);
-        }
       }
     } else {
       // Fallback to regular sleep
       await sleep(randomDelay, "delay between searches", this.logger);
-      
-      // Clear countdown status
-      if (this.dashboard && this.dashboard.setProcessingStatus) {
-        this.dashboard.setProcessingStatus(null);
-      }
+    }
+    
+    // Clear countdown status when finished
+    if (this.dashboard && this.dashboard.setProcessingStatus) {
+      this.dashboard.setProcessingStatus(null);
     }
   }
 
