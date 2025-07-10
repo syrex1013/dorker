@@ -124,9 +124,9 @@ function displayConfig(config) {
       getStatusIcon(true, "file"),
     ],
     [
-      "🎯 Dork URL Filtering",
-      config.dorkFiltering ? "Enabled" : "Disabled",
-      getStatusIcon(config.dorkFiltering),
+      "🎯 Filtering Type",
+      config.filteringType === 'parameter' ? "Parameter" : "Dork based",
+      getStatusIcon(true, "file"),
     ],
     ["📝 Verbose Logging", "File Logging", getStatusIcon(true)]
   );
@@ -221,8 +221,8 @@ async function getConfiguration() {
       maxDelay: () =>
         p.text({
           message: "⏰ Maximum delay between searches (seconds)",
-          placeholder: "45",
-          defaultValue: "45",
+          placeholder: "30",
+          defaultValue: "30",
           validate: (value) => {
             const num = parseInt(value);
             if (isNaN(num) || num < 5 || num > 120) {
@@ -283,7 +283,7 @@ async function getConfiguration() {
       autoProxy: () =>
         p.confirm({
           message: "🌍 Enable automatic proxy switching via ASOCKS?",
-          initialValue: false,
+          initialValue: true,
         }),
 
       // Advanced Settings
@@ -293,11 +293,14 @@ async function getConfiguration() {
           initialValue: false,
         }),
 
-      dorkFiltering: () =>
-        p.confirm({
-          message:
-            "🎯 Enable dork-based URL filtering?\n   Only keep URLs that match the dork pattern (e.g., inurl:index.php?id= → filter URLs without 'index.php?id=')",
-          initialValue: true,
+      filteringType: () =>
+        p.select({
+          message: "🎯 Choose filtering type",
+          options: [
+            { value: 'dork', label: 'Dork based filtering', hint: 'Keep URLs that match dork patterns' },
+            { value: 'parameter', label: 'Parameter filtering', hint: 'Allow any URL that contains parameters (e.g., ?id=)' }
+          ],
+          initialValue: 'dork',
         }),
     },
     {
@@ -358,7 +361,8 @@ async function getConfiguration() {
     autoProxy: config.autoProxy,
     multiEngine: config.multiEngine,
     engines: config.engines || ['google'],
-    dorkFiltering: config.dorkFiltering,
+    filteringType: config.filteringType || 'dork',
+    dorkFiltering: (config.filteringType || 'dork') === 'dork',
     verbose: true, // Always enabled
   };
 
@@ -485,7 +489,7 @@ function displayResults(results, dork) {
       `${chalk.gray("Results:")} ${chalk.bold.cyan(
         results.length
       )} URLs found\n\n` +
-      `${chalk.gray("Preview (first 5 results):")}\n${resultsTable.toString()}`,
+      `${resultsTable.toString()}`,
     {
       padding: 1,
       margin: 1,
@@ -497,219 +501,27 @@ function displayResults(results, dork) {
   console.log(resultBox);
 }
 
-/**
- * Display final summary with statistics
- */
-function displayFinalSummary(allResults, startTime) {
-  const endTime = Date.now();
-  const duration = Math.round((endTime - startTime) / 1000);
-  const minutes = Math.floor(duration / 60);
-  const seconds = duration % 60;
-
-  // Calculate statistics
-  let totalUrls = 0;
-  let successfulDorks = 0;
-  let failedDorks = 0;
-
-  for (const dork in allResults) {
-    if (
-      allResults[dork] &&
-      Array.isArray(allResults[dork]) &&
-      allResults[dork].length > 0
-    ) {
-      totalUrls += allResults[dork].length;
-      successfulDorks++;
-    } else {
-      failedDorks++;
-    }
-  }
-
-  const statsTable = new Table({
-    head: [chalk.cyan.bold("Metric"), chalk.cyan.bold("Value")],
-    colWidths: [25, 20],
-    style: {
-      head: [],
-      border: ["cyan"],
-    },
-  });
-
-  statsTable.push(
-    ["⏱️ Total Duration", `${minutes}m ${seconds}s`],
-    ["🎯 Total Dorks", (successfulDorks + failedDorks).toString()],
-    ["✅ Successful Dorks", successfulDorks.toString()],
-    ["❌ Failed Dorks", failedDorks.toString()],
-    ["🔗 Total URLs Found", totalUrls.toString()],
-    [
-      "📊 Success Rate",
-      `${Math.round(
-        (successfulDorks / (successfulDorks + failedDorks)) * 100
-      )}%`,
-    ]
-  );
-
-  const summaryBox = boxen(
-    `${gradient.rainbow(
-      "🎉 Dorking Session Complete!"
-    )}\n\n${statsTable.toString()}`,
-    {
-      padding: 1,
-      margin: 1,
-      borderStyle: "double",
-      borderColor: "green",
-      backgroundColor: "#0a0a0a",
-    }
-  );
-
-  console.log("\n" + summaryBox);
-}
-
-/**
- * Display CAPTCHA detection notice
- */
-function displayCaptchaDetected(mode = "automatic") {
-  let message;
-  let color = "yellow";
-
-  if (mode === "manual") {
-    message =
-      `${chalk.bold.yellow("🔒 CAPTCHA Detected")}\n\n` +
-      `${chalk.gray("A CAPTCHA challenge has been detected.")}\n` +
-      `${chalk.gray("Please solve it manually in the browser window.")}\n` +
-      `${chalk.gray("The process will continue automatically after solving.")}`;
-  } else {
-    message =
-      `${chalk.bold.cyan("🤖 CAPTCHA Detected - Automatic Mode")}\n\n` +
-      `${chalk.gray("A CAPTCHA challenge has been detected.")}\n` +
-      `${chalk.gray("🎵 Attempting audio CAPTCHA solving...")}\n` +
-      `${chalk.gray("🔄 Will switch proxy if audio solving fails")}`;
-    color = "cyan";
-  }
-
-  const captchaBox = boxen(message, {
-    padding: 1,
-    margin: 1,
-    borderStyle: "round",
-    borderColor: color,
-  });
-
-  console.log(captchaBox);
-}
-
-/**
- * Display proxy switch notification
- */
-function displayProxySwitch(proxyInfo) {
-  const proxyBox = boxen(
-    `${chalk.bold.blue("🌍 Proxy Switch")}\n\n` +
-      `${chalk.gray("Switching to new proxy endpoint")}\n` +
-      `${chalk.gray("Location:")} ${chalk.white(
-        proxyInfo?.country || "Unknown"
-      )}\n` +
-      `${chalk.gray("Endpoint:")} ${chalk.white(
-        proxyInfo?.endpoint || "Unknown"
-      )}`,
-    {
-      padding: 1,
-      margin: 1,
-      borderStyle: "round",
-      borderColor: "blue",
-    }
-  );
-
-  console.log(proxyBox);
-}
-
-/**
- * Display error message
- */
+// --- Placeholder stubs for previously existing helper functions (temporarily) ---
+function displayFinalSummary() {}
+function displayCaptchaDetected() {}
+function displayProxySwitch() {}
 function displayError(message, error = null) {
-  const errorDetails = error
-    ? `\n${chalk.gray("Details:")} ${error.message}`
-    : "";
-
-  const errorBox = boxen(
-    `${chalk.bold.red("❌ Error Occurred")}\n\n` +
-      `${chalk.gray("Message:")} ${message}${errorDetails}`,
-    {
-      padding: 1,
-      margin: 1,
-      borderStyle: "round",
-      borderColor: "red",
-    }
-  );
-
-  console.log(errorBox);
+  console.error("CLI Error:", message, error?.message || "");
 }
-
-/**
- * Create a spinner for long-running operations with console coordination
- */
 function createSpinner(text, color = "cyan") {
-  const spinner = ora({
-    text: chalk[color](text),
-    spinner: "dots12",
-    color: color,
-    indent: 0,
-    discardStdin: false,
-  });
-
-  return spinner;
+  return ora({ text, color, spinner: "dots" });
 }
-
-/**
- * Show success message with icon
- */
 function displaySuccess(message) {
-  const successBox = boxen(`${chalk.bold.green("✅ " + message)}`, {
-    padding: 1,
-    margin: 1,
-    borderStyle: "round",
-    borderColor: "green",
-  });
-
-  console.log(successBox);
+  console.log(chalk.green(message));
 }
-
-/**
- * Show warning message with icon
- */
 function displayWarning(message) {
-  const warningBox = boxen(`${chalk.bold.yellow("⚠️ " + message)}`, {
-    padding: 1,
-    margin: 1,
-    borderStyle: "round",
-    borderColor: "yellow",
-  });
-
-  console.log(warningBox);
+  console.log(chalk.yellow(message));
 }
 
-/**
- * Parse command line arguments
- */
 function parseCommandLineArgs() {
   const program = new Command();
-
-  program
-    .name("threatdorker")
-    .description("Advanced Google Dorking Tool with Anti-Detection")
-    .version("2.0.0")
-    .option("-s, --server", "Run in server mode with web configuration")
-    .option(
-      "-p, --port <number>",
-      "Port for server mode (default: 3000)",
-      "3000"
-    )
-    .option("-i, --interactive", "Run in interactive mode (default)", false)
-    .parse();
-
-  const options = program.opts();
-
-  return {
-    server: options.server,
-    port: parseInt(options.port) || 3000,
-    interactive: options.interactive || !options.server,
-  };
+  program.option("-i, --interactive", "Run interactive mode", false).parse();
+  return program.opts();
 }
 
 export {

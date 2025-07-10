@@ -699,6 +699,7 @@ export class MultiEngineDorker {
                     if (url && title) {
                       seenUrls.add(url);
                       results.push({ url, title, description });
+                      this.logger?.info(`Added alternative result: ${url}`);
                       console.log('Added alternative result:', { url, title: title.substring(0, 30) + '...' });
                     }
                   }
@@ -758,12 +759,48 @@ export class MultiEngineDorker {
 
           // Apply dork-based filtering if enabled
           let filteredResults = results;
-          if (this.config.dorkFiltering && results.length > 0) {
+          const filterType = this.config.filteringType || (this.config.dorkFiltering ? 'dork' : 'none');
+
+          if (filterType === 'dork' && results.length > 0) {
             filteredResults = this.filterResultsByDork(results, dork);
             this.logger?.info(`Filtered to ${filteredResults.length} results matching dork pattern`);
+          } else if (filterType === 'parameter' && results.length > 0) {
+            filteredResults = this.filterResultsByParameter(results);
+            this.logger?.info(`Parameter filtering retained ${filteredResults.length} results with URL parameters`);
           }
 
-          // Add engine identifier to results
+          // Handle pagination: scrape up to maxPages for this engine before switching to next engine
+          let currentPage = 1;
+          const maxPages = this.config.maxPages || 1;
+
+          while (currentPage < maxPages) {
+            currentPage++;
+            const nextPageResults = await this.handlePaginationForEngine(page, engine, maxResults);
+
+            if (!nextPageResults || nextPageResults.length === 0) {
+              // No more pages or pagination failed
+              break;
+            }
+
+            // Apply filtering to the new page results the same way
+            let pageFiltered = nextPageResults;
+            if (filterType === 'dork') {
+              pageFiltered = this.filterResultsByDork(nextPageResults, dork);
+            } else if (filterType === 'parameter') {
+              pageFiltered = this.filterResultsByParameter(nextPageResults);
+            }
+
+            pageFiltered.forEach(r => r.engine = engine);
+            allResults = [...allResults, ...pageFiltered];
+
+            if (this.dashboard) {
+              if (pageFiltered.length > 0) {
+                this.dashboard.addToTotalResults(pageFiltered.length);
+              }
+            }
+          }
+
+          // Add engine identifier to initial page results
           filteredResults = filteredResults.map(result => ({
             ...result,
             engine: engine
@@ -890,6 +927,7 @@ export class MultiEngineDorker {
       return await page.evaluate((max) => {
         const results = [];
         const seenUrls = new Set();
+        const filteredUrls = []; // Track filtered URLs for logging
         
         // Helper function to clean text
         function cleanText(text) {
@@ -926,7 +964,14 @@ export class MultiEngineDorker {
               const link = links[0];
               const url = link.href;
               
+              // Log all URLs found for debugging
+              console.log(`Bing found URL: ${url}`);
+              
               if (!url || url.includes('bing.com') || url.includes('microsoft.com') || seenUrls.has(url)) {
+                if (url) {
+                  filteredUrls.push({ url, reason: url.includes('bing.com') ? 'bing.com' : url.includes('microsoft.com') ? 'microsoft.com' : 'duplicate' });
+                  console.log(`Filtered URL: ${url} (reason: ${url.includes('bing.com') ? 'bing.com' : url.includes('microsoft.com') ? 'microsoft.com' : 'duplicate'})`);
+                }
                 continue;
               }
               
@@ -982,12 +1027,14 @@ export class MultiEngineDorker {
           console.log('Using fallback direct link extraction for Bing');
           
           const allLinks = document.querySelectorAll('a[href^="http"]:not([href*="bing.com"]):not([href*="microsoft.com"])');
+          console.log(`Found ${allLinks.length} total links for fallback extraction`);
           
           for (const link of allLinks) {
             if (results.length >= max) break;
             
             try {
               const url = link.href;
+              console.log(`Fallback checking URL: ${url}`);
               
               // Skip navigation links, ads, etc.
               if (!url || 
@@ -996,6 +1043,14 @@ export class MultiEngineDorker {
                   url.includes('msn.com') || 
                   url.includes('live.com') || 
                   seenUrls.has(url)) {
+                if (url) {
+                  const reason = url.includes('bing.com') ? 'bing.com' : 
+                               url.includes('microsoft.com') ? 'microsoft.com' :
+                               url.includes('msn.com') ? 'msn.com' :
+                               url.includes('live.com') ? 'live.com' : 'duplicate';
+                  filteredUrls.push({ url, reason });
+                  console.log(`Fallback filtered URL: ${url} (reason: ${reason})`);
+                }
                 continue;
               }
               
@@ -1020,6 +1075,12 @@ export class MultiEngineDorker {
             }
           }
         }
+        
+        // Log summary of what was found and filtered
+        console.log(`Bing extraction summary: ${results.length} results extracted, ${filteredUrls.length} URLs filtered`);
+        filteredUrls.forEach((item, index) => {
+          console.log(`  Filtered ${index + 1}: ${item.url} (${item.reason})`);
+        });
         
         return results;
       }, maxResults);
@@ -1052,6 +1113,25 @@ export class MultiEngineDorker {
 
       await nextButton.click();
       await page.waitForNavigation({ waitUntil: 'networkidle0' });
+
+      // After navigation, detect/handle CAPTCHA again if present
+      try {
+        const captchaHandled = await handleCaptcha(
+          page,
+          this.config,
+          this.logger,
+          this.config.autoProxy ? async () => await this.switchProxy() : null,
+          this.dashboard,
+          this.pageData
+        );
+
+        if (!captchaHandled) {
+          this.logger?.warn('CAPTCHA handling failed during pagination');
+        }
+      } catch (e) {
+        this.logger?.warn('Error in CAPTCHA handling after pagination:', e.message);
+      }
+
       await sleep(2000, "after pagination", this.logger);
 
       return await this.extractResultsForEngine(page, maxResults, engine);
@@ -2299,7 +2379,12 @@ export class MultiEngineDorker {
       return results;
     }
 
-    // If dork filtering is disabled in config, return all results
+    // Skip if filtering type is not 'dork'
+    if (this.config && this.config.filteringType && this.config.filteringType !== 'dork') {
+      return results;
+    }
+
+    // If legacy dorkFiltering flag is disabled, return all results
     if (this.config && this.config.dorkFiltering === false) {
       this.logger?.debug("Dork filtering disabled in config, returning all results");
       return results;
@@ -3377,6 +3462,37 @@ export class MultiEngineDorker {
       this.logger?.error("Batch search failed", { error: error.message });
       return [];
     }
+  }
+
+  /**
+   * Filter results to only include URLs that contain at least one query parameter (e.g., '?')
+   * @param {Array} results - Array of result objects
+   * @returns {Array} Filtered results that include URL parameters
+   */
+  filterResultsByParameter(results) {
+    if (!results || results.length === 0) {
+      return results;
+    }
+
+    const filtered = results.filter((res, idx) => {
+      if (!res.url) return false;
+      try {
+        const urlObj = new URL(res.url);
+        const keep = urlObj.search && urlObj.search.length > 1;
+        this.logger?.info(`${keep ? '✅' : '❌'} parameter-filter ${idx + 1}/${results.length}: ${res.url}`, {
+          reason: keep ? 'URL contains parameters' : 'No query parameters',
+        });
+        return keep;
+      } catch (_) {
+        this.logger?.info(`❌ parameter-filter ${idx + 1}/${results.length}: (malformed URL)`, {
+          reason: 'Malformed URL',
+        });
+        return false;
+      }
+    });
+
+    this.logger?.info(`Parameter filtering: ${results.length} → ${filtered.length} results`);
+    return filtered;
   }
 }
 

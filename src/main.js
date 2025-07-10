@@ -454,7 +454,8 @@ async function interactiveMode() {
       autoProxy: config.autoProxy,
       multiEngine: config.multiEngine,
       engines: engines,
-      dorkFiltering: config.dorkFiltering,
+      filteringType: config.filteringType || 'dork',
+      dorkFiltering: (config.filteringType || 'dork') === 'dork',
       verbose: true, // Always enabled
     };
 

@@ -1719,6 +1719,7 @@
                   id="auto-proxy"
                   name="autoProxy"
                   style="margin-right: 0.5rem"
+                  checked
                 />
                 🌍 Enable automatic proxy switching via ASOCKS
               </label>
@@ -1768,25 +1769,11 @@
               </div>
 
               <label style="display: block; margin-bottom: 1rem">
-                <input
-                  type="checkbox"
-                  id="dork-filtering"
-                  name="dorkFiltering"
-                  checked
-                  style="margin-right: 0.5rem"
-                />
-                🎯 Enable dork-based URL filtering
-                <small
-                  style="
-                    display: block;
-                    color: var(--text-secondary);
-                    margin-left: 1.25rem;
-                    margin-top: 0.25rem;
-                  "
-                >
-                  Only keep URLs that match the dork pattern (e.g.,
-                  inurl:index.php?id= filters URLs without "index.php?id=")
-                </small>
+                <span style="margin-right: 0.5rem">🎯 Filtering Type</span>
+                <select name="filteringType" id="filtering-type-select" style="margin-left: 0.5rem">
+                  <option value="dork" selected>Dork based filtering</option>
+                  <option value="parameter">Parameter filtering (any URL parameter)</option>
+                </select>
               </label>
             </div>
           </form>
@@ -3380,7 +3367,9 @@
           humanLike: formData.get("humanLike") === "on",
           autoProxy: formData.get("autoProxy") === "on",
           multiEngine: formData.get("multiEngine") === "on",
-          dorkFiltering: formData.get("dorkFiltering") === "on",
+          filteringType: formData.get("filteringType") || "dork",
+          dorkFiltering: (formData.get("filteringType") || "dork") === "dork",
+          extendedDelay: formData.get("extendedDelay") === "on",
           verbose: true,
         };
 
