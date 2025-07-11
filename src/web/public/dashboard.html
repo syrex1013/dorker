@@ -1598,7 +1598,7 @@
                 type="number"
                 id="max-delay"
                 name="maxDelay"
-                value="45"
+                value="20"
                 min="5"
                 max="120"
                 required
@@ -1622,8 +1622,8 @@
                 type="number"
                 id="max-pause"
                 name="maxPause"
-                value="60"
-                min="30"
+                value="19"
+                min="5"
                 max="60"
                 required
                 style="
@@ -1711,6 +1711,16 @@
                   style="margin-right: 0.5rem"
                 />
                 🎭 Enable human-like behavior simulation
+              </label>
+
+              <label style="display: block; margin-bottom: 1rem">
+                <input
+                  type="checkbox"
+                  id="disable-warmup"
+                  name="disableWarmup"
+                  style="margin-right: 0.5rem"
+                />
+                ⏩ Disable browser warmup (Skip warm-up session)
               </label>
 
               <label style="display: block; margin-bottom: 1rem">
@@ -2486,6 +2496,7 @@
             value: config.manualCaptchaMode ? "Yes" : "No",
           },
           { label: "🎭 Human-like", value: config.humanLike ? "Yes" : "No" },
+          { label: "⏩ Warmup", value: config.disableWarmup ? "Disabled" : "Enabled" },
           { label: "🌍 Auto Proxy", value: config.autoProxy ? "Yes" : "No" },
         ];
 
@@ -3365,6 +3376,7 @@
           userAgent: formData.get("userAgent") || null,
           manualCaptchaMode: formData.get("manualCaptchaMode") === "on",
           humanLike: formData.get("humanLike") === "on",
+          disableWarmup: formData.get("disableWarmup") === "on",
           autoProxy: formData.get("autoProxy") === "on",
           multiEngine: formData.get("multiEngine") === "on",
           filteringType: formData.get("filteringType") || "dork",

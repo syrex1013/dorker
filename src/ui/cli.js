@@ -86,7 +86,7 @@ function displayConfig(config) {
       config.extendedDelay
         ? "1-5 minutes (Extended Mode)"
         : `${config.minDelay || config.delay || 10}-${
-            config.maxDelay || config.delay || 45
+            config.maxDelay || config.delay || 20
           }s`,
       getStatusIcon(true, "number"),
     ],
@@ -110,6 +110,11 @@ function displayConfig(config) {
       "🎭 Human-like Behavior",
       config.humanLike ? "Enabled" : "Disabled",
       getStatusIcon(config.humanLike),
+    ],
+    [
+      "⏩ Warmup Session",
+      config.disableWarmup ? "Disabled" : "Enabled",
+      getStatusIcon(!config.disableWarmup),
     ],
     [
       "🔍 Multi-Engine",
@@ -151,6 +156,31 @@ function displayConfig(config) {
  * Interactive configuration with modern prompts
  */
 async function getConfiguration() {
+  // Fast startup: skip interactive configuration and use defaults
+  const args = parseCommandLineArgs();
+  if (args.fast) {
+    return {
+      dorkFile: "dorks.txt",
+      outputFile: "output.txt",
+      resultCount: 30,
+      maxPages: 1,
+      minDelay: 10,
+      maxDelay: 20,
+      extendedDelay: false,
+      maxPause: 10,
+      headless: false,
+      userAgent: null,
+      manualCaptchaMode: false,
+      humanLike: true,
+      disableWarmup: false,
+      autoProxy: true,
+      multiEngine: true,
+      engines: ["google", "bing", "duckduckgo"],
+      filteringType: "parameter",
+      dorkFiltering: true,
+      verbose: true,
+    };
+  }
   p.intro(gradient.rainbow("🛠️ THREATDORKER Configuration Setup"));
 
   const config = await p.group(
@@ -221,8 +251,8 @@ async function getConfiguration() {
       maxDelay: () =>
         p.text({
           message: "⏰ Maximum delay between searches (seconds)",
-          placeholder: "30",
-          defaultValue: "30",
+          placeholder: "20",
+          defaultValue: "20",
           validate: (value) => {
             const num = parseInt(value);
             if (isNaN(num) || num < 5 || num > 120) {
@@ -242,12 +272,12 @@ async function getConfiguration() {
       maxPause: () =>
         p.text({
           message: "⏸️ Maximum pause length (seconds)",
-          placeholder: "60",
-          defaultValue: "60",
+          placeholder: "19",
+          defaultValue: "19",
           validate: (value) => {
             const num = parseInt(value);
-            if (isNaN(num) || num < 30 || num > 60) {
-              return "Must be between 30 and 60 seconds";
+            if (isNaN(num) || num < 5 || num > 60) {
+              return "Must be between 5 and 60 seconds";
             }
           },
         }),
@@ -277,6 +307,12 @@ async function getConfiguration() {
         p.confirm({
           message: "🎭 Enable human-like behavior simulation?",
           initialValue: true,
+        }),
+
+      disableWarmup: () =>
+        p.confirm({
+          message: "⏩ Disable browser warmup? (Skip warm-up session)",
+          initialValue: false,
         }),
 
       // Proxy Settings
@@ -353,11 +389,12 @@ async function getConfiguration() {
     minDelay: Math.max(minDelay, 5),
     maxDelay: Math.min(maxDelay, 120),
     extendedDelay: config.extendedDelay,
-    maxPause: Math.min(parseInt(config.maxPause) || 60, 60),
+    maxPause: Math.min(parseInt(config.maxPause) || 19, 60),
     headless: config.headless,
     userAgent: config.userAgent?.trim() || null,
     manualCaptchaMode: config.manualCaptchaMode,
     humanLike: config.humanLike,
+    disableWarmup: config.disableWarmup,
     autoProxy: config.autoProxy,
     multiEngine: config.multiEngine,
     engines: config.engines || ['google'],
@@ -520,7 +557,12 @@ function displayWarning(message) {
 
 function parseCommandLineArgs() {
   const program = new Command();
-  program.option("-i, --interactive", "Run interactive mode", false).parse();
+  program
+    .option("-f, --fast", "Fast startup with default configuration", false)
+    .option("-s, --server", "Run in server mode", false)
+    .option("-p, --port <number>", "Port for server mode", parseInt)
+    .option("-i, --interactive", "Run interactive mode", false);
+  program.parse();
   return program.opts();
 }
 

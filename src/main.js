@@ -423,9 +423,9 @@ async function interactiveMode() {
 
     displayStatus("✅ Logging system ready", "✓", "green");
 
-    // Process the configuration
-    const minDelay = parseInt(config.minDelay) || 10;
-    const maxDelay = parseInt(config.maxDelay) || 45;
+      // Process the configuration
+  const minDelay = parseInt(config.minDelay) || 10;
+  const maxDelay = parseInt(config.maxDelay) || 20;
 
     // Validate delay range
     if (maxDelay <= minDelay) {
@@ -446,12 +446,13 @@ async function interactiveMode() {
       minDelay: Math.max(minDelay, 5),
       maxDelay: Math.min(maxDelay, 120),
       extendedDelay: config.extendedDelay,
-      maxPause: Math.min(parseInt(config.maxPause) || 60, 60),
-      headless: config.headless,
-      userAgent: config.userAgent?.trim() || null,
-      manualCaptchaMode: config.manualCaptchaMode,
-      humanLike: config.humanLike,
-      autoProxy: config.autoProxy,
+          maxPause: Math.min(parseInt(config.maxPause) || 19, 60),
+    headless: config.headless,
+    userAgent: config.userAgent?.trim() || null,
+    manualCaptchaMode: config.manualCaptchaMode,
+    humanLike: config.humanLike,
+    disableWarmup: config.disableWarmup,
+    autoProxy: config.autoProxy,
       multiEngine: config.multiEngine,
       engines: engines,
       filteringType: config.filteringType || 'dork',
@@ -745,7 +746,261 @@ async function main() {
     // Parse command line arguments
     const args = parseCommandLineArgs();
 
-    if (args.server) {
+    if (args.fast) {
+      // Fast mode - skip banner and jump directly to configuration
+      displayBanner(); // Still display banner for fast mode
+      const config = await getConfiguration();
+      displaySection("System Initialization", "magenta");
+      logger = await createLogger(true);
+      logger.info("Starting ThreatDorker application (Fast Mode)", { config });
+      displayStatus("✅ Logging system ready", "✓", "green");
+
+      const minDelay = parseInt(config.minDelay) || 10;
+      const maxDelay = parseInt(config.maxDelay) || 20;
+
+      if (maxDelay <= minDelay) {
+        displayError("Maximum delay must be greater than minimum delay", null);
+        process.exit(1);
+      }
+
+      const engines = config.multiEngine && Array.isArray(config.engines) && config.engines.length > 0
+        ? config.engines
+        : ['google'];
+
+      const processedConfig = {
+        dorkFile: config.dorkFile || "dorks.txt",
+        outputFile: config.outputFile?.trim() || null,
+        resultCount: parseInt(config.resultCount) || 30,
+        maxPages: Math.min(parseInt(config.maxPages) || 1, 10),
+        minDelay: Math.max(minDelay, 5),
+        maxDelay: Math.min(maxDelay, 120),
+        extendedDelay: config.extendedDelay,
+            maxPause: Math.min(parseInt(config.maxPause) || 19, 60),
+        headless: config.headless,
+        userAgent: config.userAgent?.trim() || null,
+        manualCaptchaMode: config.manualCaptchaMode,
+        humanLike: config.humanLike,
+        disableWarmup: config.disableWarmup,
+        autoProxy: config.autoProxy,
+        multiEngine: config.multiEngine,
+        engines: engines,
+        filteringType: config.filteringType || 'dork',
+        dorkFiltering: (config.filteringType || 'dork') === 'dork',
+        verbose: true, // Always enabled
+      };
+
+      displayStatus(`Loading dorks from ${processedConfig.dorkFile}...`, "📁", "blue");
+      const dorks = await loadDorks(processedConfig.dorkFile, logger);
+      if (dorks.length === 0) {
+        displayError("No dorks found in file", null);
+        process.exit(1);
+      }
+      displayStatus(`✅ Loaded ${dorks.length} dorks successfully`, "✓", "green");
+
+      displayStatus(
+        "Initializing browser and security systems...",
+        "🔒",
+        "magenta"
+      );
+      dorker = new MultiEngineDorker(processedConfig, logger, null);
+      await dorker.initialize();
+      displayStatus("✅ Browser and security systems ready", "✓", "green");
+
+      displaySection("Dorking Process", "cyan");
+      const allResults = {};
+      const sessionBox = boxen(
+        `${chalk.bold.cyan("🚀 Dorking Session Started")}\n\n` +
+          `${chalk.gray("Total Dorks:")} ${chalk.white(dorks.length)}\n` +
+          `${chalk.gray("Results per Search:")} ${chalk.white(
+            processedConfig.resultCount
+          )}\n` +
+          `${chalk.gray("Delay between Searches:")} ${chalk.white(
+            processedConfig.extendedDelay
+              ? "1-5 minutes (Extended Mode)"
+              : `${processedConfig.minDelay}-${
+                  processedConfig.maxDelay
+                }s`
+          )}`,
+        {
+          padding: 1,
+          margin: 1,
+          borderStyle: "double",
+          borderColor: "cyan",
+        }
+      );
+      console.log(sessionBox);
+
+      for (let i = 0; i < dorks.length; i++) {
+        const dork = dorks[i];
+        try {
+          console.log("\n" + "─".repeat(40));
+          console.log(chalk.bold.cyan(`📍 Dork ${i + 1}/${dorks.length}`));
+          console.log("─".repeat(40));
+
+          // Display current dork info
+          console.log(
+            chalk.gray("🔍 Query:"),
+            chalk.white(dork.substring(0, 80))
+          );
+          if (dork.length > 80) {
+            console.log(chalk.gray("   ...") + chalk.white(dork.substring(80)));
+          }
+
+          const searchSpinner = createSpinner(
+            `🔍 Searching: ${dork.substring(0, 60)}${dork.length > 60 ? "..." : ""}`, 
+            "cyan"
+          );
+          searchSpinner.start();
+
+          let results;
+          try {
+            results = await dorker.performSearch(
+              dork, 
+              processedConfig.resultCount, 
+              processedConfig.multiEngine ? processedConfig.engines : ['google']
+            );
+            searchSpinner.succeed(`✅ Found ${results ? results.length : 0} results`);
+            allResults[dork] = results;
+
+            if (processedConfig.outputFile) {
+              const saveSpinner = createSpinner('💾 Saving results...', 'cyan');
+              saveSpinner.start();
+              
+              try {
+                if (processedConfig.outputFile.endsWith('.json')) {
+                  await appendDorkResults(dork, results, processedConfig.outputFile, allResults, logger);
+                } else if (processedConfig.outputFile.endsWith('.txt')) {
+                  const urls = results.map(r => r.url).filter(Boolean);
+                  if (urls.length > 0) {
+                    const header = `\n\n# Results for dork: ${dork}\n`;
+                    await appendUrlsToFile([header, ...urls], processedConfig.outputFile, logger);
+                  }
+                }
+                saveSpinner.succeed('✅ Results saved successfully');
+              } catch (saveError) {
+                saveSpinner.fail(`❌ Failed to save results: ${saveError.message}`);
+                logger.error('Failed to save results', { error: saveError.message });
+              }
+            }
+            
+          } catch (searchError) {
+            searchSpinner.fail(`❌ Search failed: ${searchError.message}`);
+            results = [];
+          }
+
+          if (results && results.length > 0) {
+            console.log(chalk.green(`✅ Found ${results.length} results`));
+            if (results.length > 0) {
+              console.log(chalk.gray("📋 Quick Preview:"));
+              results.slice(0, 3).forEach((result, idx) => {
+                const title = result.title
+                  ? result.title.substring(0, 60)
+                  : "No title";
+                console.log(
+                  chalk.gray(
+                    `   ${idx + 1}. ${title}${title.length >= 60 ? "..." : ""}`
+                  )
+                );
+              });
+              if (results.length > 3) {
+                console.log(
+                  chalk.gray(`   ... and ${results.length - 3} more results`)
+                );
+              }
+            }
+          } else {
+            console.log(chalk.yellow("⚠️ No results found"));
+          }
+
+          if (i > 0) {
+            process.stdout.write("\x1B[1A\x1B[2K");
+          }
+          const percentage = Math.round(((i + 1) / dorks.length) * 100);
+          const progressBar = "█".repeat(Math.floor(percentage / 2));
+          const emptyBar = "░".repeat(50 - Math.floor(percentage / 2));
+          console.log(
+            chalk.gray(
+              `📊 Progress: [${chalk.cyan(
+                progressBar
+              )}${emptyBar}] ${percentage}%`
+            )
+          );
+
+          if (i < dorks.length - 1) {
+            const delaySpinner = createSpinner(
+              processedConfig.extendedDelay 
+                ? `⏳ Extended delay in progress (1-5 minutes)...`
+                : `⏳ Delay in progress (${processedConfig.minDelay}-${processedConfig.maxDelay}s)...`, 
+              "yellow"
+            );
+            delaySpinner.start();
+
+            await dorker.delayBetweenSearches();
+
+            delaySpinner.succeed("✅ Delay completed, continuing to next dork");
+          }
+        } catch (error) {
+          logger.error("Error processing dork", {
+            dork: dork.substring(0, 50),
+            error: error.message,
+            index: i + 1,
+          });
+
+          console.log(chalk.red(`❌ Error processing dork: ${error.message}`));
+
+          allResults[dork] = [];
+        }
+      }
+
+      displaySection("Session Complete", "green");
+      displayFinalSummary(allResults, Date.now());
+
+      if (!processedConfig.outputFile) {
+        const shouldSaveUrls = await askSaveUrls(allResults);
+        if (shouldSaveUrls) {
+          displayStatus("Saving URLs to files...", "🔗", "blue");
+          await saveUrlsToFile(allResults, "result.txt", logger, false);
+          displayStatus(
+            "✅ URLs saved - both unique and complete versions created",
+            "✓",
+            "green"
+          );
+          const urls = [];
+          for (const dork in allResults) {
+            if (allResults[dork] && Array.isArray(allResults[dork])) {
+              allResults[dork].forEach((result) => {
+                if (result.url && result.url.trim()) {
+                  urls.push(result.url.trim());
+                }
+              });
+            }
+          }
+          const uniqueCount = [...new Set(urls)].length;
+          const totalCount = urls.length;
+          const duplicateCount = totalCount - uniqueCount;
+
+          if (duplicateCount > 0) {
+            displayStatus(
+              `📊 Total: ${totalCount} URLs, Unique: ${uniqueCount}, Duplicates: ${duplicateCount}`,
+              "📈",
+              "cyan"
+            );
+          }
+        }
+      }
+
+      const completionBox = boxen(
+        `${chalk.bold.green("🎉 Dorking Process Completed Successfully!")}\n\n` +
+          `${chalk.gray("All dorks have been processed and results saved.")}`,
+        {
+          padding: 1,
+          margin: 1,
+          borderStyle: "double",
+          borderColor: "green",
+        }
+      );
+      console.log(completionBox);
+    } else if (args.server) {
       // Server mode - start dashboard and wait for web configuration
       await serverMode(args.port || 3000);
     } else {

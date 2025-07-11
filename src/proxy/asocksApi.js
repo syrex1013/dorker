@@ -1,5 +1,6 @@
 import axios from "axios";
 import chalk from "chalk";
+import { HttpsProxyAgent } from "https-proxy-agent";
 import { ASOCKS_CONFIG } from "../config/index.js";
 import { logWithDedup } from "../utils/logger.js";
 
@@ -133,11 +134,72 @@ async function testAsocksAPI(logger = null) {
 }
 
 /**
- * Generate a new proxy through ASOCKS API
+ * Test proxy connectivity by attempting a simple HTTP request
+ * @param {Object} proxyConfig - Proxy configuration object
  * @param {Object} logger - Winston logger instance
+ * @returns {Promise<boolean>} Proxy test result
+ */
+async function testProxyConnection(proxyConfig, logger = null) {
+  if (!proxyConfig) {
+    logger?.debug("No proxy config provided for testing");
+    return false;
+  }
+
+  try {
+    logWithDedup(
+      "info",
+      `🔍 Testing proxy connection: ${proxyConfig.host}:${proxyConfig.port}...`,
+      chalk.blue,
+      logger
+    );
+
+    // Use axios with proxy configuration to test connectivity
+    const proxyUrl = `${proxyConfig.type.toLowerCase()}://${proxyConfig.username}:${proxyConfig.password}@${proxyConfig.host}:${proxyConfig.port}`;
+    
+    const response = await axios.get('https://httpbin.org/ip', {
+      proxy: false, // Disable axios default proxy handling
+      httpsAgent: new HttpsProxyAgent(proxyUrl),
+      timeout: 15000, // 15 second timeout
+      headers: {
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
+      }
+    });
+
+    if (response.status === 200 && response.data?.origin) {
+      logWithDedup(
+        "success",
+        `✅ Proxy test successful: ${proxyConfig.host}:${proxyConfig.port} (IP: ${response.data.origin})`,
+        chalk.green,
+        logger
+      );
+      return true;
+    } else {
+      logWithDedup(
+        "warning",
+        `⚠️ Proxy test failed: unexpected response from ${proxyConfig.host}:${proxyConfig.port}`,
+        chalk.yellow,
+        logger
+      );
+      return false;
+    }
+  } catch (error) {
+    logWithDedup(
+      "error",
+      `❌ Proxy test failed: ${proxyConfig.host}:${proxyConfig.port} - ${error.message}`,
+      chalk.red,
+      logger
+    );
+    return false;
+  }
+}
+
+/**
+ * Generate and test a new proxy through ASOCKS API
+ * @param {Object} logger - Winston logger instance
+ * @param {number} maxRetries - Maximum number of retries to generate a working proxy
  * @returns {Promise<Object|null>} Proxy configuration or null if failed
  */
-async function generateProxy(logger = null) {
+async function generateProxy(logger = null, maxRetries = 3) {
   // Check if we have a real proxy service configured
   if (!ASOCKS_CONFIG.apiKey) {
     logger?.debug("No proxy service configured - proxy generation disabled");
@@ -156,137 +218,193 @@ async function generateProxy(logger = null) {
     return null;
   }
 
-  try {
-    logger?.debug("Attempting to generate proxy via ASOCKS API");
-    logWithDedup(
-      "info",
-      "🌐 Generating new proxy via ASOCKS API...",
-      chalk.blue,
-      logger
-    );
+  let attempts = 0;
+  
+  while (attempts < maxRetries) {
+    attempts++;
+    
+    try {
+      logger?.debug(`Attempting to generate proxy via ASOCKS API (attempt ${attempts}/${maxRetries})`);
+      logWithDedup(
+        "info",
+        `🌐 Generating new proxy via ASOCKS API (attempt ${attempts}/${maxRetries})...`,
+        chalk.blue,
+        logger
+      );
 
-    // ASOCKS API create-port endpoint
-    const response = await axios.post(
-      `https://api.asocks.com/v2/proxy/create-port?apiKey=${ASOCKS_CONFIG.apiKey}`,
-      {
-        country_code: "US",
-        state: "New York",
-        city: "New York",
-        asn: 11,
-        type_id: 1, // 1 = residential, 2 = datacenter
-        proxy_type_id: 2, // 1 = HTTP, 2 = SOCKS5
-        name: null,
-        server_port_type_id: 1,
-        count: 1,
-        ttl: 1, // Time to live in days
-        traffic_limit: 10, // GB limit
-      },
-      {
-        headers: {
-          "Content-Type": "application/json",
-          "User-Agent":
-            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
+      // ASOCKS API create-port endpoint
+      const response = await axios.post(
+        `https://api.asocks.com/v2/proxy/create-port?apiKey=${ASOCKS_CONFIG.apiKey}`,
+        {
+          country_code: "US",
+          state: "New York",
+          city: "New York",
+          asn: 11,
+          type_id: 1, // 1 = residential, 2 = datacenter
+          proxy_type_id: 2, // 1 = HTTP, 2 = SOCKS5
+          name: null,
+          server_port_type_id: 1,
+          count: 1,
+          ttl: 1, // Time to live in days
+          traffic_limit: 10, // GB limit
         },
-        timeout: 15000, // 15 second timeout for proxy creation
-      }
-    );
+        {
+          headers: {
+            "Content-Type": "application/json",
+            "User-Agent":
+              "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
+          },
+          timeout: 15000, // 15 second timeout for proxy creation
+        }
+      );
 
-    // Log the full response for debugging
-    logger?.info("ASOCKS API Response", {
-      status: response.status,
-      data: response.data,
-    });
-
-    if (
-      response.data &&
-      response.data.success === true &&
-      response.data.data &&
-      response.data.data.length > 0
-    ) {
-      const proxyData = response.data.data[0]; // Get first proxy from the array
-
-      logger?.info("Successfully generated proxy via ASOCKS API", {
-        server: proxyData.server,
-        port: proxyData.port,
-        id: proxyData.id,
-        login: proxyData.login,
+      // Log the full response for debugging
+      logger?.info("ASOCKS API Response", {
+        status: response.status,
+        data: response.data,
       });
 
-      return {
-        id: proxyData.id,
-        host: proxyData.server,
-        port: proxyData.port,
-        username: proxyData.login,
-        password: proxyData.password,
-        type: "SOCKS5", // ASOCKS uses proxy_type_id: 2 for SOCKS5
-      };
-    } else {
-      // Log the response for debugging if it doesn't match expected format
-      logWithDedup("debug", "📋 ASOCKS API response:", chalk.yellow, logger);
-      logWithDedup(
-        "debug",
-        JSON.stringify(response.data, null, 2),
-        chalk.gray,
-        logger
-      );
-      throw new Error(
-        response.data?.message ||
-          `API returned success: ${response.data?.success}, but no proxy data found`
-      );
-    }
-  } catch (error) {
-    logger?.error("Failed to generate proxy via ASOCKS API", {
-      error: error.message,
-      status: error.response?.status,
-      statusText: error.response?.statusText,
-      data: error.response?.data,
-    });
+      if (
+        response.data &&
+        response.data.success === true &&
+        response.data.data &&
+        response.data.data.length > 0
+      ) {
+        const proxyData = response.data.data[0]; // Get first proxy from the array
 
-    if (error.response?.status === 401 || error.response?.status === 403) {
-      logWithDedup(
-        "error",
-        "❌ ASOCKS API authentication failed - check your API key",
-        chalk.red,
-        logger
-      );
-    } else if (error.response?.status === 429) {
-      logWithDedup(
-        "error",
-        "❌ ASOCKS API rate limit exceeded - try again later",
-        chalk.red,
-        logger
-      );
-    } else if (error.code === "ENOTFOUND" || error.code === "ECONNREFUSED") {
-      logWithDedup(
-        "error",
-        "❌ Unable to connect to ASOCKS API - check your internet connection",
-        chalk.red,
-        logger
-      );
-    } else if (error.response?.data) {
-      logWithDedup(
-        "error",
-        `❌ ASOCKS API error: ${JSON.stringify(error.response.data)}`,
-        chalk.red,
-        logger
-      );
-    } else {
-      logWithDedup(
-        "error",
-        `❌ ASOCKS API error: ${error.message}`,
-        chalk.red,
-        logger
-      );
-    }
+        const proxyConfig = {
+          id: proxyData.id,
+          host: proxyData.server,
+          port: proxyData.port,
+          username: proxyData.login,
+          password: proxyData.password,
+          type: "SOCKS5", // ASOCKS uses proxy_type_id: 2 for SOCKS5
+        };
 
-    logWithDedup(
-      "warning",
-      "⚠️ Falling back to manual CAPTCHA mode",
-      chalk.yellow,
-      logger
-    );
-    return null;
+        logger?.info("Successfully generated proxy via ASOCKS API", {
+          server: proxyData.server,
+          port: proxyData.port,
+          id: proxyData.id,
+          login: proxyData.login,
+        });
+
+        // Test the proxy before returning it
+        const proxyWorks = await testProxyConnection(proxyConfig, logger);
+        
+        if (proxyWorks) {
+          logWithDedup(
+            "success",
+            `✅ Proxy generated and tested successfully: ${proxyConfig.host}:${proxyConfig.port}`,
+            chalk.green,
+            logger
+          );
+          return proxyConfig;
+        } else {
+          // Proxy doesn't work, delete it and try again
+          logWithDedup(
+            "warning",
+            `⚠️ Generated proxy failed connectivity test, deleting and retrying...`,
+            chalk.yellow,
+            logger
+          );
+          
+          await deleteProxy(proxyData.id, logger);
+          
+          if (attempts < maxRetries) {
+            await new Promise(resolve => setTimeout(resolve, 2000)); // Wait 2 seconds before retry
+            continue;
+          } else {
+            logWithDedup(
+              "error",
+              `❌ Failed to generate working proxy after ${maxRetries} attempts`,
+              chalk.red,
+              logger
+            );
+            return null;
+          }
+        }
+      } else {
+        // Log the response for debugging if it doesn't match expected format
+        logWithDedup("debug", "📋 ASOCKS API response:", chalk.yellow, logger);
+        logWithDedup(
+          "debug",
+          JSON.stringify(response.data, null, 2),
+          chalk.gray,
+          logger
+        );
+        throw new Error(
+          response.data?.message ||
+            `API returned success: ${response.data?.success}, but no proxy data found`
+        );
+      }
+    } catch (error) {
+      logger?.error("Failed to generate proxy via ASOCKS API", {
+        error: error.message,
+        status: error.response?.status,
+        statusText: error.response?.statusText,
+        data: error.response?.data,
+        attempt: attempts,
+      });
+
+      if (error.response?.status === 401 || error.response?.status === 403) {
+        logWithDedup(
+          "error",
+          "❌ ASOCKS API authentication failed - check your API key",
+          chalk.red,
+          logger
+        );
+        return null; // Don't retry auth failures
+      } else if (error.response?.status === 429) {
+        logWithDedup(
+          "error",
+          "❌ ASOCKS API rate limit exceeded - try again later",
+          chalk.red,
+          logger
+        );
+        if (attempts < maxRetries) {
+          await new Promise(resolve => setTimeout(resolve, 5000)); // Wait 5 seconds for rate limit
+          continue;
+        }
+      } else if (error.code === "ENOTFOUND" || error.code === "ECONNREFUSED") {
+        logWithDedup(
+          "error",
+          "❌ Unable to connect to ASOCKS API - check your internet connection",
+          chalk.red,
+          logger
+        );
+        return null; // Don't retry connection failures
+      } else if (error.response?.data) {
+        logWithDedup(
+          "error",
+          `❌ ASOCKS API error: ${JSON.stringify(error.response.data)}`,
+          chalk.red,
+          logger
+        );
+      } else {
+        logWithDedup(
+          "error",
+          `❌ ASOCKS API error: ${error.message}`,
+          chalk.red,
+          logger
+        );
+      }
+
+      if (attempts >= maxRetries) {
+        logWithDedup(
+          "warning",
+          "⚠️ All proxy generation attempts failed, falling back to manual CAPTCHA mode",
+          chalk.yellow,
+          logger
+        );
+        return null;
+      }
+      
+      // Wait before retrying
+      await new Promise(resolve => setTimeout(resolve, 2000));
+    }
   }
+  
+  return null;
 }
 
 /**
@@ -401,6 +519,7 @@ export {
   testAsocksAPI,
   generateProxy,
   deleteProxy,
+  testProxyConnection,
   getApiState,
   resetApiState,
 };

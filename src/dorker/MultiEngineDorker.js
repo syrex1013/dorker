@@ -115,11 +115,17 @@ export class MultiEngineDorker {
         dashboard: this.dashboard,
       };
 
-      // Perform warm-up session if human-like behavior is enabled
-      if (this.config.humanLike) {
+      // Handle warm-up based on configuration
+      if (this.config.disableWarmup) {
+        this.logger?.info("Browser warmup disabled by configuration");
+        if (this.dashboard) {
+          this.dashboard.addLog("info", "⏩ Browser warmup disabled - skipping warm-up session");
+        }
+      } else if (this.config.humanLike) {
+        // Perform full warm-up session with human-like behavior
         await performWarmup(this.pageData, this.logger);
       } else {
-        // Just navigate to Google if no warm-up
+        // Navigate to Google without warm-up
         await navigateToGoogle(this.pageData, this.logger);
       }
 
@@ -262,7 +268,8 @@ export class MultiEngineDorker {
         this.dashboard.setCurrentDork(dork);
       }
 
-      for (const engine of engines) {
+      for (let i = 0; i < engines.length; i++) {
+        const engine = engines[i];
         try {
           this.logger?.info(`Searching with ${engine}...`);
           
@@ -305,26 +312,99 @@ export class MultiEngineDorker {
 
           // Check for CAPTCHA with simplified error handling
           let captchaHandled = true; // Assume success by default
-          try {
-            captchaHandled = await handleCaptcha(
-              page,
-              this.config,
-              this.logger,
-              this.config.autoProxy ? async () => await this.switchProxy() : null,
-              this.dashboard,
-              this.pageData
-            );
-          } catch (captchaError) {
-            this.logger?.warn(`CAPTCHA handling error: ${captchaError.message}, continuing anyway`);
+          let maxCaptchaRetries = 5; // Maximum number of CAPTCHA retry attempts
+          let captchaRetryCount = 0;
+          
+          while (!captchaHandled && captchaRetryCount < maxCaptchaRetries) {
+            captchaRetryCount++;
+            
+            try {
+              this.logger?.info(`CAPTCHA handling attempt ${captchaRetryCount}/${maxCaptchaRetries} for ${engine}`);
+              
+              captchaHandled = await handleCaptcha(
+                page,
+                this.config,
+                this.logger,
+                this.config.autoProxy ? async () => await this.switchProxy() : null,
+                this.dashboard,
+                this.pageData
+              );
+              
+              if (captchaHandled) {
+                this.logger?.info(`✅ CAPTCHA handled successfully for ${engine} on attempt ${captchaRetryCount}`);
+                if (this.dashboard) {
+                  this.dashboard.addLog("success", `✅ CAPTCHA solved successfully after ${captchaRetryCount} attempts`);
+                }
+                break; // Exit the CAPTCHA retry loop
+              } else {
+                this.logger?.warn(`❌ CAPTCHA handling failed for ${engine} on attempt ${captchaRetryCount}`);
+                
+                // If CAPTCHA handling failed and we have auto proxy enabled, try switching proxy
+                if (this.config.autoProxy && captchaRetryCount < maxCaptchaRetries) {
+                  logWithDedup(
+                    "warning",
+                    `🔄 CAPTCHA failed (attempt ${captchaRetryCount}/${maxCaptchaRetries}) - switching proxy and restarting browser...`,
+                    chalk.yellow,
+                    this.logger
+                  );
+                  
+                  if (this.dashboard) {
+                    this.dashboard.addLog("warning", `🔄 CAPTCHA failed - switching proxy and restarting browser (attempt ${captchaRetryCount}/${maxCaptchaRetries})`);
+                    this.dashboard.setProcessingStatus("Switching proxy and restarting browser");
+                  }
+                  
+                  // Switch proxy
+                  const proxySwitched = await this.switchProxy();
+                  if (proxySwitched) {
+                    // Restart browser with new proxy
+                    await this.restartBrowser();
+                    
+                    // Re-navigate to the search engine for the next attempt
+                    try {
+                      await page.goto(engineConfig.baseUrl, { 
+                        waitUntil: 'domcontentloaded', 
+                        timeout: 30000 
+                      });
+                      await sleep(engineConfig.waitTime || 2000, `waiting for ${engine} to load after proxy switch`, this.logger);
+                    } catch (navigationError) {
+                      this.logger?.warn(`Navigation error after proxy switch: ${navigationError.message}`);
+                      await sleep(3000, "after navigation error with new proxy", this.logger);
+                    }
+                    
+                    this.logger?.info(`🔁 Retrying CAPTCHA handling with new proxy for ${engine}`);
+                  } else {
+                    this.logger?.error("❌ Failed to switch proxy - cannot continue with CAPTCHA retries");
+                    if (this.dashboard) {
+                      this.dashboard.addLog("error", "❌ Failed to switch proxy - stopping CAPTCHA retries");
+                    }
+                    break; // Exit the retry loop if proxy switch fails
+                  }
+                } else if (!this.config.autoProxy) {
+                  this.logger?.warn("❌ CAPTCHA handling failed and auto proxy is disabled - cannot retry");
+                  if (this.dashboard) {
+                    this.dashboard.addLog("warning", "❌ CAPTCHA handling failed and auto proxy is disabled");
+                  }
+                  break; // Exit the retry loop if no auto proxy
+                }
+              }
+            } catch (captchaError) {
+              this.logger?.warn(`CAPTCHA handling error on attempt ${captchaRetryCount}: ${captchaError.message}`);
+              captchaHandled = false;
+              
+              // Wait a bit before retrying
+              await sleep(2000, `before CAPTCHA retry attempt ${captchaRetryCount + 1}`, this.logger);
+            }
           }
               
+          // If we exhausted all CAPTCHA retry attempts, skip this engine
           if (!captchaHandled) {
-            this.logger?.warn(`CAPTCHA handling failed for ${engine}, trying next engine`);
+            this.logger?.error(`❌ CAPTCHA handling failed for ${engine} after ${maxCaptchaRetries} attempts - skipping engine`);
             if (this.dashboard) {
+              this.dashboard.addLog("error", `❌ CAPTCHA handling failed after ${maxCaptchaRetries} attempts - skipping ${engine}`);
               this.dashboard.incrementProcessed();
               this.dashboard.incrementFailed();
             }
-            continue;
+            continue; // Skip to next engine
           }
 
           // Update status to searching
@@ -729,8 +809,9 @@ export class MultiEngineDorker {
             const filtered = results.filter(r => {
               try {
                 const host = new URL(r.url).hostname.toLowerCase();
-                return host && !host.includes('bing.com');
-              } catch {
+                this.logger?.info(`Filtered out [bing] ${r.url}`);
+                return host && !host.includes('bing.com');      
+              } catch { 
                 return false; // Exclude malformed URLs
               }
             });
@@ -769,33 +850,149 @@ export class MultiEngineDorker {
             this.logger?.info(`Parameter filtering retained ${filteredResults.length} results with URL parameters`);
           }
 
+          // Host-based filtering – remove Google, Facebook, Instagram URLs (always applied)
+          if (filteredResults.length > 0) {
+            const beforeHostFilter = filteredResults.length;
+            filteredResults = filteredResults.filter(r => {
+              try {
+                const host = new URL(r.url).hostname.toLowerCase();
+                return (
+                  host &&
+                  !host.includes('google.') &&
+                  !host.includes('facebook.') &&
+                  !host.includes('instagram.')
+                );
+              } catch {
+                return false; // Exclude malformed URLs
+              }
+            });
+            const removedHostCount = beforeHostFilter - filteredResults.length;
+            if (removedHostCount > 0) {
+              this.logger?.info(`Filtered out ${removedHostCount} disallowed host URLs (${engine})`);
+            }
+          }
+
           // Handle pagination: scrape up to maxPages for this engine before switching to next engine
           let currentPage = 1;
           const maxPages = this.config.maxPages || 1;
 
           while (currentPage < maxPages) {
             currentPage++;
-            const nextPageResults = await this.handlePaginationForEngine(page, engine, maxResults);
+            
+            try {
+              const nextPageResults = await this.handlePaginationForEngine(page, engine, maxResults);
 
-            if (!nextPageResults || nextPageResults.length === 0) {
-              // No more pages or pagination failed
-              break;
-            }
+              if (!nextPageResults || nextPageResults.length === 0) {
+                // No more pages or pagination failed
+                break;
+              }
 
-            // Apply filtering to the new page results the same way
-            let pageFiltered = nextPageResults;
-            if (filterType === 'dork') {
-              pageFiltered = this.filterResultsByDork(nextPageResults, dork);
-            } else if (filterType === 'parameter') {
-              pageFiltered = this.filterResultsByParameter(nextPageResults);
-            }
+              // Apply filtering to the new page results the same way
+              let pageFiltered = nextPageResults;
+              if (filterType === 'dork') {
+                pageFiltered = this.filterResultsByDork(nextPageResults, dork);
+              } else if (filterType === 'parameter') {
+                pageFiltered = this.filterResultsByParameter(nextPageResults);
+              }
 
-            pageFiltered.forEach(r => r.engine = engine);
-            allResults = [...allResults, ...pageFiltered];
-
-            if (this.dashboard) {
+              // Host-based filtering on pagination results
               if (pageFiltered.length > 0) {
-                this.dashboard.addToTotalResults(pageFiltered.length);
+                const beforeHost = pageFiltered.length;
+                pageFiltered = pageFiltered.filter(r => {
+                  try {
+                    const host = new URL(r.url).hostname.toLowerCase();
+                    return (
+                      host &&
+                      !host.includes('google.') &&
+                      !host.includes('facebook.') &&
+                      !host.includes('instagram.')
+                    );
+                  } catch {
+                    return false;
+                  }
+                });
+                const removedHost = beforeHost - pageFiltered.length;
+                if (removedHost > 0) {
+                  this.logger?.info(`Pagination: filtered out ${removedHost} disallowed host URLs (${engine})`);
+                }
+              }
+
+              pageFiltered.forEach(r => r.engine = engine);
+              allResults = [...allResults, ...pageFiltered];
+
+              if (this.dashboard) {
+                if (pageFiltered.length > 0) {
+                  this.dashboard.addToTotalResults(pageFiltered.length);
+                }
+              }
+            } catch (paginationError) {
+              if (paginationError.message === 'CAPTCHA_FAILED_PAGINATION' && this.config.autoProxy) {
+                // CAPTCHA failed during pagination - implement strict retry logic
+                this.logger?.info('❌ CAPTCHA failed during pagination - implementing strict retry with proxy switch');
+                
+                let paginationCaptchaRetries = 3; // Maximum retries for pagination CAPTCHA
+                let paginationRetryCount = 0;
+                let paginationCaptchaResolved = false;
+                
+                while (!paginationCaptchaResolved && paginationRetryCount < paginationCaptchaRetries) {
+                  paginationRetryCount++;
+                  
+                  this.logger?.info(`🔄 Pagination CAPTCHA retry attempt ${paginationRetryCount}/${paginationCaptchaRetries}`);
+                  
+                  // Switch proxy for each retry attempt
+                  const proxySwitched = await this.switchProxy();
+                  if (proxySwitched) {
+                    // Restart browser with new proxy
+                    await this.restartBrowser();
+                    
+                    // Re-navigate to search engine and re-execute the search to get back to where we were
+                    try {
+                      await page.goto(engineConfig.baseUrl, { 
+                        waitUntil: 'domcontentloaded', 
+                        timeout: 30000 
+                      });
+                      await sleep(engineConfig.waitTime || 2000, `waiting for ${engine} to load after pagination proxy switch`, this.logger);
+                      
+                      // TODO: Need to re-execute the search query to get back to results page
+                      // For now, we'll break out and retry the entire engine search
+                      this.logger?.info(`🔁 Retrying entire search for ${engine} after pagination CAPTCHA and proxy switch`);
+                      if (this.dashboard) {
+                        this.dashboard.addLog("info", `🔁 Retrying search after pagination CAPTCHA proxy switch (attempt ${paginationRetryCount}/${paginationCaptchaRetries})`);
+                      }
+                      
+                      // Decrement loop counter so we retry the same engine after browser restart
+                      i--;
+                      paginationCaptchaResolved = true; // Exit the retry loop and restart the engine search
+                      break; // Exit pagination loop to retry the whole search
+                      
+                    } catch (renavError) {
+                      this.logger?.warn(`Re-navigation error during pagination retry: ${renavError.message}`);
+                      if (paginationRetryCount >= paginationCaptchaRetries) {
+                        break; // Exit if this was the last attempt
+                      }
+                      // Continue to next retry attempt
+                    }
+                  } else {
+                    this.logger?.error(`❌ Failed to switch proxy during pagination retry attempt ${paginationRetryCount}`);
+                    if (this.dashboard) {
+                      this.dashboard.addLog("error", `❌ Failed to switch proxy during pagination retry attempt ${paginationRetryCount}`);
+                    }
+                    break; // Exit retry loop if proxy switch fails
+                  }
+                }
+                
+                if (!paginationCaptchaResolved) {
+                  this.logger?.error(`❌ Failed to resolve pagination CAPTCHA after ${paginationCaptchaRetries} attempts - stopping pagination for ${engine}`);
+                  if (this.dashboard) {
+                    this.dashboard.addLog("error", `❌ Pagination CAPTCHA retry failed after ${paginationCaptchaRetries} attempts`);
+                  }
+                }
+                
+                break; // Exit pagination loop
+              } else {
+                // Other pagination errors - just log and continue
+                this.logger?.warn(`Pagination error: ${paginationError.message}`);
+                break;
               }
             }
           }
@@ -807,6 +1004,10 @@ export class MultiEngineDorker {
           }));
 
           allResults = [...allResults, ...filteredResults];
+
+          // Show per-engine stats in CLI via logger
+          const engineTotal = allResults.filter(r => r.engine === engine).length;
+          this.logger?.info(`📊 Engine Summary [${engine}]: ${engineTotal} results`);
 
           // Update dashboard statistics
           if (this.dashboard) {
@@ -1111,12 +1312,25 @@ export class MultiEngineDorker {
       const nextButton = await page.$(selector);
       if (!nextButton) return [];
 
-      await nextButton.click();
-      await page.waitForNavigation({ waitUntil: 'networkidle0' });
+      // For Bing, avoid clicking which sometimes opens result links due to overlay issues.
+      if (engine === 'bing') {
+        // Safely extract the target URL from the anchor and navigate directly
+        const nextUrl = await page.evaluate(el => el.href, nextButton);
+        if (!nextUrl) {
+          this.logger?.warn('Could not extract next page URL for Bing');
+          return [];
+        }
+        await page.goto(nextUrl, { waitUntil: 'networkidle0' });
+      } else {
+        // Default behaviour for other engines – human-like click
+        await nextButton.click();
+        await page.waitForNavigation({ waitUntil: 'networkidle0' });
+      }
 
       // After navigation, detect/handle CAPTCHA again if present
+      let captchaHandled = true;
       try {
-        const captchaHandled = await handleCaptcha(
+        captchaHandled = await handleCaptcha(
           page,
           this.config,
           this.logger,
@@ -1124,12 +1338,30 @@ export class MultiEngineDorker {
           this.dashboard,
           this.pageData
         );
-
-        if (!captchaHandled) {
-          this.logger?.warn('CAPTCHA handling failed during pagination');
-        }
       } catch (e) {
         this.logger?.warn('Error in CAPTCHA handling after pagination:', e.message);
+        captchaHandled = false;
+      }
+
+      if (!captchaHandled) {
+        this.logger?.warn('CAPTCHA handling failed during pagination');
+        
+        // If captcha solving failed during pagination, we need to handle it
+        if (this.config.autoProxy) {
+          logWithDedup(
+            "warning",
+            "🔄 CAPTCHA solving failed during pagination - generating new proxy and restarting browser...",
+            chalk.yellow,
+            this.logger
+          );
+          
+          if (this.dashboard) {
+            this.dashboard.addLog("warning", "🔄 CAPTCHA solving failed during pagination - restarting browser with new proxy...");
+          }
+          
+          // Return empty results to trigger browser restart in performSearch
+          throw new Error('CAPTCHA_FAILED_PAGINATION');
+        }
       }
 
       await sleep(2000, "after pagination", this.logger);
