@@ -224,7 +224,6 @@ async function generateProxy(logger = null, maxRetries = 3) {
     attempts++;
     
     try {
-      logger?.debug(`Attempting to generate proxy via ASOCKS API (attempt ${attempts}/${maxRetries})`);
       logWithDedup(
         "info",
         `🌐 Generating new proxy via ASOCKS API (attempt ${attempts}/${maxRetries})...`,
@@ -289,6 +288,13 @@ async function generateProxy(logger = null, maxRetries = 3) {
         });
 
         // Test the proxy before returning it
+        logWithDedup(
+          "info",
+          `🔍 Testing proxy connection: ${proxyConfig.host}:${proxyConfig.port}...`,
+          chalk.blue,
+          logger
+        );
+        
         const proxyWorks = await testProxyConnection(proxyConfig, logger);
         
         if (proxyWorks) {
@@ -308,6 +314,13 @@ async function generateProxy(logger = null, maxRetries = 3) {
             logger
           );
           
+          logWithDedup(
+            "info",
+            `🗑️ Deleting proxy ${proxyData.id} via ASOCKS API...`,
+            chalk.gray,
+            logger
+          );
+          
           await deleteProxy(proxyData.id, logger);
           
           if (attempts < maxRetries) {
@@ -318,6 +331,12 @@ async function generateProxy(logger = null, maxRetries = 3) {
               "error",
               `❌ Failed to generate working proxy after ${maxRetries} attempts`,
               chalk.red,
+              logger
+            );
+            logWithDedup(
+              "warning",
+              "⚠️ Failed to generate new proxy",
+              chalk.yellow,
               logger
             );
             return null;
@@ -421,13 +440,6 @@ async function deleteProxy(proxyId, logger = null) {
   }
 
   try {
-    logger?.debug("Attempting to delete proxy via ASOCKS API", { proxyId });
-    logWithDedup(
-      "info",
-      `🗑️ Deleting proxy ${proxyId} via ASOCKS API...`,
-      chalk.blue,
-      logger
-    );
 
     // ASOCKS API delete-port endpoint
     const response = await axios.delete(
@@ -446,7 +458,6 @@ async function deleteProxy(proxyId, logger = null) {
       response.status === 204 ||
       (response.data && response.data.success === true)
     ) {
-      logger?.info("Successfully deleted proxy via ASOCKS API", { proxyId });
       logWithDedup(
         "info",
         `✅ Proxy ${proxyId} deleted successfully`,

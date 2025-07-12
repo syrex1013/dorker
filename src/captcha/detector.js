@@ -3,6 +3,94 @@ import { logWithDedup } from "../utils/logger.js";
 import { sleep } from "../utils/sleep.js";
 
 /**
+ * Wait for CAPTCHA element to be ready for interaction
+ * @param {Object} page - Puppeteer page
+ * @param {string} selector - Element selector
+ * @param {Object} logger - Logger instance
+ * @param {number} timeout - Timeout in milliseconds
+ */
+async function waitForCaptchaElement(page, selector, logger = null, timeout = 5000) {
+  try {
+    await page.waitForSelector(selector, { timeout, visible: true });
+    // Additional wait for element to be interactive
+    await page.waitForFunction((sel) => {
+      const element = document.querySelector(sel);
+      return element && !element.disabled && element.offsetParent !== null;
+    }, { timeout: 2000 }, selector).catch(() => null);
+    
+    logger?.debug(`CAPTCHA element ready: ${selector}`);
+  } catch (error) {
+    logger?.debug(`CAPTCHA element wait failed for ${selector}: ${error.message}`);
+  }
+}
+
+/**
+ * Wait for CAPTCHA frame to be ready
+ * @param {Object} page - Puppeteer page
+ * @param {string} frameType - Type of frame (anchor/bframe)
+ * @param {Object} logger - Logger instance
+ * @param {number} timeout - Timeout in milliseconds
+ */
+async function waitForCaptchaFrameReady(page, frameType, logger = null, timeout = 5000) {
+  try {
+    await page.waitForFunction((type) => {
+      const frames = Array.from(document.querySelectorAll('iframe'));
+      return frames.some(frame => 
+        frame.src.includes('recaptcha') && 
+        frame.src.includes(type) &&
+        frame.offsetParent !== null
+      );
+    }, { timeout }, frameType).catch(() => null);
+    
+    logger?.debug(`CAPTCHA ${frameType} frame ready`);
+  } catch (error) {
+    logger?.debug(`CAPTCHA ${frameType} frame wait failed: ${error.message}`);
+  }
+}
+
+/**
+ * Wait for CAPTCHA challenge to appear
+ * @param {Object} page - Puppeteer page
+ * @param {Object} logger - Logger instance
+ * @param {number} timeout - Timeout in milliseconds
+ */
+async function waitForCaptchaChallenge(page, logger = null, timeout = 5000) {
+  try {
+    await page.waitForFunction(() => {
+      // Enhanced challenge selectors for better headless compatibility
+      const challengeSelectors = [
+        '.rc-audiochallenge-tbl',
+        '.rc-imageselect-table',
+        '.rc-challenge-help',
+        '#audio-source',
+        '.rc-audiochallenge-instructions',
+        '.rc-audiochallenge-tdownload-link',
+        '.rc-audiochallenge-response-field',
+        'audio',
+        '[src*="audio"]',
+        '[href*="audio"]'
+      ];
+      
+      return challengeSelectors.some(selector => {
+        const element = document.querySelector(selector);
+        // In headless mode, offsetParent check might not work reliably
+        // So also check if element exists and has content
+        return element && (
+          element.offsetParent !== null || 
+          element.style.display !== 'none' ||
+          element.href ||
+          element.src
+        );
+      });
+    }, { timeout }).catch(() => null);
+    
+    logger?.debug("CAPTCHA challenge appeared");
+  } catch (error) {
+    logger?.debug(`CAPTCHA challenge wait failed: ${error.message}`);
+  }
+}
+
+/**
  * Extract middle 4 words from transcription to avoid noise at beginning/end
  * @param {string} text - Original transcription text
  * @param {Object} logger - Winston logger instance
@@ -244,7 +332,7 @@ async function clickCaptchaCheckbox(page, logger = null) {
         if (checkbox) {
           logger?.debug(`Found CAPTCHA checkbox with selector: ${selector}`);
           await checkbox.click();
-          await sleep(2000, "after checkbox click", logger);
+          await waitForCaptchaChallenge(page, logger, 3000);
           return true;
         }
       } catch (e) {
@@ -270,7 +358,7 @@ async function clickCaptchaCheckbox(page, logger = null) {
                 `Found CAPTCHA checkbox in iframe with selector: ${selector}`
               );
               await recaptchaFrame.click(selector);
-              await sleep(2000, "after iframe checkbox click", logger);
+              await waitForCaptchaChallenge(page, logger, 3000);
               return true;
             }
           } catch (e) {
@@ -318,7 +406,7 @@ async function clickAudioButton(page, logger = null) {
         if (audioButton) {
           logger?.debug(`Found audio button with selector: ${selector}`);
           await audioButton.click();
-          await sleep(2000, "after audio button click", logger);
+          await waitForCaptchaChallenge(page, logger, 3000);
           return true;
         }
       } catch (e) {
@@ -344,7 +432,7 @@ async function clickAudioButton(page, logger = null) {
                 `Found audio button in challenge frame with selector: ${selector}`
               );
               await challengeFrame.click(selector);
-              await sleep(2000, "after iframe audio button click", logger);
+              await waitForCaptchaChallenge(page, logger, 3000);
               return true;
             }
           } catch (e) {
@@ -616,7 +704,7 @@ async function handleCaptcha(
       // Wait for background monitor to finish
       let attempts = 0;
       while (page._captchaBeingProcessed && attempts < 30) {
-        await sleep(1000, "waiting for background monitor", logger);
+        await waitForCaptchaFrameReady(page, "anchor", logger, 2000);
         attempts++;
       }
       // Check if CAPTCHA was solved
@@ -1092,58 +1180,107 @@ async function handleAutomaticCaptcha(page, logger = null, dashboard = null) {
       logger
     );
 
-    // Wait for audio source to appear - try download link first
+    // Wait for audio source to appear - enhanced for headless mode
     let audioSrc = null;
+    let audioAttempts = 0;
+    const maxAudioAttempts = 5;
 
-    try {
-      // Look for download link
-      await challengeFrame.waitForSelector(
-        ".rc-audiochallenge-tdownload-link",
-        { timeout: 10000 }
-      );
-      audioSrc = await challengeFrame.$eval(
-        ".rc-audiochallenge-tdownload-link",
-        (el) => el.href
-      );
-      logger?.info(`Found audio download link: ${audioSrc}`);
-    } catch (e) {
-      logger?.debug("Download link not found, trying audio element");
+    while (!audioSrc && audioAttempts < maxAudioAttempts) {
+      audioAttempts++;
+      logger?.debug(`Audio source search attempt ${audioAttempts}/${maxAudioAttempts}`);
 
-      // Try audio element as fallback
       try {
-        const audioElement = await challengeFrame.$("#audio-source");
-        if (audioElement) {
+        // Wait longer for audio challenge to fully load in headless mode
+        await waitForCaptchaChallenge(challengeFrame, logger, 8000);
+        
+        // Look for download link first
+        try {
+          await challengeFrame.waitForSelector(
+            ".rc-audiochallenge-tdownload-link",
+            { timeout: 8000 }
+          );
           audioSrc = await challengeFrame.$eval(
-            "#audio-source",
-            (el) => el.src
+            ".rc-audiochallenge-tdownload-link",
+            (el) => el.href
           );
-          logger?.info(`Found audio source element: ${audioSrc}`);
+          logger?.info(`Found audio download link: ${audioSrc}`);
+          break;
+        } catch (e) {
+          logger?.debug("Download link not found, trying other methods");
         }
-      } catch (error) {
-        logger?.debug("Audio element not found either");
-      }
-    }
 
-    if (!audioSrc) {
-      // Try more generic selectors
-      try {
-        audioSrc = await challengeFrame.evaluate(() => {
-          // Look for any audio.mp3 links
-          const audioLinks = Array.from(
-            document.querySelectorAll('a[href*="audio.mp3"]')
-          );
-          for (const link of audioLinks) {
-            if (link.href) {
-              return link.href;
-            }
+        // Try audio element as fallback
+        try {
+          await challengeFrame.waitForSelector("#audio-source", { timeout: 5000 });
+          const audioElement = await challengeFrame.$("#audio-source");
+          if (audioElement) {
+            audioSrc = await challengeFrame.$eval(
+              "#audio-source",
+              (el) => el.src
+            );
+            logger?.info(`Found audio source element: ${audioSrc}`);
+            break;
           }
+        } catch (error) {
+          logger?.debug("Audio element not found either");
+        }
 
-          // Look for audio elements
-          const audio = document.querySelector("audio");
-          return audio ? audio.src : null;
-        });
-      } catch (evalError) {
-        logger?.debug("Generic audio search failed:", evalError.message);
+        // Try more comprehensive selectors for headless mode
+        try {
+          audioSrc = await challengeFrame.evaluate(() => {
+            // Enhanced selector list for better headless compatibility
+            const selectors = [
+              'a[href*="audio.mp3"]',
+              'a[href*="recaptcha/api2/payload/audio.mp3"]',
+              'a[download*="audio"]',
+              '.rc-audiochallenge-tdownload-link',
+              'audio source',
+              'audio',
+              'source[src*="audio"]',
+              '[src*="audio.mp3"]',
+              '[href*="audio.mp3"]'
+            ];
+
+            for (const selector of selectors) {
+              const elements = document.querySelectorAll(selector);
+              for (const el of elements) {
+                const url = el.href || el.src;
+                if (url && url.includes('audio')) {
+                  return url;
+                }
+              }
+            }
+
+            // Look for any links or sources containing audio-related URLs
+            const allLinks = document.querySelectorAll('a, audio, source');
+            for (const el of allLinks) {
+              const url = el.href || el.src;
+              if (url && (url.includes('audio') || url.includes('payload'))) {
+                return url;
+              }
+            }
+
+            return null;
+          });
+
+          if (audioSrc) {
+            logger?.info(`Found audio source with enhanced search: ${audioSrc}`);
+            break;
+          }
+        } catch (evalError) {
+          logger?.debug("Enhanced audio search failed:", evalError.message);
+        }
+
+        // Wait before next attempt
+        if (audioAttempts < maxAudioAttempts) {
+          await new Promise(resolve => setTimeout(resolve, 2000));
+        }
+
+      } catch (error) {
+        logger?.debug(`Audio search attempt ${audioAttempts} failed:`, error.message);
+        if (audioAttempts < maxAudioAttempts) {
+          await new Promise(resolve => setTimeout(resolve, 2000));
+        }
       }
     }
 
@@ -1227,7 +1364,7 @@ async function handleAutomaticCaptcha(page, logger = null, dashboard = null) {
       return false;
     }
 
-    await sleep(1000, "after entering solution", logger);
+    await waitForCaptchaElement(page, 'button[id*="verify"], .rc-audiochallenge-verify-button', logger, 2000);
 
     // Step 6: Submit the solution
     logWithDedup("info", "✔️ Step 5: Verifying solution", chalk.blue, logger);

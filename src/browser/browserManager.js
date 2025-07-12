@@ -150,10 +150,16 @@ async function _humanLikeMove(cursor, x, y, page, logger = null) {
  * @param {Object} cursor - Ghost cursor
  * @param {Object} logger - Winston logger instance
  * @param {Number} movementCount - Number of movements to perform (default: 5)
+ * @param {boolean} disableMovements - Whether to skip movements entirely
  * @returns {Promise<void>}
  */
-async function performSafeCursorMovements(page, cursor, logger = null, movementCount = 5) {
+async function performSafeCursorMovements(page, cursor, logger = null, movementCount = 5, disableMovements = false) {
   try {
+    if (disableMovements) {
+      logger?.debug("Random mouse movements disabled - skipping cursor movements");
+      return;
+    }
+
     if (!page || !cursor) {
       logger?.debug("Cannot perform cursor movements: page or cursor is null");
       return;
@@ -898,7 +904,7 @@ async function performWarmup(pageData, logger = null) {
           waitUntil: "domcontentloaded",
           timeout: 15000,
         });
-        await sleep(2000, "after returning to Google", logger);
+        await waitForPageReady(page, "google", true, logger);
 
         // Handle consent if needed after returning
         await handleConsentOptimized(page, cursor, logger);
@@ -906,10 +912,15 @@ async function performWarmup(pageData, logger = null) {
 
       // Perform ONLY safe cursor movements (absolutely NO clicking or interaction)
       logger?.debug("Performing MOVEMENT-ONLY warmup - no interactions");
-      await performSafeCursorMovements(page, cursor, logger);
+      
+      // Check if movements are disabled via pageData config
+      const disableMovements = pageData.config?.disableMovements || false;
+      await performSafeCursorMovements(page, cursor, logger, 5, disableMovements);
 
-      // Pause between movement sessions
-      const pauseTime = Math.random() * 3000 + 2000; // 2-5 seconds
+      // Pause between movement sessions (shorter pause if movements disabled)
+      const pauseTime = disableMovements ? 
+        Math.random() * 1000 + 500 : // 0.5-1.5 seconds if movements disabled
+        Math.random() * 3000 + 2000; // 2-5 seconds normally
       await sleep(pauseTime, "warmup movement pause", logger);
     }
 
@@ -963,8 +974,8 @@ async function handleConsentOptimized(page, cursor, logger = null) {
     for (let attempt = 1; attempt <= maxAttempts; attempt++) {
       logger?.debug(`Consent handling attempt ${attempt}/${maxAttempts}`);
 
-      // Wait a moment for page to stabilize
-      await sleep(2000, `consent attempt ${attempt} stabilization`, logger);
+      // Wait for page to stabilize and consent elements to be ready
+      await waitForPageReady(page, "google", true, logger);
 
       // Check if we're actually on a consent page and get current state
       const pageState = await page.evaluate(() => {
@@ -1069,7 +1080,7 @@ async function handleConsentOptimized(page, cursor, logger = null) {
       const success = await clickConsentButtons(page, cursor, logger);
       if (success) {
         // Wait for navigation/page update
-        await sleep(3000, "after successful consent click", logger);
+        await waitForConsentHandled(page, logger, 5000);
 
         // Verify we moved past consent
         const newState = await page.evaluate(() => {
@@ -1306,7 +1317,22 @@ async function clickConsentElement(element, page, cursor, logger, selector) {
       if (el) el.scrollIntoView({ behavior: "smooth", block: "center" });
     }, element);
 
-    await sleep(1000, "after scroll into view", logger);
+    // Wait for scroll to complete
+    await page.waitForFunction(() => {
+      return new Promise(resolve => {
+        let lastScrollTop = document.documentElement.scrollTop;
+        const checkScroll = () => {
+          const currentScrollTop = document.documentElement.scrollTop;
+          if (currentScrollTop === lastScrollTop) {
+            resolve(true);
+          } else {
+            lastScrollTop = currentScrollTop;
+            setTimeout(checkScroll, 100);
+          }
+        };
+        setTimeout(checkScroll, 100);
+      });
+    }, { timeout: 2000 }).catch(() => null);
 
     // Try ghost cursor first, then fallback
     let clicked = false;
@@ -1338,7 +1364,7 @@ async function clickConsentElement(element, page, cursor, logger, selector) {
     }
 
     if (clicked) {
-      await sleep(2000, "after consent click", logger);
+      await waitForConsentHandled(page, logger, 3000);
       return true;
     }
 
@@ -1357,8 +1383,8 @@ async function clickConsentElement(element, page, cursor, logger, selector) {
  */
 async function handleConsent(page, cursor, logger = null) {
   try {
-    // Wait for potential consent form
-    await sleep(3000, "waiting for potential consent form", logger);
+    // Wait for potential consent form to load
+    await waitForPageReady(page, "google", true, logger);
 
     // Get current URL to determine consent page type
     const currentUrl = page.url();
@@ -1419,7 +1445,8 @@ async function handleConsent(page, cursor, logger = null) {
             if (el) el.scrollIntoView({ behavior: "smooth", block: "center" });
           }, acceptButton);
 
-          await sleep(1000, "before consent button click", logger);
+          // Wait for button to be ready for interaction
+          await page.waitForFunction(() => document.readyState === 'complete', { timeout: 1000 }).catch(() => null);
           logger?.debug(
             `Ghost cursor clicking Accept all button on consent.google.com`
           );
@@ -1433,7 +1460,7 @@ async function handleConsent(page, cursor, logger = null) {
             await page.evaluate((el) => el.click(), acceptButton);
             logger?.debug(`Fallback click completed on Accept all button`);
           }
-          await sleep(3000, "after consent button click", logger);
+          await waitForConsentHandled(page, logger, 5000);
 
           // Verify we left the consent page
           const newUrl = page.url();
@@ -1538,8 +1565,8 @@ async function handleConsent(page, cursor, logger = null) {
     // Try each selector
     for (const selector of consentSelectors) {
       try {
-        // Wait a bit for the page to stabilize
-        await sleep(1000);
+        // Wait for page to be ready for interaction
+        await page.waitForFunction(() => document.readyState === 'complete', { timeout: 1000 }).catch(() => null);
 
         let element = null;
 
@@ -1578,7 +1605,8 @@ async function handleConsent(page, cursor, logger = null) {
             if (el) el.scrollIntoView({ behavior: "smooth", block: "center" });
           }, element);
 
-          await sleep(1000, "before consent element click", logger);
+          // Wait for element to be ready for interaction
+          await page.waitForFunction(() => document.readyState === 'complete', { timeout: 1000 }).catch(() => null);
 
           // Click using ghost cursor for human-like interaction
           logger?.debug(
@@ -1631,7 +1659,7 @@ async function handleConsent(page, cursor, logger = null) {
           }
 
           // Wait for navigation or page change
-          await sleep(3000);
+          await waitForConsentHandled(page, logger, 5000);
 
           // Verify we're no longer on consent page
           const stillOnConsent = await page.evaluate(() => {
@@ -1711,7 +1739,7 @@ async function handleConsent(page, cursor, logger = null) {
         }
       });
 
-      await sleep(3000);
+      await waitForConsentHandled(page, logger, 5000);
       logger?.info("Attempted JavaScript consent handling");
     } catch (jsError) {
       logger?.warn("JavaScript consent handling failed:", {
@@ -1919,6 +1947,94 @@ async function simulateHumanBrowsing(page, cursor, duration, logger = null) {
  * @param {Object} logger - Winston logger instance
  * @returns {Promise<boolean>} True if page loaded properly
  */
+
+/**
+ * Wait for consent elements to disappear or page to be ready
+ * @param {Object} page - Puppeteer page instance
+ * @param {Object} logger - Logger instance
+ * @param {number} timeout - Timeout in milliseconds
+ */
+async function waitForConsentHandled(page, logger = null, timeout = 5000) {
+  try {
+    // Wait for consent elements to disappear or search elements to appear
+    await Promise.race([
+      // Wait for search box to appear (indicates consent was handled)
+      page.waitForSelector('input[name="q"]', { timeout }),
+      page.waitForSelector('#APjFqb', { timeout }),
+      page.waitForSelector('.gLFyf', { timeout }),
+      // Or wait for consent elements to disappear
+      page.waitForFunction(() => {
+        const consentText = document.body.textContent || "";
+        const hasConsentText = consentText.includes("Before you continue to Google") ||
+                              consentText.includes("We use cookies and data") ||
+                              consentText.includes("Accept all");
+        return !hasConsentText;
+      }, { timeout })
+    ]).catch(() => null);
+    
+    logger?.debug("Consent handling wait completed");
+  } catch (error) {
+    logger?.debug(`Consent handling wait failed: ${error.message}`);
+  }
+}
+
+/**
+ * Wait for page to be ready with engine-specific checks
+ * @param {Object} page - Puppeteer page instance
+ * @param {string} engine - Search engine name
+ * @param {boolean} minimal - Whether to use minimal wait
+ * @param {Object} logger - Logger instance
+ */
+async function waitForPageReady(page, engine, minimal = false, logger = null) {
+  try {
+    if (minimal) {
+      // Just wait for basic DOM readiness
+      await page.waitForFunction(() => document.readyState === 'complete', { timeout: 5000 }).catch(() => null);
+      return;
+    }
+
+    // Engine-specific readiness checks
+    const readinessChecks = {
+      google: async () => {
+        // Wait for search box or basic Google elements
+        await Promise.race([
+          page.waitForSelector('input[name="q"]', { timeout: 10000 }),
+          page.waitForSelector('#APjFqb', { timeout: 10000 }),
+          page.waitForSelector('.gLFyf', { timeout: 10000 })
+        ]).catch(() => null);
+      },
+      bing: async () => {
+        // Wait for Bing search box
+        await Promise.race([
+          page.waitForSelector('#sb_form_q', { timeout: 10000 }),
+          page.waitForSelector('input[name="q"]', { timeout: 10000 })
+        ]).catch(() => null);
+      },
+      duckduckgo: async () => {
+        // Wait for DuckDuckGo search elements
+        await Promise.race([
+          page.waitForSelector('#search_form_input_homepage', { timeout: 10000 }),
+          page.waitForSelector('#search_form_input', { timeout: 10000 }),
+          page.waitForSelector('input[name="q"]', { timeout: 10000 })
+        ]).catch(() => null);
+      }
+    };
+
+    // Run engine-specific check
+    if (readinessChecks[engine]) {
+      await readinessChecks[engine]();
+    }
+
+    // General readiness check
+    await page.waitForFunction(() => document.readyState === 'complete', { timeout: 5000 }).catch(() => null);
+    
+    logger?.debug(`Page ready for ${engine}`);
+  } catch (error) {
+    logger?.debug(`Page readiness check failed for ${engine}: ${error.message}`);
+    // Continue anyway - don't block on readiness checks
+  }
+}
+
 async function isPageLoaded(page, logger = null) {
   try {
     const pageInfo = await page.evaluate(() => {
@@ -1987,8 +2103,8 @@ async function navigateToGoogle(pageData, logger = null) {
           });
         }
 
-        // Wait for initial page load
-        await sleep(3000, `after navigation attempt ${attempt}`, logger);
+        // Wait for page to be ready instead of arbitrary sleep
+        await waitForPageReady(page, "google", false, logger);
 
         // Check if page loaded properly
         const pageLoaded = await isPageLoaded(page, logger);
@@ -2001,7 +2117,7 @@ async function navigateToGoogle(pageData, logger = null) {
 
           // Try refreshing the page
           await page.reload({ waitUntil: "domcontentloaded", timeout: 15000 });
-          await sleep(2000, "after page refresh", logger);
+          await waitForPageReady(page, "google", true, logger);
 
           const reloadCheck = await isPageLoaded(page, logger);
           if (reloadCheck) {
@@ -2013,7 +2129,7 @@ async function navigateToGoogle(pageData, logger = null) {
 
           // Try one final reload
           await page.reload({ waitUntil: "load", timeout: 15000 });
-          await sleep(3000, "after final reload", logger);
+          await waitForPageReady(page, "google", false, logger);
         }
       } catch (navError) {
         logger?.warn(`Navigation attempt ${attempt} failed:`, {
@@ -2022,7 +2138,7 @@ async function navigateToGoogle(pageData, logger = null) {
         if (attempt === 3) {
           throw navError;
         }
-        await sleep(2000, `before retry attempt ${attempt + 1}`, logger);
+        await waitForPageReady(page, "google", true, logger);
       }
     }
 
@@ -2036,7 +2152,7 @@ async function navigateToGoogle(pageData, logger = null) {
     }
 
     // Additional wait to ensure page is ready after consent
-    await sleep(1000, "final page ready wait", logger);
+    await waitForPageReady(page, "google", true, logger);
 
     logger?.info("Successfully navigated to Google");
   } catch (error) {
@@ -2133,6 +2249,7 @@ export {
   simulateHumanBrowsing,
   navigateToGoogle,
   isPageLoaded,
+  waitForPageReady,
   closeBrowser,
   getCurrentInstances,
   performSafeCursorMovements,

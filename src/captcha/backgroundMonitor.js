@@ -155,7 +155,6 @@ class BackgroundCaptchaMonitor {
         this.isProcessingCaptcha = true;
         this.stats.captchasDetected++;
 
-        this.logger?.warn("🚨 Background monitor detected CAPTCHA!");
         logWithDedup(
           "warning",
           "🚨 CAPTCHA detected by background monitor!",

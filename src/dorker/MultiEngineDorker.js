@@ -32,6 +32,7 @@ export class MultiEngineDorker {
     this.searchCount = 0;
     this.restartThreshold = 5; // Restart browser every 5 searches
     this.backgroundMonitor = null; // Background CAPTCHA monitor
+    this.isEngineTransition = false; // Flag to prevent proxy switching during engine changes
     
     // Track results by engine
     this.engineResults = {};
@@ -108,11 +109,12 @@ export class MultiEngineDorker {
         firstPage
       );
 
-      // Create pageData with dashboard included
+      // Create pageData with dashboard and config included
       this.pageData = {
         page,
         cursor,
         dashboard: this.dashboard,
+        config: this.config,
       };
 
       // Handle warm-up based on configuration
@@ -206,6 +208,12 @@ export class MultiEngineDorker {
       return false;
     }
 
+    // Prevent proxy switching during engine transitions
+    if (this.isEngineTransition) {
+      this.logger?.info("Skipping proxy switch during engine transition");
+      return false;
+    }
+
     try {
       this.logger?.info("Attempting to switch proxy");
 
@@ -273,6 +281,9 @@ export class MultiEngineDorker {
       for (let i = 0; i < engines.length; i++) {
         const engine = engines[i];
         try {
+          // Set engine transition flag
+          this.isEngineTransition = true;
+          
           this.logger?.info(`Searching with ${engine}...`);
           
           if (this.dashboard) {
@@ -305,7 +316,8 @@ export class MultiEngineDorker {
               waitUntil: 'domcontentloaded', 
               timeout: 45000 
             });
-            await sleep(engineConfig.waitTime || 2000, `waiting for ${engine} to load`, this.logger);
+            // Wait for page to be fully interactive instead of fixed delay
+            await this.waitForPageReady(page, engine);
           } catch (navigationError) {
             this.logger?.warn(`Navigation error: ${navigationError.message}, trying with longer timeout`);
             // Try again with even longer timeout and different wait strategy
@@ -314,12 +326,16 @@ export class MultiEngineDorker {
                 waitUntil: 'load', 
                 timeout: 60000 
               });
-              await sleep(5000, "after navigation retry", this.logger);
+              await this.waitForPageReady(page, engine);
             } catch (retryError) {
               this.logger?.warn(`Navigation retry failed: ${retryError.message}, continuing anyway`);
-              await sleep(3000, "after navigation failure", this.logger);
+              // Minimal wait for page stability
+              await this.waitForPageReady(page, engine, true);
             }
           }
+
+          // Clear engine transition flag after navigation is complete
+          this.isEngineTransition = false;
 
           // Check for CAPTCHA with simplified error handling
           let captchaHandled = true; // Assume success by default
@@ -376,10 +392,10 @@ export class MultiEngineDorker {
                         waitUntil: 'domcontentloaded', 
                         timeout: 30000 
                       });
-                      await sleep(engineConfig.waitTime || 2000, `waiting for ${engine} to load after proxy switch`, this.logger);
+                      await this.waitForPageReady(page, engine, false);
                     } catch (navigationError) {
                       this.logger?.warn(`Navigation error after proxy switch: ${navigationError.message}`);
-                      await sleep(3000, "after navigation error with new proxy", this.logger);
+                      await this.waitForPageReady(page, engine, true);
                     }
                     
                     this.logger?.info(`🔁 Retrying CAPTCHA handling with new proxy for ${engine}`);
@@ -402,8 +418,8 @@ export class MultiEngineDorker {
               this.logger?.warn(`CAPTCHA handling error on attempt ${captchaRetryCount}: ${captchaError.message}`);
               captchaHandled = false;
               
-              // Wait a bit before retrying
-              await sleep(2000, `before CAPTCHA retry attempt ${captchaRetryCount + 1}`, this.logger);
+              // Wait for page to stabilize before retrying
+              await this.waitForPageReady(page, engine, true);
             }
           }
               
@@ -483,8 +499,8 @@ export class MultiEngineDorker {
                 return false;
               });
               
-              // Give time for consent action to complete
-              await sleep(1500, "after handling Bing consent", this.logger);
+              // Wait for consent action to complete
+              await page.waitForFunction(() => !document.querySelector('#bnp_container'), { timeout: 5000 }).catch(() => null);
             } catch (error) {
               this.logger?.warn('Error handling Bing consent:', error.message);
             }
@@ -494,7 +510,7 @@ export class MultiEngineDorker {
           if (engine === 'duckduckgo') {
             try {
               // Wait for page to be fully loaded
-              await sleep(2000, "waiting for DuckDuckGo to fully load", this.logger);
+              await this.waitForPageReady(page, 'duckduckgo');
               
               // Use evaluate to safely find and click consent buttons without causing redirects
               await page.evaluate(() => {
@@ -527,8 +543,11 @@ export class MultiEngineDorker {
                 return false;
               });
               
-              // Give time for consent action to complete
-              await sleep(1500, "after handling DuckDuckGo consent", this.logger);
+              // Wait for consent to be processed
+              await page.waitForFunction(() => {
+                const banners = document.querySelectorAll('.privacy-banner, [data-testid="privacy-banner"], [data-cy="accept-all"]');
+                return banners.length === 0;
+              }, { timeout: 5000 }).catch(() => null);
             } catch (error) {
               this.logger?.warn('Error handling DuckDuckGo setup:', error.message);
             }
@@ -548,7 +567,11 @@ export class MultiEngineDorker {
             
             // Type the query directly
             await page.keyboard.type(dork, { delay: 50 });
-            await sleep(500, "after typing query", this.logger);
+            // Wait for input to be processed instead of fixed delay
+            await page.waitForFunction(() => {
+              const input = document.querySelector('input[name="q"]') || document.querySelector('#APjFqb') || document.querySelector('#sb_form_q');
+              return input && input.value.length > 0;
+            }, { timeout: 3000 }).catch(() => null);
           } catch (typeError) {
             this.logger?.warn(`Error typing search query: ${typeError.message}`);
             // Try alternative method if typing fails
@@ -604,8 +627,8 @@ export class MultiEngineDorker {
             } catch (_retryError) {
               this.logger?.warn(`Alternative navigation wait also failed for ${engine}, continuing anyway...`);
             }
-            // Wait a bit more for the page to load
-            await sleep(5000, `waiting for ${engine} results after navigation timeout`, this.logger);
+            // Wait for results to appear instead of fixed delay
+            await this.waitForSearchResults(page, engine);
           }
 
           // Wait for results with multiple selector attempts
@@ -969,7 +992,7 @@ export class MultiEngineDorker {
                         waitUntil: 'domcontentloaded', 
                         timeout: 30000 
                       });
-                      await sleep(engineConfig.waitTime || 2000, `waiting for ${engine} to load after pagination proxy switch`, this.logger);
+                      await this.waitForPageReady(page, engine, false);
                       
                       // TODO: Need to re-execute the search query to get back to results page
                       // For now, we'll break out and retry the entire engine search
@@ -1038,11 +1061,19 @@ export class MultiEngineDorker {
             }
           }
 
-          // Add delay between engines
+          // Add delay between engines (keep this for rate limiting)
           if (engines.indexOf(engine) < engines.length - 1) {
-            await sleep(3000 + Math.random() * 2000, "between engines", this.logger);
+            if (!this.config.disableMovements) {
+              await sleep(3000 + Math.random() * 2000, "between engines", this.logger);
+            } else {
+              // Minimal delay in fast mode
+              await sleep(1000, "minimal delay between engines", this.logger);
+            }
           }
         } catch (error) {
+          // Clear engine transition flag in case of error
+          this.isEngineTransition = false;
+          
           this.logger?.error(`Search failed for engine ${engine}`, {
             error: error.message,
           });
@@ -1083,7 +1114,7 @@ export class MultiEngineDorker {
     const engineConfig = SEARCH_ENGINES[engine];
     if (!engineConfig) return [];
 
-    await sleep(2000, "waiting for results to load", this.logger);
+    await this.waitForSearchResults(page, engine);
     
     // Use a specific extraction method for Bing
     if (engine === 'bing') {
@@ -1141,6 +1172,21 @@ export class MultiEngineDorker {
     try {
       // Take a screenshot for debugging
       await page.screenshot({ path: 'bing-results.png' });
+      
+      // Check for "no results" indicator first
+      const hasNoResults = await page.evaluate(() => {
+        const noResultsElement = document.querySelector('li.b_no[data-bm="4"]');
+        if (noResultsElement) {
+          const text = noResultsElement.textContent || '';
+          return text.includes('There are no results for');
+        }
+        return false;
+      });
+
+      if (hasNoResults) {
+        this.logger?.info("Bing returned 'no results' - skipping result extraction");
+        return [];
+      }
       
       // Use multiple selectors and extraction strategies
       this.logger?.debug("Starting Bing-specific extraction with multiple selectors");
@@ -1436,7 +1482,7 @@ export class MultiEngineDorker {
         }
       }
 
-      await sleep(2000, "after pagination", this.logger);
+      await this.waitForSearchResults(page, engine);
 
       return await this.extractResultsForEngine(page, maxResults, engine);
     } catch (error) {
@@ -1456,7 +1502,7 @@ export class MultiEngineDorker {
       this.logger?.debug("Extracting search results", { maxResults });
 
       // Wait for results to load
-      await sleep(2000, "waiting for results to load", this.logger);
+      await this.waitForSearchResults(page, "google");
 
       // Extract results using multiple strategies  
       this.logger?.debug("Starting Google result extraction with multiple strategies");
@@ -3445,9 +3491,123 @@ export class MultiEngineDorker {
   }
 
   /**
-   * Perform delay between searches with movement-only warmup
+   * Wait for search results to appear
+   * @param {Object} page - Puppeteer page
+   * @param {string} engine - Search engine name
+   */
+  async waitForSearchResults(page, engine) {
+    try {
+      const resultSelectors = {
+        google: ['div.g', '#search div[data-hveid]', '#rso > div'],
+        bing: ['li.b_algo', '#b_results > li', '.b_results .b_algo'],
+        duckduckgo: ['article[data-testid="result"]', '.result', '.results .result']
+      };
+
+      const selectors = resultSelectors[engine] || [];
+      
+      // Wait for any result selector to appear
+      if (selectors.length > 0) {
+        await Promise.race(
+          selectors.map(selector => 
+            page.waitForSelector(selector, { timeout: 10000 })
+          )
+        ).catch(() => null);
+      }
+
+      // Also wait for page to be stable
+      await page.waitForFunction(() => document.readyState === 'complete', { timeout: 5000 }).catch(() => null);
+      
+      this.logger?.debug(`Search results ready for ${engine}`);
+    } catch (error) {
+      this.logger?.debug(`Search results wait failed for ${engine}: ${error.message}`);
+      // Continue anyway - don't block on result waiting
+    }
+  }
+
+  /**
+   * Wait for page to be ready based on search engine
+   * @param {Object} page - Puppeteer page
+   * @param {string} engine - Search engine name
+   * @param {boolean} minimal - Use minimal wait for error recovery
+   */
+  async waitForPageReady(page, engine, minimal = false) {
+    try {
+      if (minimal) {
+        // Just wait for basic DOM readiness
+        await page.waitForFunction(() => document.readyState === 'complete', { timeout: 5000 }).catch(() => null);
+        return;
+      }
+
+      // Engine-specific readiness checks
+      const readinessChecks = {
+        google: async () => {
+          // Wait for search box or basic Google elements
+          await Promise.race([
+            page.waitForSelector('input[name="q"]', { timeout: 10000 }),
+            page.waitForSelector('#APjFqb', { timeout: 10000 }),
+            page.waitForSelector('.gLFyf', { timeout: 10000 })
+          ]).catch(() => null);
+        },
+        bing: async () => {
+          // Wait for Bing search box
+          await Promise.race([
+            page.waitForSelector('#sb_form_q', { timeout: 10000 }),
+            page.waitForSelector('input[name="q"]', { timeout: 10000 })
+          ]).catch(() => null);
+        },
+        duckduckgo: async () => {
+          // Wait for DuckDuckGo search elements
+          await Promise.race([
+            page.waitForSelector('#search_form_input_homepage', { timeout: 10000 }),
+            page.waitForSelector('#search_form_input', { timeout: 10000 }),
+            page.waitForSelector('input[name="q"]', { timeout: 10000 })
+          ]).catch(() => null);
+        }
+      };
+
+      // Run engine-specific check
+      if (readinessChecks[engine]) {
+        await readinessChecks[engine]();
+      }
+
+      // General readiness check
+      await page.waitForFunction(() => document.readyState === 'complete', { timeout: 5000 }).catch(() => null);
+      
+      this.logger?.debug(`Page ready for ${engine}`);
+    } catch (error) {
+      this.logger?.debug(`Page readiness check failed for ${engine}: ${error.message}`);
+      // Continue anyway - don't block on readiness checks
+    }
+  }
+
+  /**
+   * Perform delay between searches with optional movement-based warmup
    */
   async delayBetweenSearches() {
+    // Check if movements are disabled - use minimal delay if so
+    if (this.config.disableMovements) {
+      const minimalDelay = 2000 + Math.random() * 1000; // 2-3 seconds
+      this.logger?.info(
+        `🚀 Fast mode: minimal ${(minimalDelay / 1000).toFixed(1)}s delay (movements disabled)`,
+        {
+          mode: "fast",
+          selected: `${(minimalDelay / 1000).toFixed(1)}s`,
+        }
+      );
+      
+      if (this.dashboard && this.dashboard.setProcessingStatus) {
+        this.dashboard.setProcessingStatus(`⚡ Fast delay: ${Math.ceil(minimalDelay / 1000)}s`);
+      }
+      
+      await sleep(minimalDelay, "fast delay between searches", this.logger);
+      
+      if (this.dashboard && this.dashboard.setProcessingStatus) {
+        this.dashboard.setProcessingStatus(null);
+      }
+      
+      return;
+    }
+
     let minDelay, maxDelay, randomDelay;
 
     // Check if extended delay mode is enabled (1-5 minutes)
@@ -3547,7 +3707,8 @@ export class MultiEngineDorker {
             try {
               // Perform safe cursor movements with fewer attempts to reduce errors
               const movementCount = Math.floor(Math.random() * 3) + 1; // 1-3 movements
-              await performSafeCursorMovements(page, cursor, this.logger, movementCount);
+              const disableMovements = this.config.disableMovements || false;
+              await performSafeCursorMovements(page, cursor, this.logger, movementCount, disableMovements);
             } catch (movementError) {
               this.logger?.debug(`Safe cursor movement failed: ${movementError.message}`);
               // Continue with the delay even if movements fail

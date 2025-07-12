@@ -117,6 +117,11 @@ function displayConfig(config) {
       getStatusIcon(!config.disableWarmup),
     ],
     [
+      "🚀 Mouse Movements",
+      config.disableMovements ? "Disabled (Faster)" : "Enabled (Stealthier)",
+      getStatusIcon(!config.disableMovements),
+    ],
+    [
       "🔍 Multi-Engine",
       config.multiEngine ? "Enabled" : "Disabled",
       getStatusIcon(config.multiEngine),
@@ -161,18 +166,19 @@ async function getConfiguration() {
   if (args.fast) {
     return {
       dorkFile: "dorks.txt",
-      outputFile: "output.txt",
+      outputFile: "fast.txt",
       resultCount: 30,
       maxPages: 1,
       minDelay: 10,
       maxDelay: 20,
       extendedDelay: false,
       maxPause: 10,
-      headless: false,
+      headless: true,
       userAgent: null,
       manualCaptchaMode: false,
       humanLike: true,
-      disableWarmup: false,
+      disableWarmup: true,
+      disableMovements: true,
       autoProxy: true,
       multiEngine: true,
       engines: ["google", "bing", "duckduckgo"],
@@ -315,6 +321,12 @@ async function getConfiguration() {
           initialValue: false,
         }),
 
+      disableMovements: () =>
+        p.confirm({
+          message: "🚀 Disable random mouse movements for faster execution?\n   Significantly speeds up searches but may reduce stealth",
+          initialValue: false,
+        }),
+
       // Proxy Settings
       autoProxy: () =>
         p.confirm({
@@ -395,6 +407,7 @@ async function getConfiguration() {
     manualCaptchaMode: config.manualCaptchaMode,
     humanLike: config.humanLike,
     disableWarmup: config.disableWarmup,
+    disableMovements: config.disableMovements,
     autoProxy: config.autoProxy,
     multiEngine: config.multiEngine,
     engines: config.engines || ['google'],
@@ -561,7 +574,8 @@ function parseCommandLineArgs() {
     .option("-f, --fast", "Fast startup with default configuration", false)
     .option("-s, --server", "Run in server mode", false)
     .option("-p, --port <number>", "Port for server mode", parseInt)
-    .option("-i, --interactive", "Run interactive mode", false);
+    .option("-i, --interactive", "Run interactive mode", false)
+    .option("--disable-movements", "Disable random mouse movements for faster execution", false);
   program.parse();
   return program.opts();
 }

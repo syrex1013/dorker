@@ -279,13 +279,28 @@ async function performDorking(dorks, config) {
 
       let results;
       try {
+        // Set up logger to stop spinner during log messages
+        if (logger && typeof logger.setSpinner === 'function') {
+          logger.setSpinner(dorkSpinner);
+        }
+        
         // Perform search
         results = await dorker.performSearch(dork, config.resultCount, config.engines);
+        
+        // Clear spinner reference from logger
+        if (logger && typeof logger.setSpinner === 'function') {
+          logger.setSpinner(null);
+        }
         
         // Stop spinner and show success
         dorkSpinner.succeed(`✅ Found ${results ? results.length : 0} results for dork`);
         
       } catch (searchError) {
+        // Clear spinner reference from logger
+        if (logger && typeof logger.setSpinner === 'function') {
+          logger.setSpinner(null);
+        }
+        
         // Stop spinner and show error
         dorkSpinner.fail(`❌ Search failed: ${searchError.message}`);
         results = [];
@@ -488,6 +503,7 @@ async function interactiveMode() {
     manualCaptchaMode: config.manualCaptchaMode,
     humanLike: config.humanLike,
     disableWarmup: config.disableWarmup,
+    disableMovements: config.disableMovements || false,
     autoProxy: config.autoProxy,
       multiEngine: config.multiEngine,
       engines: engines,
@@ -606,9 +622,7 @@ async function interactiveMode() {
               } else if (processedConfig.outputFile.endsWith('.txt')) {
                 const urls = results.map(r => r.url).filter(Boolean);
                 if (urls.length > 0) {
-                  // Add a header for this dork's results
-                  const header = `\n\n# Results for dork: ${dork}\n`;
-                  await appendUrlsToFile([header, ...urls], processedConfig.outputFile, logger);
+                  await appendUrlsToFile(urls, processedConfig.outputFile, logger);
                 }
               }
               saveSpinner.succeed('✅ Results saved successfully');
@@ -833,6 +847,7 @@ async function main() {
         manualCaptchaMode: config.manualCaptchaMode,
         humanLike: config.humanLike,
         disableWarmup: config.disableWarmup,
+        disableMovements: args.disableMovements || config.disableMovements || false,
         autoProxy: config.autoProxy,
         multiEngine: config.multiEngine,
         engines: engines,
@@ -930,8 +945,7 @@ async function main() {
                 } else if (processedConfig.outputFile.endsWith('.txt')) {
                   const urls = results.map(r => r.url).filter(Boolean);
                   if (urls.length > 0) {
-                    const header = `\n\n# Results for dork: ${dork}\n`;
-                    await appendUrlsToFile([header, ...urls], processedConfig.outputFile, logger);
+                    await appendUrlsToFile(urls, processedConfig.outputFile, logger);
                   }
                 }
                 saveSpinner.succeed('✅ Results saved successfully');
@@ -1090,6 +1104,19 @@ process.on("SIGINT", async () => {
 
   displayStatus("Shutting down gracefully...", "🛑", "yellow", logger);
 
+  // Cleanup browser instances first
+  if (dorker) {
+    try {
+      displayStatus("Cleaning up browser resources...", "🧹", "yellow", logger);
+      await dorker.cleanup();
+      dorker = null;
+      displayStatus("✅ Browser resources cleaned up", "✓", "green", logger);
+    } catch (error) {
+      logger?.error("Error during browser cleanup", { error: error.message });
+      displayStatus("⚠️ Browser cleanup had issues", "⚠", "yellow", logger);
+    }
+  }
+
   if (dashboard) {
     dashboard.addLog("warning", "Shutting down dashboard...");
     await dashboard.stop();
@@ -1108,6 +1135,19 @@ process.on("SIGTERM", async () => {
   console.log("─".repeat(80));
 
   displayStatus("Shutting down gracefully...", "🛑", "yellow", logger);
+
+  // Cleanup browser instances first
+  if (dorker) {
+    try {
+      displayStatus("Cleaning up browser resources...", "🧹", "yellow", logger);
+      await dorker.cleanup();
+      dorker = null;
+      displayStatus("✅ Browser resources cleaned up", "✓", "green", logger);
+    } catch (error) {
+      logger?.error("Error during browser cleanup", { error: error.message });
+      displayStatus("⚠️ Browser cleanup had issues", "⚠", "yellow", logger);
+    }
+  }
 
   if (dashboard) {
     dashboard.addLog("warning", "Shutting down dashboard...");

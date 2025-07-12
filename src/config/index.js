@@ -42,6 +42,11 @@ const BROWSER_CONFIG = {
   proxyRotation: {
     rotateOnCaptcha: true,
     rotateAfterSearches: 3, // Rotate proxy after 3 searches
+  },
+  // Movement settings
+  movements: {
+    enabled: true, // Enable random mouse movements by default
+    disableOnFast: false, // Can be overridden by CLI flag
   }
 };
 

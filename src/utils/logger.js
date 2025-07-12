@@ -10,6 +10,7 @@ const CONSOLE_LOG_CACHE = new Set();
 // Enhanced console logging with deduplication
 // Global flag to prevent console output when spinners are active
 let consoleSuppressed = false;
+let currentSpinner = null;
 
 const logWithDedup = (
   level,
@@ -29,6 +30,12 @@ const logWithDedup = (
   if (CONSOLE_LOG_CACHE.size > CONSOLE_LOG_CACHE_CONFIG.maxSize) {
     const firstItem = CONSOLE_LOG_CACHE.values().next().value;
     CONSOLE_LOG_CACHE.delete(firstItem);
+  }
+
+  // Stop spinner if active to prevent output overlap
+  let spinnerWasStopped = false;
+  if (logger && typeof logger.stopSpinnerForLog === 'function') {
+    spinnerWasStopped = logger.stopSpinnerForLog();
   }
 
   // Always use logger with proper level structure
@@ -60,6 +67,14 @@ const logWithDedup = (
       console.log(`[${level.toUpperCase()}] ${message}`);
     }
   }
+
+  // Restart spinner if it was stopped for this log
+  if (spinnerWasStopped && logger && typeof logger.restartSpinner === 'function') {
+    // Small delay to ensure log output is complete before restarting spinner
+    setTimeout(() => {
+      logger.restartSpinner();
+    }, 10);
+  }
 };
 
 // Function to clear previous log files
@@ -67,8 +82,6 @@ const clearPreviousLogs = async (logsDir) => {
   try {
     const logFiles = [
       "application.log",
-      "exceptions.log",
-      "rejections.log",
     ];
 
     for (const logFile of logFiles) {
@@ -152,21 +165,40 @@ const createLogger = async (clearLogs = true) => {
       );
     }
 
-    // Global error handlers
+    // Global error handlers - log to main application.log
     logger.exceptions.handle(
       new winston.transports.File({
-        filename: path.join(logsDir, "exceptions.log"),
+        filename: path.join(logsDir, "application.log"),
       })
     );
 
     logger.rejections.handle(
       new winston.transports.File({
-        filename: path.join(logsDir, "rejections.log"),
+        filename: path.join(logsDir, "application.log"),
       })
     );
 
     // Log the startup message
     logger.info(startupMessage);
+
+    // Add spinner management methods
+    logger.setSpinner = (spinner) => {
+      currentSpinner = spinner;
+    };
+    
+    logger.stopSpinnerForLog = () => {
+      if (currentSpinner && typeof currentSpinner.stop === 'function') {
+        currentSpinner.stop();
+        return true;
+      }
+      return false;
+    };
+    
+    logger.restartSpinner = () => {
+      if (currentSpinner && typeof currentSpinner.start === 'function') {
+        currentSpinner.start();
+      }
+    };
 
     return logger;
   } catch (error) {

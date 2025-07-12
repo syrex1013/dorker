@@ -6,6 +6,7 @@
   "type": "module",
   "scripts": {
     "start": "npm run lint && node index.js",
+    "start:fast": "npm run lint && node index.js --fast",
     "dev": "node index.js",
     "server": "node index.js --server",
     "server:port": "node index.js --server --port",
