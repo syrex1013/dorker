@@ -162,7 +162,7 @@ export class MultiEngineDorker {
       this.logger?.info("Restarting browser instance");
       logWithDedup(
         "info",
-        "🔄 Restarting browser for fresh session...",
+        "\n🔄 Restarting browser for fresh session...",
         chalk.blue,
         this.logger
       );
@@ -190,7 +190,7 @@ export class MultiEngineDorker {
       this.searchCount = 0;
       logWithDedup(
         "success",
-        "✅ Browser restarted successfully",
+        "\n✅ Browser restarted successfully",
         chalk.green,
         this.logger
       );
