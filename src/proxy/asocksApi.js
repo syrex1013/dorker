@@ -1,6 +1,7 @@
 import axios from "axios";
 import chalk from "chalk";
 import { HttpsProxyAgent } from "https-proxy-agent";
+import { SocksProxyAgent } from "socks-proxy-agent";
 import { ASOCKS_CONFIG } from "../config/index.js";
 import { logWithDedup } from "../utils/logger.js";
 
@@ -145,6 +146,23 @@ async function testProxyConnection(proxyConfig, logger = null) {
     return false;
   }
 
+  // Use axios with proxy configuration to test connectivity
+  const proxyUrl = `${proxyConfig.type.toLowerCase()}://${proxyConfig.username}:${proxyConfig.password}@${proxyConfig.host}:${proxyConfig.port}`;
+  
+  // Debug logging for proxy configuration
+  logger?.debug(`Proxy test details: ${proxyConfig.type} proxy at ${proxyConfig.host}:${proxyConfig.port}`);
+  logger?.debug(`Proxy URL format: ${proxyConfig.type.toLowerCase()}://[username]:[password]@${proxyConfig.host}:${proxyConfig.port}`);
+  
+  // Choose the correct proxy agent based on proxy type
+  let agent;
+  if (proxyConfig.type.toUpperCase() === 'SOCKS5' || proxyConfig.type.toUpperCase() === 'SOCKS') {
+    agent = new SocksProxyAgent(proxyUrl);
+    logger?.debug('Using SocksProxyAgent for SOCKS5 proxy');
+  } else {
+    agent = new HttpsProxyAgent(proxyUrl);
+    logger?.debug('Using HttpsProxyAgent for HTTP/HTTPS proxy');
+  }
+
   try {
     logWithDedup(
       "info",
@@ -152,13 +170,10 @@ async function testProxyConnection(proxyConfig, logger = null) {
       chalk.blue,
       logger
     );
-
-    // Use axios with proxy configuration to test connectivity
-    const proxyUrl = `${proxyConfig.type.toLowerCase()}://${proxyConfig.username}:${proxyConfig.password}@${proxyConfig.host}:${proxyConfig.port}`;
     
     const response = await axios.get('https://httpbin.org/ip', {
       proxy: false, // Disable axios default proxy handling
-      httpsAgent: new HttpsProxyAgent(proxyUrl),
+      httpsAgent: agent,
       timeout: 15000, // 15 second timeout
       headers: {
         'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
@@ -180,6 +195,7 @@ async function testProxyConnection(proxyConfig, logger = null) {
         chalk.yellow,
         logger
       );
+      logger?.debug(`Response status: ${response.status}, data: ${JSON.stringify(response.data)}`);
       return false;
     }
   } catch (error) {
@@ -189,6 +205,33 @@ async function testProxyConnection(proxyConfig, logger = null) {
       chalk.red,
       logger
     );
+    
+    // Try alternative test URL if the first one fails
+    try {
+      logger?.debug('Attempting fallback proxy test with alternative URL...');
+      
+      const fallbackResponse = await axios.get('https://api.ipify.org?format=json', {
+        proxy: false,
+        httpsAgent: agent,
+        timeout: 10000,
+        headers: {
+          'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
+        }
+      });
+      
+      if (fallbackResponse.status === 200 && fallbackResponse.data?.ip) {
+        logWithDedup(
+          "success",
+          `✅ Proxy test successful (fallback): ${proxyConfig.host}:${proxyConfig.port} (IP: ${fallbackResponse.data.ip})`,
+          chalk.green,
+          logger
+        );
+        return true;
+      }
+    } catch (fallbackError) {
+      logger?.debug(`Fallback test also failed: ${fallbackError.message}`);
+    }
+    
     return false;
   }
 }
@@ -287,6 +330,15 @@ async function generateProxy(logger = null, maxRetries = 3) {
           login: proxyData.login,
         });
 
+        // Wait a moment for the proxy to become active
+        logWithDedup(
+          "info",
+          `⏳ Waiting for proxy to become active...`,
+          chalk.blue,
+          logger
+        );
+        await new Promise(resolve => setTimeout(resolve, 3000)); // Wait 3 seconds
+        
         // Test the proxy before returning it
         logWithDedup(
           "info",
