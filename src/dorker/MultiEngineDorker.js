@@ -553,6 +553,15 @@ export class MultiEngineDorker {
             }
           }
 
+          // Transform dork query for DuckDuckGo if needed
+          let queryToType = dork;
+          if (engine === 'duckduckgo') {
+            queryToType = this.transformDorkForDuckDuckGo(dork);
+            if (queryToType !== dork) {
+              this.logger?.info(`Transformed dork for DuckDuckGo: "${dork}" -> "${queryToType}"`);
+            }
+          }
+
           // Clear and fill search box using safer method
           try {
             // Focus on search box using evaluate to avoid potential click issues
@@ -566,7 +575,7 @@ export class MultiEngineDorker {
             }, searchBoxSelectors[0]);
             
             // Type the query directly
-            await page.keyboard.type(dork, { delay: 50 });
+            await page.keyboard.type(queryToType, { delay: 50 });
             // Wait for input to be processed instead of fixed delay
             await page.waitForFunction(() => {
               const input = document.querySelector('input[name="q"]') || document.querySelector('#APjFqb') || document.querySelector('#sb_form_q');
@@ -577,7 +586,7 @@ export class MultiEngineDorker {
             // Try alternative method if typing fails
             try {
               await searchBox.click({ clickCount: 3 }); // Triple click to select all text
-              await searchBox.type(dork, { delay: 50 });
+              await searchBox.type(queryToType, { delay: 50 });
             } catch (altTypeError) {
               this.logger?.warn(`Alternative typing method failed: ${altTypeError.message}`);
               continue; // Skip to next engine if we can't type the query
@@ -3488,6 +3497,23 @@ export class MultiEngineDorker {
           .toLowerCase();
         return allText.includes(patternValue);
     }
+  }
+
+  /**
+   * Transform dork query for DuckDuckGo by wrapping inurl: values in quotes
+   * @param {string} dork - Original dork query
+   * @returns {string} Transformed dork query
+   */
+  transformDorkForDuckDuckGo(dork) {
+    // Only transform inurl: operators for DuckDuckGo
+    // Pattern: inurl:value -> inurl:"value"
+    // But don't transform if already quoted: inurl:"value" stays inurl:"value"
+    // Handle values that may end with = followed by space
+    return dork.replace(/inurl:([^\s"]+(?:=\s*)?)/gi, (match, value) => {
+      // Remove trailing space if present
+      const cleanValue = value.trim();
+      return `inurl:"${cleanValue}"`;
+    });
   }
 
   /**
