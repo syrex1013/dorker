@@ -989,6 +989,12 @@ async function handleConsentOptimized(page, cursor, logger = null) {
           "We use cookies and data",
           "Accept all",
           "Reject all",
+          "I agree",
+          "cookies and data to",
+          "consent.google.com",
+          "personalized ads and content",
+          "measurement and audience insights",
+          "Your privacy, your choice"
         ];
 
         const hasConsentText = consentIndicators.some((indicator) =>
@@ -997,18 +1003,22 @@ async function handleConsentOptimized(page, cursor, logger = null) {
 
         // Find clickable consent elements
         const consentButtons = Array.from(
-          document.querySelectorAll('button, div[role="button"]')
+          document.querySelectorAll('button, div[role="button"], input[type="submit"]')
         ).filter((el) => {
           const text = (
             el.textContent ||
             el.getAttribute("aria-label") ||
+            el.value ||
             ""
           ).toLowerCase();
           return (
             text.includes("accept all") ||
             text.includes("accept") ||
             text.includes("agree") ||
-            el.id === "L2AGLb"
+            text.includes("i agree") ||
+            el.id === "L2AGLb" ||
+            el.getAttribute("jsname") === "higCR" ||
+            el.getAttribute("jsname") === "tWT92d"
           );
         });
 
@@ -1030,6 +1040,18 @@ async function handleConsentOptimized(page, cursor, logger = null) {
       });
 
       logger?.debug(`Page state on attempt ${attempt}:`, pageState);
+      
+      // Log more details about consent detection
+      if (pageState.hasConsentText && pageState.consentButtonCount > 0) {
+        logger?.info(`Consent page detected with ${pageState.consentButtonCount} consent buttons`);
+        pageState.consentButtons.forEach((btn, index) => {
+          logger?.debug(`Consent button ${index + 1}: ${btn.tagName} id="${btn.id}" text="${btn.text}" role="${btn.role}"`);
+        });
+      } else if (pageState.hasConsentText) {
+        logger?.warn("Consent text detected but no consent buttons found");
+      } else if (pageState.consentButtonCount > 0) {
+        logger?.info(`Found ${pageState.consentButtonCount} potential consent buttons but no consent text`);
+      }
 
       // If we're already on main Google page, no consent handling needed
       if (pageState.isMainGooglePage) {
@@ -1080,7 +1102,7 @@ async function handleConsentOptimized(page, cursor, logger = null) {
 }
 
 /**
- * Click consent buttons with improved reliability
+ * Click consent buttons with improved reliability and correct button selection
  * @param {Object} page - Puppeteer page
  * @param {Object} cursor - Ghost cursor
  * @param {Object} logger - Winston logger instance
@@ -1088,97 +1110,241 @@ async function handleConsentOptimized(page, cursor, logger = null) {
  */
 async function clickConsentButtons(page, cursor, logger = null) {
   try {
-    const consentSelectors = [
+    // First, try the most specific and reliable selectors
+    const prioritySelectors = [
+      // Most common Google consent button ID - highest priority
       'button[id="L2AGLb"]',
-      'button:has-text("Accept all")',
-      'div[role="button"]:has-text("Accept all")',
-      'button:has-text("Accept")',
-      'div[role="button"]:has-text("Accept")',
-      "button[jsname][data-ved]",
-      "[data-ved] button",
+      // Google-specific jsname selectors for Accept All
+      'button[jsname="higCR"]',
+      'button[jsname="tWT92d"]',
     ];
 
-    for (const selector of consentSelectors) {
+    // Try priority selectors first
+    for (const selector of prioritySelectors) {
       try {
-        // Convert :has-text selectors to evaluate-based finding
-        let element;
-        if (selector.includes(":has-text")) {
-          const baseSelector = selector.split(":has-text")[0];
-          const text = selector.match(/\("([^"]+)"\)/)?.[1];
-
-          element = await page.evaluateHandle(
-            (baseSelector, text) => {
-              const elements = Array.from(
-                document.querySelectorAll(baseSelector)
-              );
-              return elements.find((el) =>
-                (el.textContent || "")
-                  .toLowerCase()
-                  .includes(text.toLowerCase())
-              );
-            },
-            baseSelector,
-            text
-          );
-
-          const exists = await page.evaluate((el) => !!el, element);
-          if (!exists) element = null;
-        } else {
-          element = await page.$(selector);
-        }
-
+        const element = await page.$(selector);
         if (element) {
-          logger?.debug(`Found consent element: ${selector}`);
-
-          // Scroll into view
-          await page.evaluate((el) => {
-            if (el) el.scrollIntoView({ behavior: "smooth", block: "center" });
+          // Validate this is actually an accept button
+          const buttonInfo = await page.evaluate((el) => {
+            const text = (el.textContent || el.value || el.getAttribute("aria-label") || "").toLowerCase();
+            const isAcceptButton = text.includes("accept all") || text.includes("i agree") || 
+                                 text.includes("accept") || el.id === "L2AGLb" ||
+                                 el.getAttribute("jsname") === "higCR" ||
+                                 el.getAttribute("jsname") === "tWT92d";
+            const isRejectButton = text.includes("reject") || text.includes("decline") || 
+                                 text.includes("no thanks") || text.includes("manage");
+            
+            return {
+              text: text,
+              isAcceptButton: isAcceptButton,
+              isRejectButton: isRejectButton,
+              id: el.id,
+              jsname: el.getAttribute("jsname")
+            };
           }, element);
 
-          await sleep(1000, "after scroll into view", logger);
-
-          // Try ghost cursor first, then fallback
-          let clicked = false;
-
-          if (cursor && typeof cursor.click === "function") {
-            try {
-              await Promise.race([
-                cursor.click(element),
-                new Promise((_, reject) =>
-                  setTimeout(() => reject(new Error("cursor timeout")), 5000)
-                ),
-              ]);
-              clicked = true;
-              logger?.debug("Ghost cursor click successful");
-            } catch (error) {
-              logger?.debug(`Ghost cursor failed: ${error.message}`);
-            }
-          }
-
-          // Fallback to direct click
-          if (!clicked) {
-            await page.evaluate((el) => {
-              if (el && typeof el.click === "function") {
-                el.click();
-              }
-            }, element);
-            clicked = true;
-            logger?.debug("Fallback click successful");
-          }
-
-          if (clicked) {
-            await sleep(2000, "after consent click", logger);
-            return true;
+          if (buttonInfo.isAcceptButton && !buttonInfo.isRejectButton) {
+            logger?.info(`Found priority consent button: ${selector} - "${buttonInfo.text}"`);
+            return await clickConsentElement(element, page, cursor, logger, selector);
+          } else {
+            logger?.debug(`Skipping priority selector ${selector} - not a valid accept button: "${buttonInfo.text}"`);
           }
         }
       } catch (error) {
-        logger?.debug(`Error with selector ${selector}: ${error.message}`);
+        logger?.debug(`Error with priority selector ${selector}: ${error.message}`);
       }
+    }
+
+    // If priority selectors failed, try text-based selectors with better filtering
+    const textBasedSelectors = [
+      { selector: 'button', text: 'accept all', exact: true },
+      { selector: 'div[role="button"]', text: 'accept all', exact: true },
+      { selector: 'input[type="submit"]', text: 'accept all', exact: true },
+      { selector: 'button', text: 'i agree', exact: true },
+      { selector: 'button', text: 'accept', exact: false },
+    ];
+
+    for (const selectorConfig of textBasedSelectors) {
+      try {
+        const elements = await page.evaluateHandle((config) => {
+          const elements = Array.from(document.querySelectorAll(config.selector));
+          return elements.filter((el) => {
+            const text = (el.textContent || el.value || el.getAttribute("aria-label") || "").toLowerCase().trim();
+            
+            // Check if text matches our target
+            const matchesTarget = config.exact 
+              ? text === config.text || text.includes(config.text)
+              : text.includes(config.text);
+            
+            if (!matchesTarget) return false;
+            
+            // Exclude reject/decline buttons
+            const isRejectButton = text.includes("reject") || text.includes("decline") || 
+                                 text.includes("no thanks") || text.includes("manage") ||
+                                 text.includes("refuse") || text.includes("deny");
+            
+            // For non-exact matches, be more strict about accept buttons
+            if (!config.exact) {
+              const isValidAccept = text.includes("accept all") || text.includes("accept") || 
+                                  text.includes("agree") || text.includes("allow");
+              return isValidAccept && !isRejectButton;
+            }
+            
+            return !isRejectButton;
+          });
+        }, selectorConfig);
+
+        const elementArray = await page.evaluate((els) => 
+          Array.from(els).map(el => ({
+            text: (el.textContent || el.value || el.getAttribute("aria-label") || "").toLowerCase().trim(),
+            id: el.id,
+            className: el.className
+          }))
+        , elements);
+
+        if (elementArray.length > 0) {
+          logger?.info(`Found ${elementArray.length} text-based consent buttons for "${selectorConfig.text}"`);
+          elementArray.forEach((btn, idx) => {
+            logger?.debug(`Text button ${idx + 1}: "${btn.text}" (id: ${btn.id})`);
+          });
+
+          // Get the first valid element
+          const firstElement = await page.evaluateHandle((config) => {
+            const elements = Array.from(document.querySelectorAll(config.selector));
+            return elements.find((el) => {
+              const text = (el.textContent || el.value || el.getAttribute("aria-label") || "").toLowerCase().trim();
+              const matchesTarget = config.exact 
+                ? text === config.text || text.includes(config.text)
+                : text.includes(config.text);
+              
+              if (!matchesTarget) return false;
+              
+              const isRejectButton = text.includes("reject") || text.includes("decline") || 
+                                   text.includes("no thanks") || text.includes("manage") ||
+                                   text.includes("refuse") || text.includes("deny");
+              
+              if (!config.exact) {
+                const isValidAccept = text.includes("accept all") || text.includes("accept") || 
+                                    text.includes("agree") || text.includes("allow");
+                return isValidAccept && !isRejectButton;
+              }
+              
+              return !isRejectButton;
+            });
+          }, selectorConfig);
+
+          const exists = await page.evaluate((el) => !!el, firstElement);
+          if (exists) {
+            return await clickConsentElement(firstElement, page, cursor, logger, `${selectorConfig.selector}:text("${selectorConfig.text}")`);
+          }
+        }
+      } catch (error) {
+        logger?.debug(`Error with text selector ${selectorConfig.selector}:"${selectorConfig.text}": ${error.message}`);
+      }
+    }
+
+    // Final fallback - try attribute-based selectors
+    const attributeSelectors = [
+      'button[aria-label*="Accept all"]',
+      'button[aria-label*="I agree"]',
+      'input[type="submit"][value*="Accept all"]',
+      'form[action*="consent"] button:first-child',
+      '.saveButtonContainer button:last-child',
+      '.saveButtonContainer input[type="submit"]:last-child',
+    ];
+
+    for (const selector of attributeSelectors) {
+      try {
+        const element = await page.$(selector);
+        if (element) {
+          // Validate this is not a reject button
+          const buttonInfo = await page.evaluate((el) => {
+            const text = (el.textContent || el.value || el.getAttribute("aria-label") || "").toLowerCase();
+            const isRejectButton = text.includes("reject") || text.includes("decline") || 
+                                 text.includes("no thanks") || text.includes("manage");
+            return {
+              text: text,
+              isRejectButton: isRejectButton
+            };
+          }, element);
+
+          if (!buttonInfo.isRejectButton) {
+            logger?.info(`Found attribute-based consent button: ${selector} - "${buttonInfo.text}"`);
+            return await clickConsentElement(element, page, cursor, logger, selector);
+          } else {
+            logger?.debug(`Skipping attribute selector ${selector} - appears to be reject button: "${buttonInfo.text}"`);
+          }
+        }
+      } catch (error) {
+        logger?.debug(`Error with attribute selector ${selector}: ${error.message}`);
+      }
+    }
+
+    logger?.warn("No valid consent buttons found with any selector");
+    return false;
+  } catch (error) {
+    logger?.error("Error clicking consent buttons", { error: error.message });
+    return false;
+  }
+}
+
+/**
+ * Helper function to click a consent element with proper error handling
+ * @param {Object} element - Element to click
+ * @param {Object} page - Puppeteer page
+ * @param {Object} cursor - Ghost cursor
+ * @param {Object} logger - Logger instance
+ * @param {string} selector - Selector used to find the element
+ * @returns {Promise<boolean>} True if clicked successfully
+ */
+async function clickConsentElement(element, page, cursor, logger, selector) {
+  try {
+    logger?.info(`Attempting to click consent element: ${selector}`);
+
+    // Scroll into view
+    await page.evaluate((el) => {
+      if (el) el.scrollIntoView({ behavior: "smooth", block: "center" });
+    }, element);
+
+    await sleep(1000, "after scroll into view", logger);
+
+    // Try ghost cursor first, then fallback
+    let clicked = false;
+
+    if (cursor && typeof cursor.click === "function") {
+      try {
+        await Promise.race([
+          cursor.click(element),
+          new Promise((_, reject) =>
+            setTimeout(() => reject(new Error("cursor timeout")), 5000)
+          ),
+        ]);
+        clicked = true;
+        logger?.info("Ghost cursor click successful on consent button");
+      } catch (error) {
+        logger?.debug(`Ghost cursor failed: ${error.message}`);
+      }
+    }
+
+    // Fallback to direct click
+    if (!clicked) {
+      await page.evaluate((el) => {
+        if (el && typeof el.click === "function") {
+          el.click();
+        }
+      }, element);
+      clicked = true;
+      logger?.info("Fallback click successful on consent button");
+    }
+
+    if (clicked) {
+      await sleep(2000, "after consent click", logger);
+      return true;
     }
 
     return false;
   } catch (error) {
-    logger?.error("Error clicking consent buttons", { error: error.message });
+    logger?.error(`Error clicking consent element: ${error.message}`);
     return false;
   }
 }
@@ -1802,22 +1968,22 @@ async function navigateToGoogle(pageData, logger = null) {
       try {
         logger?.debug(`Navigation attempt ${attempt}/3`);
 
-        // Navigate with different wait strategies
+        // Navigate with different wait strategies and increased timeouts
         if (attempt === 1) {
           await page.goto("https://www.google.com", {
             waitUntil: "domcontentloaded",
-            timeout: 30000,
+            timeout: 45000,
           });
         } else if (attempt === 2) {
           await page.goto("https://www.google.com", {
             waitUntil: "networkidle2",
-            timeout: 30000,
+            timeout: 45000,
           });
         } else {
-          // Last attempt with minimal wait
+          // Last attempt with minimal wait but longer timeout
           await page.goto("https://www.google.com", {
             waitUntil: "load",
-            timeout: 30000,
+            timeout: 60000,
           });
         }
 

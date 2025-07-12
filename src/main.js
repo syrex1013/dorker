@@ -30,17 +30,23 @@ let logger = null;
 /**
  * Display section separator
  */
-function displaySection(title, color = "cyan") {
-  console.log("\n" + "─".repeat(80));
-  console.log(chalk[color].bold(`🔧 ${title}`));
-  console.log("─".repeat(80) + "\n");
+function displaySection(title, color = "cyan", logger = null) {
+  const separator = "─".repeat(80);
+  const titleLine = `🔧 ${title}`;
+  
+  logger?.info(titleLine);
+  console.log("\n" + separator);
+  console.log(chalk[color].bold(titleLine));
+  console.log(separator + "\n");
 }
 
 /**
- * Display clean status message
+ * Display status message
  */
-function displayStatus(message, icon = "ℹ️", color = "blue") {
-  console.log(chalk[color](`${icon} ${message}`));
+function displayStatus(message, icon = "ℹ️", color = "blue", logger = null) {
+  const statusMessage = `${icon} ${message}`;
+  logger?.info(statusMessage);
+  console.log(chalk[color](statusMessage));
 }
 
 /**
@@ -101,6 +107,7 @@ async function serverMode(port = 3000) {
     }
   );
 
+  logger?.info("ThreatDorker Server Started in server mode - Dashboard available at http://localhost:" + port);
   console.log(serverBox);
 
   // Keep the server running
@@ -117,6 +124,7 @@ async function handleStartDorking(config) {
     // START SESSION IMMEDIATELY when user clicks start
     const startMessage = "🚀 Dorking session started - initializing...";
     dashboard.addLog("info", startMessage);
+    logger?.info(startMessage);
     console.log(chalk.bold.magenta(`\n🌐 ${startMessage}`));
     console.log("─".repeat(50));
 
@@ -124,13 +132,16 @@ async function handleStartDorking(config) {
     dashboard.setStatus("initializing");
 
     // Load dorks from file
-    dashboard.addLog("info", `📁 Loading dorks from ${config.dorkFile}...`);
-    console.log(chalk.blue(`📁 Loading dorks from ${config.dorkFile}...`));
+    const loadingMessage = `📁 Loading dorks from ${config.dorkFile}...`;
+    dashboard.addLog("info", loadingMessage);
+    logger?.info(loadingMessage);
+    console.log(chalk.blue(loadingMessage));
     const dorks = await loadDorks(config.dorkFile, logger);
 
     if (dorks.length === 0) {
       const errorMessage = "No dorks found in file";
       dashboard.addLog("error", errorMessage);
+      logger?.error(errorMessage);
       console.log(chalk.red(`❌ ${errorMessage}`));
       dashboard.setStatus("error");
       return { success: false, error: errorMessage };
@@ -144,17 +155,21 @@ async function handleStartDorking(config) {
 
     const loadMessage = `✅ Loaded ${dorks.length} dorks from file`;
     dashboard.addLog("success", loadMessage);
+    logger?.info(loadMessage);
     console.log(chalk.green(loadMessage));
 
     // Initialize dorker with live logging
-    dashboard.addLog("info", "🔧 Initializing browser and security systems...");
-    console.log(chalk.blue("🔧 Initializing browser and security systems..."));
+    const initializingMessage = "🔧 Initializing browser and security systems...";
+    dashboard.addLog("info", initializingMessage);
+    logger?.info(initializingMessage);
+    console.log(chalk.blue(initializingMessage));
 
     dorker = new MultiEngineDorker(config, logger, dashboard);
     await dorker.initialize();
 
     const initMessage = "✅ Browser and security systems initialized";
     dashboard.addLog("success", initMessage);
+    logger?.info(initMessage);
     console.log(chalk.green(initMessage));
 
     // Set status to running before starting dorking
@@ -166,9 +181,10 @@ async function handleStartDorking(config) {
 
     return { success: true };
   } catch (error) {
-    logger.error("Error starting dorking session", { error: error.message });
+    logger?.error("Error starting dorking session", { error: error.message });
     const errorMessage = `❌ Failed to start dorking: ${error.message}`;
     dashboard.addLog("error", errorMessage);
+    logger?.error(errorMessage);
     console.log(chalk.red(errorMessage));
     dashboard.setStatus("error");
     return { success: false, error: error.message };
@@ -182,13 +198,18 @@ async function handleStopDorking() {
   try {
     const stopMessage = "Stopping dorking session from web interface";
     dashboard.addLog("info", stopMessage);
+    logger?.info(stopMessage);
     console.log(chalk.bold.yellow(`\n🛑 ${stopMessage}`));
 
     if (dorker) {
-      console.log(chalk.blue("🧹 Cleaning up browser resources..."));
+      const cleanupMessage = "🧹 Cleaning up browser resources...";
+      logger?.info(cleanupMessage);
+      console.log(chalk.blue(cleanupMessage));
       await dorker.cleanup();
       dorker = null;
-      console.log(chalk.green("✅ Browser resources cleaned up"));
+      const cleanedMessage = "✅ Browser resources cleaned up";
+      logger?.info(cleanedMessage);
+      console.log(chalk.green(cleanedMessage));
     }
 
     // End the dashboard session properly
@@ -197,14 +218,16 @@ async function handleStopDorking() {
 
     const stoppedMessage = "Dorking session stopped";
     dashboard.addLog("info", stoppedMessage);
+    logger?.info(stoppedMessage);
     console.log(chalk.yellow(`⏹️ ${stoppedMessage}`));
     console.log("─".repeat(50));
 
     return { success: true };
   } catch (error) {
-    logger.error("Error stopping dorking session", { error: error.message });
+    logger?.error("Error stopping dorking session", { error: error.message });
     const errorMessage = `Failed to stop dorking: ${error.message}`;
     dashboard.addLog("error", errorMessage);
+    logger?.error(errorMessage);
     console.log(chalk.red(`❌ ${errorMessage}`));
     return { success: false, error: error.message };
   }
@@ -217,8 +240,12 @@ async function performDorking(dorks, config) {
   const allResults = {};
 
   // Session already started in handleStartDorking - just log the start
-  console.log(chalk.bold.cyan("\n🚀 Beginning Dork Processing"));
-  console.log(chalk.gray(`Total dorks: ${dorks.length}`));
+  const beginMessage = "🚀 Beginning Dork Processing";
+  const totalMessage = `Total dorks: ${dorks.length}`;
+  logger?.info(beginMessage);
+  logger?.info(totalMessage);
+  console.log(chalk.bold.cyan("\n" + beginMessage));
+  console.log(chalk.gray(totalMessage));
   console.log("─".repeat(50));
 
   // Process each dork
@@ -237,6 +264,7 @@ async function performDorking(dorks, config) {
         dorks.length
       }: ${dork.substring(0, 50)}...`;
       dashboard.addLog("info", processMessage);
+      logger?.info(processMessage);
       console.log(chalk.cyan(`\n📍 ${processMessage}`));
 
       // Create and start spinner for this dork
@@ -275,23 +303,26 @@ async function performDorking(dorks, config) {
         dashboard.addResult(dork, results);
 
         // Log to console only - dashboard.addResult already logs to dashboard
-        console.log(chalk.green(`✅ Found ${results.length} results for dork`));
+        const resultsMessage = `✅ Found ${results.length} results for dork`;
+        logger?.info(resultsMessage);
+        console.log(chalk.green(resultsMessage));
 
         // Show some sample results in console
         if (results.length > 0) {
+          logger?.debug("Sample results preview");
           console.log(chalk.gray("   Sample results:"));
           results.slice(0, 2).forEach((result, idx) => {
             const title = result.title
               ? result.title.substring(0, 60)
               : "No title";
-            console.log(
-              chalk.gray(
-                `     ${idx + 1}. ${title}${title.length >= 60 ? "..." : ""}`
-              )
-            );
+            const sampleResult = `     ${idx + 1}. ${title}${title.length >= 60 ? "..." : ""}`;
+            logger?.debug(sampleResult);
+            console.log(chalk.gray(sampleResult));
           });
           if (results.length > 2) {
-            console.log(chalk.gray(`     ... and ${results.length - 2} more`));
+            const moreResults = `     ... and ${results.length - 2} more`;
+            logger?.debug(moreResults);
+            console.log(chalk.gray(moreResults));
           }
         }
       } else {
@@ -300,6 +331,7 @@ async function performDorking(dorks, config) {
         // Log to both dashboard and console
         const noResultsMessage = "No results found for dork";
         dashboard.addLog("warning", noResultsMessage);
+        logger?.warn(noResultsMessage);
         console.log(chalk.yellow(`⚠️ ${noResultsMessage}`));
       }
 
@@ -322,11 +354,9 @@ async function performDorking(dorks, config) {
       const percentage = Math.round(((i + 1) / dorks.length) * 100);
       const progressBar = "█".repeat(Math.floor(percentage / 2));
       const emptyBar = "░".repeat(50 - Math.floor(percentage / 2));
-      console.log(
-        chalk.gray(
-          `📊 Progress: [${chalk.cyan(progressBar)}${emptyBar}] ${percentage}%`
-        )
-      );
+      const progressMessage = `📊 Progress: [${progressBar}${emptyBar}] ${percentage}%`;
+      logger?.debug(progressMessage);
+      console.log(chalk.gray(`📊 Progress: [${chalk.cyan(progressBar)}${emptyBar}] ${percentage}%`));
 
       // Delay between searches (except for last dork)
       if (i < dorks.length - 1) {
@@ -336,13 +366,14 @@ async function performDorking(dorks, config) {
               config.maxDelay || config.delay || 45
             }s before next search...`;
         dashboard.addLog("info", delayMessage);
+        logger?.info(delayMessage);
         dashboard.setStatus("delaying-search");
         console.log(chalk.gray(`⏱️ ${delayMessage}`));
         await dorker.delayBetweenSearches();
         dashboard.setStatus("running");
       }
     } catch (error) {
-      logger.error("Error processing dork", {
+      logger?.error("Error processing dork", {
         dork: dork.substring(0, 50),
         error: error.message,
         index: i + 1,
@@ -354,6 +385,7 @@ async function performDorking(dorks, config) {
       // Log to both dashboard and console
       const errorMessage = `Failed to process dork: ${error.message}`;
       dashboard.addLog("error", errorMessage);
+      logger?.error(errorMessage);
       console.log(chalk.red(`❌ ${errorMessage}`));
 
       // Store empty results for failed dork
@@ -367,6 +399,7 @@ async function performDorking(dorks, config) {
 
   const completionMessage = "All dorks processed successfully";
   dashboard.addLog("success", completionMessage);
+  logger?.info(completionMessage);
   console.log(chalk.green(`\n✅ ${completionMessage}`));
   console.log("─".repeat(50));
 
@@ -380,6 +413,7 @@ async function performDorking(dorks, config) {
     await dorker.cleanup();
     dorker = null;
     dashboard.addLog("info", cleanupMessage);
+    logger?.info(cleanupMessage);
     console.log(chalk.gray(`🧹 ${cleanupMessage}`));
   }
 
@@ -392,6 +426,8 @@ async function performDorking(dorks, config) {
     "completion",
     true
   );
+  const completionNotification = `🎉 Session Complete! Success Rate: ${sessionSummary.successRate}%, Total Results: ${sessionSummary.totalResults}, Runtime: ${sessionSummary.runtimeFormatted}`;
+  logger?.info(completionNotification);
   console.log(chalk.bold.green("\n🎉 Session Complete!"));
   console.log(chalk.gray(`Success Rate: ${sessionSummary.successRate}%`));
   console.log(chalk.gray(`Total Results: ${sessionSummary.totalResults}`));
@@ -413,15 +449,15 @@ async function interactiveMode() {
     // Get user configuration
     const config = await getConfiguration();
 
-    displaySection("System Initialization", "magenta");
+    displaySection("System Initialization", "magenta", logger);
 
     // Create logger with log clearing enabled by default
-    displayStatus("Initializing logging system...", "📝", "cyan");
+    displayStatus("Initializing logging system...", "📝", "cyan", logger);
 
     logger = await createLogger(true); // Always clear logs on startup
     logger.info("Starting ThreatDorker application", { config });
 
-    displayStatus("✅ Logging system ready", "✓", "green");
+    displayStatus("✅ Logging system ready", "✓", "green", logger);
 
       // Process the configuration
   const minDelay = parseInt(config.minDelay) || 10;
@@ -461,7 +497,7 @@ async function interactiveMode() {
     };
 
     // Load dorks from file
-    displayStatus(`Loading dorks from ${processedConfig.dorkFile}...`, "📁", "blue");
+    displayStatus(`Loading dorks from ${processedConfig.dorkFile}...`, "📁", "blue", logger);
 
     const dorks = await loadDorks(processedConfig.dorkFile, logger);
     if (dorks.length === 0) {
@@ -469,21 +505,22 @@ async function interactiveMode() {
       process.exit(1);
     }
 
-    displayStatus(`✅ Loaded ${dorks.length} dorks successfully`, "✓", "green");
+    displayStatus(`✅ Loaded ${dorks.length} dorks successfully`, "✓", "green", logger);
 
     // Initialize dorker
     displayStatus(
       "Initializing browser and security systems...",
       "🔒",
-      "magenta"
+      "magenta",
+      logger
     );
 
     dorker = new MultiEngineDorker(processedConfig, logger, null);
     await dorker.initialize();
 
-    displayStatus("✅ Browser and security systems ready", "✓", "green");
+    displayStatus("✅ Browser and security systems ready", "✓", "green", logger);
 
-    displaySection("Dorking Process", "cyan");
+    displaySection("Dorking Process", "cyan", logger);
 
     // Results storage
     const allResults = {};
@@ -509,6 +546,7 @@ async function interactiveMode() {
       }
     );
 
+    logger?.info("Dorking session started in interactive mode");
     console.log(sessionBox);
 
     // Process each dork
@@ -516,13 +554,17 @@ async function interactiveMode() {
       const dork = dorks[i];
 
       try {
+        const dorkProgress = `📍 Dork ${i + 1}/${dorks.length}`;
+        logger?.info(dorkProgress);
         console.log("\n" + "─".repeat(40));
-        console.log(chalk.bold.cyan(`📍 Dork ${i + 1}/${dorks.length}`));
+        console.log(chalk.bold.cyan(dorkProgress));
         console.log("─".repeat(40));
 
         // Processing dork (no dashboard in CLI mode)
 
         // Display current dork info
+        const queryInfo = `🔍 Query: ${dork}`;
+        logger?.info(queryInfo);
         console.log(
           chalk.gray("🔍 Query:"),
           chalk.white(dork.substring(0, 80))
@@ -583,29 +625,32 @@ async function interactiveMode() {
         }
 
         if (results && results.length > 0) {
-          console.log(chalk.green(`✅ Found ${results.length} results`));
+          const foundMessage = `✅ Found ${results.length} results`;
+          logger?.info(foundMessage);
+          console.log(chalk.green(foundMessage));
 
           // Show quick preview in console
           if (results.length > 0) {
+            logger?.debug("Showing quick preview of results");
             console.log(chalk.gray("📋 Quick Preview:"));
             results.slice(0, 3).forEach((result, idx) => {
               const title = result.title
                 ? result.title.substring(0, 60)
                 : "No title";
-              console.log(
-                chalk.gray(
-                  `   ${idx + 1}. ${title}${title.length >= 60 ? "..." : ""}`
-                )
-              );
+              const previewLine = `   ${idx + 1}. ${title}${title.length >= 60 ? "..." : ""}`;
+              logger?.debug(previewLine);
+              console.log(chalk.gray(previewLine));
             });
             if (results.length > 3) {
-              console.log(
-                chalk.gray(`   ... and ${results.length - 3} more results`)
-              );
+              const moreResultsLine = `   ... and ${results.length - 3} more results`;
+              logger?.debug(moreResultsLine);
+              console.log(chalk.gray(moreResultsLine));
             }
           }
         } else {
-          console.log(chalk.yellow("⚠️ No results found"));
+          const noResultsMessage = "⚠️ No results found";
+          logger?.warn(noResultsMessage);
+          console.log(chalk.yellow(noResultsMessage));
         }
 
         // Clear previous lines and display progress bar
@@ -616,6 +661,8 @@ async function interactiveMode() {
         const percentage = Math.round(((i + 1) / dorks.length) * 100);
         const progressBar = "█".repeat(Math.floor(percentage / 2));
         const emptyBar = "░".repeat(50 - Math.floor(percentage / 2));
+        const progressMessage = `📊 Progress: [${progressBar}${emptyBar}] ${percentage}%`;
+        logger?.debug(progressMessage);
         console.log(
           chalk.gray(
             `📊 Progress: [${chalk.cyan(
@@ -639,20 +686,22 @@ async function interactiveMode() {
           delaySpinner.succeed("✅ Delay completed, continuing to next dork");
         }
       } catch (error) {
-        logger.error("Error processing dork", {
+        logger?.error("Error processing dork", {
           dork: dork.substring(0, 50),
           error: error.message,
           index: i + 1,
         });
 
-        console.log(chalk.red(`❌ Error processing dork: ${error.message}`));
+        const errorMessage = `❌ Error processing dork: ${error.message}`;
+        logger?.error(errorMessage);
+        console.log(chalk.red(errorMessage));
 
         // Store empty results for failed dork
         allResults[dork] = [];
       }
     }
 
-    displaySection("Session Complete", "green");
+    displaySection("Session Complete", "green", logger);
 
     // Note: We no longer automatically save JSON results - only save URLs if user agrees
 
@@ -663,7 +712,7 @@ async function interactiveMode() {
       // Ask if user wants to save URLs to result.txt
       const shouldSaveUrls = await askSaveUrls(allResults);
       if (shouldSaveUrls) {
-        displayStatus("Saving URLs to files...", "🔗", "blue");
+        displayStatus("Saving URLs to files...", "🔗", "blue", logger);
 
         // Save both unique and all versions for comparison
         await saveUrlsToFile(allResults, "result.txt", logger, false); // unique version first
@@ -671,7 +720,8 @@ async function interactiveMode() {
         displayStatus(
           "✅ URLs saved - both unique and complete versions created",
           "✓",
-          "green"
+          "green",
+          logger
         );
 
         // Show user the difference
@@ -694,7 +744,8 @@ async function interactiveMode() {
           displayStatus(
             `📊 Total: ${totalCount} URLs, Unique: ${uniqueCount}, Duplicates: ${duplicateCount}`,
             "📈",
-            "cyan"
+            "cyan",
+            logger
           );
         }
       }
@@ -711,6 +762,7 @@ async function interactiveMode() {
       }
     );
 
+    logger?.info("Dorking process completed successfully in interactive mode");
     console.log(completionBox);
   } catch (error) {
     if (logger) {
@@ -725,11 +777,11 @@ async function interactiveMode() {
   } finally {
     // Cleanup resources
     if (dorker) {
-      displayStatus("Cleaning up browser resources...", "🧹", "gray");
+      displayStatus("Cleaning up browser resources...", "🧹", "gray", logger);
 
       await dorker.cleanup();
 
-      displayStatus("✅ Cleanup completed", "✓", "green");
+      displayStatus("✅ Cleanup completed", "✓", "green", logger);
     }
 
     if (logger) {
@@ -750,10 +802,10 @@ async function main() {
       // Fast mode - skip banner and jump directly to configuration
       displayBanner(); // Still display banner for fast mode
       const config = await getConfiguration();
-      displaySection("System Initialization", "magenta");
+      displaySection("System Initialization", "magenta", logger);
       logger = await createLogger(true);
       logger.info("Starting ThreatDorker application (Fast Mode)", { config });
-      displayStatus("✅ Logging system ready", "✓", "green");
+      displayStatus("✅ Logging system ready", "✓", "green", logger);
 
       const minDelay = parseInt(config.minDelay) || 10;
       const maxDelay = parseInt(config.maxDelay) || 20;
@@ -789,24 +841,25 @@ async function main() {
         verbose: true, // Always enabled
       };
 
-      displayStatus(`Loading dorks from ${processedConfig.dorkFile}...`, "📁", "blue");
+      displayStatus(`Loading dorks from ${processedConfig.dorkFile}...`, "📁", "blue", logger);
       const dorks = await loadDorks(processedConfig.dorkFile, logger);
       if (dorks.length === 0) {
         displayError("No dorks found in file", null);
         process.exit(1);
       }
-      displayStatus(`✅ Loaded ${dorks.length} dorks successfully`, "✓", "green");
+      displayStatus(`✅ Loaded ${dorks.length} dorks successfully`, "✓", "green", logger);
 
       displayStatus(
         "Initializing browser and security systems...",
         "🔒",
-        "magenta"
+        "magenta",
+        logger
       );
       dorker = new MultiEngineDorker(processedConfig, logger, null);
       await dorker.initialize();
-      displayStatus("✅ Browser and security systems ready", "✓", "green");
+      displayStatus("✅ Browser and security systems ready", "✓", "green", logger);
 
-      displaySection("Dorking Process", "cyan");
+      displaySection("Dorking Process", "cyan", logger);
       const allResults = {};
       const sessionBox = boxen(
         `${chalk.bold.cyan("🚀 Dorking Session Started")}\n\n` +
@@ -828,16 +881,21 @@ async function main() {
           borderColor: "cyan",
         }
       );
+      logger?.info("Fast mode dorking session started");
       console.log(sessionBox);
 
       for (let i = 0; i < dorks.length; i++) {
         const dork = dorks[i];
         try {
+          const dorkProgress = `📍 Dork ${i + 1}/${dorks.length}`;
+          logger?.info(dorkProgress);
           console.log("\n" + "─".repeat(40));
-          console.log(chalk.bold.cyan(`📍 Dork ${i + 1}/${dorks.length}`));
+          console.log(chalk.bold.cyan(dorkProgress));
           console.log("─".repeat(40));
 
           // Display current dork info
+          const queryInfo = `🔍 Query: ${dork}`;
+          logger?.info(queryInfo);
           console.log(
             chalk.gray("🔍 Query:"),
             chalk.white(dork.substring(0, 80))
@@ -889,27 +947,30 @@ async function main() {
           }
 
           if (results && results.length > 0) {
-            console.log(chalk.green(`✅ Found ${results.length} results`));
+            const foundMessage = `✅ Found ${results.length} results`;
+            logger?.info(foundMessage);
+            console.log(chalk.green(foundMessage));
             if (results.length > 0) {
+              logger?.debug("Showing quick preview of results");
               console.log(chalk.gray("📋 Quick Preview:"));
               results.slice(0, 3).forEach((result, idx) => {
                 const title = result.title
                   ? result.title.substring(0, 60)
                   : "No title";
-                console.log(
-                  chalk.gray(
-                    `   ${idx + 1}. ${title}${title.length >= 60 ? "..." : ""}`
-                  )
-                );
+                const previewLine = `   ${idx + 1}. ${title}${title.length >= 60 ? "..." : ""}`;
+                logger?.debug(previewLine);
+                console.log(chalk.gray(previewLine));
               });
               if (results.length > 3) {
-                console.log(
-                  chalk.gray(`   ... and ${results.length - 3} more results`)
-                );
+                const moreResultsLine = `   ... and ${results.length - 3} more results`;
+                logger?.debug(moreResultsLine);
+                console.log(chalk.gray(moreResultsLine));
               }
             }
           } else {
-            console.log(chalk.yellow("⚠️ No results found"));
+            const noResultsMessage = "⚠️ No results found";
+            logger?.warn(noResultsMessage);
+            console.log(chalk.yellow(noResultsMessage));
           }
 
           if (i > 0) {
@@ -918,6 +979,8 @@ async function main() {
           const percentage = Math.round(((i + 1) / dorks.length) * 100);
           const progressBar = "█".repeat(Math.floor(percentage / 2));
           const emptyBar = "░".repeat(50 - Math.floor(percentage / 2));
+          const progressMessage = `📊 Progress: [${progressBar}${emptyBar}] ${percentage}%`;
+          logger?.debug(progressMessage);
           console.log(
             chalk.gray(
               `📊 Progress: [${chalk.cyan(
@@ -940,30 +1003,33 @@ async function main() {
             delaySpinner.succeed("✅ Delay completed, continuing to next dork");
           }
         } catch (error) {
-          logger.error("Error processing dork", {
+          logger?.error("Error processing dork", {
             dork: dork.substring(0, 50),
             error: error.message,
             index: i + 1,
           });
 
-          console.log(chalk.red(`❌ Error processing dork: ${error.message}`));
+          const errorMessage = `❌ Error processing dork: ${error.message}`;
+          logger?.error(errorMessage);
+          console.log(chalk.red(errorMessage));
 
           allResults[dork] = [];
         }
       }
 
-      displaySection("Session Complete", "green");
+      displaySection("Session Complete", "green", logger);
       displayFinalSummary(allResults, Date.now());
 
       if (!processedConfig.outputFile) {
         const shouldSaveUrls = await askSaveUrls(allResults);
         if (shouldSaveUrls) {
-          displayStatus("Saving URLs to files...", "🔗", "blue");
+          displayStatus("Saving URLs to files...", "🔗", "blue", logger);
           await saveUrlsToFile(allResults, "result.txt", logger, false);
           displayStatus(
             "✅ URLs saved - both unique and complete versions created",
             "✓",
-            "green"
+            "green",
+            logger
           );
           const urls = [];
           for (const dork in allResults) {
@@ -983,7 +1049,8 @@ async function main() {
             displayStatus(
               `📊 Total: ${totalCount} URLs, Unique: ${uniqueCount}, Duplicates: ${duplicateCount}`,
               "📈",
-              "cyan"
+              "cyan",
+              logger
             );
           }
         }
@@ -999,6 +1066,7 @@ async function main() {
           borderColor: "green",
         }
       );
+      logger?.info("Fast mode dorking process completed successfully");
       console.log(completionBox);
     } else if (args.server) {
       // Server mode - start dashboard and wait for web configuration
@@ -1015,35 +1083,39 @@ async function main() {
 
 // Handle graceful shutdown
 process.on("SIGINT", async () => {
+  logger?.warn("Received interrupt signal - shutting down gracefully");
   console.log("\n" + "─".repeat(80));
   console.log(chalk.yellow.bold("⚠️ Received interrupt signal"));
   console.log("─".repeat(80));
 
-  displayStatus("Shutting down gracefully...", "🛑", "yellow");
+  displayStatus("Shutting down gracefully...", "🛑", "yellow", logger);
 
   if (dashboard) {
     dashboard.addLog("warning", "Shutting down dashboard...");
     await dashboard.stop();
-    displayStatus("✅ Dashboard stopped", "✓", "green");
+    displayStatus("✅ Dashboard stopped", "✓", "green", logger);
   }
 
+  logger?.info("Application shutdown completed successfully");
   console.log(chalk.green("\n👋 Goodbye!"));
   process.exit(0);
 });
 
 process.on("SIGTERM", async () => {
+  logger?.warn("Received termination signal - shutting down gracefully");
   console.log("\n" + "─".repeat(80));
   console.log(chalk.yellow.bold("⚠️ Received termination signal"));
   console.log("─".repeat(80));
 
-  displayStatus("Shutting down gracefully...", "🛑", "yellow");
+  displayStatus("Shutting down gracefully...", "🛑", "yellow", logger);
 
   if (dashboard) {
     dashboard.addLog("warning", "Shutting down dashboard...");
     await dashboard.stop();
-    displayStatus("✅ Dashboard stopped", "✓", "green");
+    displayStatus("✅ Dashboard stopped", "✓", "green", logger);
   }
 
+  logger?.info("Application termination completed successfully");
   process.exit(0);
 });
 

@@ -119,8 +119,10 @@ export class MultiEngineDorker {
       if (this.config.disableWarmup) {
         this.logger?.info("Browser warmup disabled by configuration");
         if (this.dashboard) {
-          this.dashboard.addLog("info", "⏩ Browser warmup disabled - skipping warm-up session");
+          this.dashboard.addLog("info", "⏩ Browser warmup disabled - navigating to Google without warmup");
         }
+        // Still need to navigate to Google and handle consent even without warmup
+        await navigateToGoogle(this.pageData, this.logger);
       } else if (this.config.humanLike) {
         // Perform full warm-up session with human-like behavior
         await performWarmup(this.pageData, this.logger);
@@ -296,18 +298,27 @@ export class MultiEngineDorker {
             continue;
           }
 
-          // Navigate to search engine homepage - simplified error handling
+          // Navigate to search engine homepage with increased timeout
           this.logger?.info(`Navigating to ${engineConfig.baseUrl}`);
           try {
             await page.goto(engineConfig.baseUrl, { 
               waitUntil: 'domcontentloaded', 
-              timeout: 30000 
+              timeout: 45000 
             });
             await sleep(engineConfig.waitTime || 2000, `waiting for ${engine} to load`, this.logger);
           } catch (navigationError) {
-            this.logger?.warn(`Navigation error: ${navigationError.message}, continuing anyway`);
-            // Wait a bit extra if navigation had issues
-            await sleep(3000, "after navigation error", this.logger);
+            this.logger?.warn(`Navigation error: ${navigationError.message}, trying with longer timeout`);
+            // Try again with even longer timeout and different wait strategy
+            try {
+              await page.goto(engineConfig.baseUrl, { 
+                waitUntil: 'load', 
+                timeout: 60000 
+              });
+              await sleep(5000, "after navigation retry", this.logger);
+            } catch (retryError) {
+              this.logger?.warn(`Navigation retry failed: ${retryError.message}, continuing anyway`);
+              await sleep(3000, "after navigation failure", this.logger);
+            }
           }
 
           // Check for CAPTCHA with simplified error handling
@@ -461,13 +472,12 @@ export class MultiEngineDorker {
                           (button.textContent.includes('Accept') || 
                            button.textContent.includes('Agree') || 
                            button.id.includes('accept'))) {
-                        console.log(`Clicking Bing consent button: ${selector}`);
                         button.click();
                         return true;
                       }
                     }
                   } catch (e) {
-                    console.error(`Error with selector ${selector}:`, e);
+                    // Continue to next selector
                   }
                 }
                 return false;
@@ -506,7 +516,6 @@ export class MultiEngineDorker {
                           (button.textContent.includes('Accept') || 
                            button.textContent.includes('Got it') || 
                            button.textContent.includes('OK'))) {
-                        console.log(`Clicking DuckDuckGo consent button: ${selector}`);
                         button.click();
                         return true;
                       }
@@ -562,7 +571,7 @@ export class MultiEngineDorker {
                 // Try to submit the form directly first
                 const form = document.querySelector('#sb_form');
                 if (form) {
-                  console.log('Submitting Bing search form directly');
+                  this.logger?.debug('Submitting Bing search form directly');
                   form.submit();
                   return true;
                 }
@@ -584,13 +593,19 @@ export class MultiEngineDorker {
             await page.keyboard.press("Enter");
           }
           
-          // Wait for navigation with better error handling
+          // Wait for navigation with better error handling and increased timeout
           try {
-            await page.waitForNavigation({ waitUntil: 'networkidle0', timeout: 30000 });
+            await page.waitForNavigation({ waitUntil: 'networkidle0', timeout: 45000 });
           } catch (_navError) {
-            this.logger?.warn(`Navigation timeout for ${engine}, continuing anyway...`);
+            this.logger?.warn(`Navigation timeout for ${engine}, trying alternative wait strategy...`);
+            // Try waiting for load event instead
+            try {
+              await page.waitForNavigation({ waitUntil: 'load', timeout: 30000 });
+            } catch (_retryError) {
+              this.logger?.warn(`Alternative navigation wait also failed for ${engine}, continuing anyway...`);
+            }
             // Wait a bit more for the page to load
-            await sleep(3000, `waiting for ${engine} results after navigation timeout`, this.logger);
+            await sleep(5000, `waiting for ${engine} results after navigation timeout`, this.logger);
           }
 
           // Wait for results with multiple selector attempts
@@ -672,6 +687,8 @@ export class MultiEngineDorker {
           this.logger?.debug(`Page content length: ${pageContent.length}`);
 
           // Extract results using engine-specific selectors with debug info
+          this.logger?.debug(`Starting result extraction for ${engine} using selector: ${engineConfig.resultsSelector}`);
+          this.logger?.debug(`Starting browser-side result extraction for ${engine}`);
           const results = await page.evaluate((config) => {
             console.log('Starting result extraction...');
             const containers = document.querySelectorAll(config.resultsSelector);
@@ -747,6 +764,7 @@ export class MultiEngineDorker {
             this.logger?.info(`${results.length === 0 ? 'No results extracted with primary selectors' : 'Using alternative extraction for Google'}, trying alternatives...`);
             
             // Try alternative extraction with more generic selectors
+            this.logger?.debug(`Starting alternative extraction for ${engine} using selector: ${workingSelector}`);
             const alternativeResults = await page.evaluate((workingSelector) => {
               console.log('Trying alternative extraction...');
               const results = [];
@@ -1125,7 +1143,8 @@ export class MultiEngineDorker {
       await page.screenshot({ path: 'bing-results.png' });
       
       // Use multiple selectors and extraction strategies
-      return await page.evaluate((max) => {
+      this.logger?.debug("Starting Bing-specific extraction with multiple selectors");
+      const results = await page.evaluate((max) => {
         const results = [];
         const seenUrls = new Set();
         const filteredUrls = []; // Track filtered URLs for logging
@@ -1163,7 +1182,35 @@ export class MultiEngineDorker {
               
               // Use the first link as the main result link
               const link = links[0];
-              const url = link.href;
+              
+              // Extract real URL from Bing tracking URLs
+              let url = link.href;
+              
+              // Handle Bing tracking URLs like /ck/a?!&&p=...
+              if (url.includes('/ck/a?') || url.includes('bing.com/ck/')) {
+                // Try to find the real URL in the onclick handler or data attributes
+                const realUrl = link.getAttribute('data-url') || 
+                               link.getAttribute('data-href') ||
+                               link.getAttribute('h') ||
+                               null;
+                
+                if (realUrl) {
+                  url = realUrl;
+                  console.log(`Bing tracking URL resolved: ${link.href} -> ${url}`);
+                } else {
+                  // Try to extract from the link text or find a non-tracking link in the same container
+                  const nonTrackingLinks = container.querySelectorAll('a[href^="http"]:not([href*="/ck/a"]):not([href*="bing.com"])');
+                  if (nonTrackingLinks.length > 0) {
+                    url = nonTrackingLinks[0].href;
+                    console.log(`Bing found alternative non-tracking URL: ${url}`);
+                  } else {
+                    // Skip tracking URLs if we can't resolve them
+                    filteredUrls.push({ url: link.href, reason: 'bing tracking URL' });
+                    console.log(`Filtered Bing tracking URL: ${link.href}`);
+                    continue;
+                  }
+                }
+              }
               
               // Log all URLs found for debugging
               console.log(`Bing found URL: ${url}`);
@@ -1227,15 +1274,34 @@ export class MultiEngineDorker {
         if (results.length === 0) {
           console.log('Using fallback direct link extraction for Bing');
           
-          const allLinks = document.querySelectorAll('a[href^="http"]:not([href*="bing.com"]):not([href*="microsoft.com"])');
+          // First try to find all links, including tracking ones that we'll resolve
+          const allLinks = document.querySelectorAll('a[href^="http"]');
           console.log(`Found ${allLinks.length} total links for fallback extraction`);
           
           for (const link of allLinks) {
             if (results.length >= max) break;
             
             try {
-              const url = link.href;
+              let url = link.href;
               console.log(`Fallback checking URL: ${url}`);
+              
+              // Handle Bing tracking URLs in fallback as well
+              if (url.includes('/ck/a?') || url.includes('bing.com/ck/')) {
+                const realUrl = link.getAttribute('data-url') || 
+                               link.getAttribute('data-href') ||
+                               link.getAttribute('h') ||
+                               null;
+                
+                if (realUrl) {
+                  url = realUrl;
+                  console.log(`Fallback: Bing tracking URL resolved: ${link.href} -> ${url}`);
+                } else {
+                  // Skip unresolvable tracking URLs
+                  filteredUrls.push({ url: link.href, reason: 'bing tracking URL' });
+                  console.log(`Fallback: Filtered Bing tracking URL: ${link.href}`);
+                  continue;
+                }
+              }
               
               // Skip navigation links, ads, etc.
               if (!url || 
@@ -1285,6 +1351,12 @@ export class MultiEngineDorker {
         
         return results;
       }, maxResults);
+      
+      this.logger?.info(`Bing extraction completed: ${results.length} results found`);
+      if (results.length > 0) {
+        this.logger?.debug(`First Bing result: ${results[0].title} -> ${results[0].url}`);
+      }
+      return results;
     } catch (error) {
       this.logger?.error('Error in Bing extraction:', { error: error.message });
       return [];
@@ -1386,7 +1458,8 @@ export class MultiEngineDorker {
       // Wait for results to load
       await sleep(2000, "waiting for results to load", this.logger);
 
-      // Extract results using multiple strategies
+      // Extract results using multiple strategies  
+      this.logger?.debug("Starting Google result extraction with multiple strategies");
       const results = await page.evaluate((max) => {
         const results = [];
         const seenUrls = new Set();
