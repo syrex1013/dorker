@@ -348,6 +348,23 @@ export class MultiEngineDorker {
             try {
               this.logger?.info(`CAPTCHA handling attempt ${captchaRetryCount}/${maxCaptchaRetries} for ${engine}`);
               
+              // Wait for any ongoing background CAPTCHA processing to complete first
+              if (this.backgroundMonitor && this.backgroundMonitor.isProcessingCaptcha) {
+                this.logger?.info("⏳ Waiting for background CAPTCHA processing to complete...");
+                let waitAttempts = 0;
+                const maxWaitAttempts = 30; // Wait up to 60 seconds
+                while (this.backgroundMonitor.isProcessingCaptcha && waitAttempts < maxWaitAttempts) {
+                  await sleep(2000, "waiting for background CAPTCHA", this.logger);
+                  waitAttempts++;
+                }
+                
+                if (this.backgroundMonitor.isProcessingCaptcha) {
+                  this.logger?.warn("⚠️ Background CAPTCHA processing taking too long, proceeding anyway");
+                } else {
+                  this.logger?.info("✅ Background CAPTCHA processing completed");
+                }
+              }
+              
               captchaHandled = await handleCaptcha(
                 page,
                 this.config,

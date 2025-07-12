@@ -967,7 +967,13 @@ async function handleAutomaticCaptcha(page, logger = null, dashboard = null) {
 
         for (const frame of frames) {
           try {
-            // Validate frame is still attached
+            // Check if frame is detached first
+            if (frame.isDetached()) {
+              logger?.debug(`Skipping detached frame`);
+              continue;
+            }
+            
+            // Validate frame is still attached by checking URL
             const frameUrl = frame.url();
             if (
               frameUrl &&
@@ -976,9 +982,13 @@ async function handleAutomaticCaptcha(page, logger = null, dashboard = null) {
             ) {
               // Double-check frame is accessible
               await frame.evaluate(() => document.readyState);
-              anchorFrame = frame;
-              logger?.info(`Found anchor frame: ${frameUrl}`);
-              break;
+              
+              // Additional check to ensure frame is still valid
+              if (!frame.isDetached()) {
+                anchorFrame = frame;
+                logger?.info(`Found anchor frame: ${frameUrl}`);
+                break;
+              }
             }
           } catch (e) {
             // Skip detached or inaccessible frames
@@ -1077,13 +1087,23 @@ async function handleAutomaticCaptcha(page, logger = null, dashboard = null) {
 
     for (const frame of updatedFrames) {
       try {
+        // Check if frame is detached first
+        if (frame.isDetached()) {
+          logger?.debug(`Skipping detached challenge frame`);
+          continue;
+        }
+        
         const frameUrl = frame.url();
         if (frameUrl.includes("recaptcha") && frameUrl.includes("bframe")) {
           // Validate frame is accessible
           await frame.evaluate(() => document.readyState);
-          challengeFrame = frame;
-          logger?.info(`Found challenge frame: ${frameUrl}`);
-          break;
+          
+          // Additional check to ensure frame is still valid
+          if (!frame.isDetached()) {
+            challengeFrame = frame;
+            logger?.info(`Found challenge frame: ${frameUrl}`);
+            break;
+          }
         }
       } catch (e) {
         // Skip detached frames

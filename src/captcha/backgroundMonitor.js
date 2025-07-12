@@ -133,8 +133,9 @@ class BackgroundCaptchaMonitor {
       const { page } = this.pageData;
 
       // Check if page is still valid before CAPTCHA detection
+      let currentUrl;
       try {
-        await page.url();
+        currentUrl = await page.url();
       } catch (error) {
         if (
           error.message.includes("detached") ||
@@ -146,6 +147,13 @@ class BackgroundCaptchaMonitor {
           return;
         }
         throw error;
+      }
+
+      // Skip CAPTCHA check if we're not on a search engine page
+      if (!currentUrl.includes('google.com') && 
+          !currentUrl.includes('bing.com') && 
+          !currentUrl.includes('duckduckgo.com')) {
+        return;
       }
 
       // Quick CAPTCHA detection
@@ -173,8 +181,25 @@ class BackgroundCaptchaMonitor {
         // Set a flag to indicate CAPTCHA is being processed
         page._captchaBeingProcessed = true;
 
+        // Store the current URL to detect navigation
+        const startUrl = currentUrl;
+
         // Handle the CAPTCHA
         const solved = await this.handleCaptchaAutomatically();
+
+        // Check if navigation happened during CAPTCHA processing
+        try {
+          const endUrl = await page.url();
+          if (startUrl !== endUrl) {
+            this.logger?.info("🔄 Page navigation detected during CAPTCHA processing - stopping");
+            this.isProcessingCaptcha = false;
+            page._captchaBeingProcessed = false;
+            return;
+          }
+        } catch (_urlError) {
+          // Page might be detached, just continue
+          this.logger?.debug("Could not check URL after CAPTCHA processing");
+        }
 
         if (solved) {
           this.stats.captchasSolved++;
@@ -259,30 +284,40 @@ class BackgroundCaptchaMonitor {
           `Attempt ${attempts}/${maxAttempts} to find anchor frame...`
         );
 
-        try {
-          const frames = page.frames();
-          this.logger?.debug(`Found ${frames.length} total frames`);
+              try {
+        const frames = page.frames();
+        this.logger?.debug(`Found ${frames.length} total frames`);
 
-          for (const frame of frames) {
-            try {
-              // Validate frame is still attached
-              const frameUrl = frame.url();
-              if (
-                frameUrl &&
-                frameUrl.includes("recaptcha") &&
-                frameUrl.includes("anchor")
-              ) {
-                // Double-check frame is accessible
-                await frame.evaluate(() => document.readyState);
+        for (const frame of frames) {
+          try {
+            // Check if frame is detached first
+            if (frame.isDetached()) {
+              this.logger?.debug(`Skipping detached frame`);
+              continue;
+            }
+            
+            // Validate frame is still attached by checking URL
+            const frameUrl = frame.url();
+            if (
+              frameUrl &&
+              frameUrl.includes("recaptcha") &&
+              frameUrl.includes("anchor")
+            ) {
+              // Double-check frame is accessible with timeout
+              await frame.evaluate(() => document.readyState);
+              
+              // Additional check to ensure frame is still valid
+              if (!frame.isDetached()) {
                 anchorFrame = frame;
                 this.logger?.info(`Found anchor frame: ${frameUrl}`);
                 break;
               }
-            } catch (e) {
-              // Skip detached or inaccessible frames
-              this.logger?.debug(`Skipping detached frame: ${e.message}`);
             }
+          } catch (e) {
+            // Skip detached or inaccessible frames
+            this.logger?.debug(`Skipping inaccessible frame: ${e.message}`);
           }
+        }
 
           if (!anchorFrame && attempts < maxAttempts) {
             this.logger?.debug(
@@ -326,13 +361,23 @@ class BackgroundCaptchaMonitor {
 
       for (const frame of updatedFrames) {
         try {
+          // Check if frame is detached first
+          if (frame.isDetached()) {
+            this.logger?.debug(`Skipping detached challenge frame`);
+            continue;
+          }
+          
           const frameUrl = frame.url();
           if (frameUrl.includes("recaptcha") && frameUrl.includes("bframe")) {
             // Validate frame is accessible
             await frame.evaluate(() => document.readyState);
-            challengeFrame = frame;
-            this.logger?.info(`Found challenge frame: ${frameUrl}`);
-            break;
+            
+            // Additional check to ensure frame is still valid
+            if (!frame.isDetached()) {
+              challengeFrame = frame;
+              this.logger?.info(`Found challenge frame: ${frameUrl}`);
+              break;
+            }
           }
         } catch (e) {
           // Skip detached frames
