@@ -1796,6 +1796,15 @@
                   />
                   DuckDuckGo
                 </label>
+                <label style="display: block; margin-bottom: 0.5rem">
+                  <input
+                    type="checkbox"
+                    name="searchEngine"
+                    value="google-api"
+                    style="margin-right: 0.5rem"
+                  />
+                  Google API (Fast HTTP requests - no browser)
+                </label>
               </div>
 
               <label style="display: block; margin-bottom: 1rem">
@@ -1804,6 +1813,26 @@
                   <option value="dork" selected>Dork based filtering</option>
                   <option value="parameter">Parameter filtering (any URL parameter)</option>
                 </select>
+              </label>
+
+              <label style="display: block; margin-bottom: 1rem">
+                <input
+                  type="checkbox"
+                  id="sql-injection-testing"
+                  name="sqlInjectionTesting"
+                  style="margin-right: 0.5rem"
+                />
+                🛡️ Enable SQL injection vulnerability testing
+                <small
+                  style="
+                    display: block;
+                    color: var(--text-secondary);
+                    margin-left: 1.25rem;
+                    margin-top: 0.25rem;
+                  "
+                >
+                  Test found URLs for SQL injection vulnerabilities and save vulnerable sites to vuln.txt
+                </small>
               </label>
             </div>
           </form>
@@ -2496,29 +2525,30 @@
 
         configCard.style.display = "block";
 
-        const configItems = [
-          { label: "📁 Dork File", value: config.dorkFile || "N/A" },
-          { label: "💾 Output File", value: config.outputFile || "N/A" },
-          {
-            label: "📊 Results per Search",
-            value: config.resultCount || "N/A",
-          },
-          { label: "📄 Max Pages", value: config.maxPages || "N/A" },
-          { label: "⏱️ Min Delay", value: `${config.minDelay || 0}s` },
-          { label: "⏰ Max Delay", value: `${config.maxDelay || 0}s` },
-          {
-            label: "🕐 Extended Delay",
-            value: config.extendedDelay ? "Yes" : "No",
-          },
-          { label: "👁️ Headless", value: config.headless ? "Yes" : "No" },
-          {
-            label: "🔐 Manual CAPTCHA",
-            value: config.manualCaptchaMode ? "Yes" : "No",
-          },
-          { label: "🎭 Human-like", value: config.humanLike ? "Yes" : "No" },
-          { label: "⏩ Warmup", value: config.disableWarmup ? "Disabled" : "Enabled" },
-          { label: "🌍 Auto Proxy", value: config.autoProxy ? "Yes" : "No" },
-        ];
+            const configItems = [
+      { label: "📁 Dork File", value: config.dorkFile || "N/A" },
+      { label: "💾 Output File", value: config.outputFile || "N/A" },
+      {
+        label: "📊 Results per Search",
+        value: config.resultCount || "N/A",
+      },
+      { label: "📄 Max Pages", value: config.maxPages || "N/A" },
+      { label: "⏱️ Min Delay", value: `${config.minDelay || 0}s` },
+      { label: "⏰ Max Delay", value: `${config.maxDelay || 0}s` },
+      {
+        label: "🕐 Extended Delay",
+        value: config.extendedDelay ? "Yes" : "No",
+      },
+      { label: "👁️ Headless", value: config.headless ? "Yes" : "No" },
+      {
+        label: "🔐 Manual CAPTCHA",
+        value: config.manualCaptchaMode ? "Yes" : "No",
+      },
+      { label: "🎭 Human-like", value: config.humanLike ? "Yes" : "No" },
+      { label: "⏩ Warmup", value: config.disableWarmup ? "Disabled" : "Enabled" },
+      { label: "🌍 Auto Proxy", value: config.autoProxy ? "Yes" : "No" },
+      { label: "🛡️ SQL Injection Testing", value: config.sqlInjectionTesting ? "Enabled" : "Disabled" },
+    ];
 
         configDisplay.innerHTML = configItems
           .map(

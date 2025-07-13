@@ -29,6 +29,17 @@ const SEARCH_ENGINES = {
     titleSelector: "[data-testid='result-title-a'], .result__title a",
     descriptionSelector: "[data-testid='result-snippet'], .result__snippet",
   },
+  
+  "google-api": {
+    name: "Google API",
+    type: "api",
+    description: "Direct HTTP requests to Google (no browser automation)",
+    baseUrl: "https://www.google.com",
+    waitTime: 2000,
+    maxResults: 100,
+    fast: true,
+    noMovements: true
+  },
 };
 
 export { SEARCH_ENGINES };

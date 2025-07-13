@@ -17,6 +17,8 @@ import {
 import BackgroundCaptchaMonitor from "../captcha/backgroundMonitor.js";
 import { SEARCH_ENGINES } from "../constants/searchEngines.js";
 import { BROWSER_CONFIG } from "../config/index.js";
+import { SQLInjectionTester } from "../sql/sqlInjectionTester.js";
+import { GoogleApiSearcher } from "../search/googleApiSearcher.js";
 
 /**
  * Multi-Engine Dorker class for performing Google dorking with anti-detection
@@ -289,6 +291,20 @@ export class MultiEngineDorker {
           if (this.dashboard) {
             this.dashboard.addLog("info", `🔍 Searching with ${engine}...`);
             this.dashboard.setProcessingStatus(`Processing with ${engine}`);
+          }
+
+          // Handle Google API engine differently (no browser required)
+          if (engine === 'google-api') {
+            const apiResults = await this.performGoogleApiSearch(dork, maxResults);
+            allResults = allResults.concat(apiResults);
+            
+            if (this.dashboard) {
+              this.dashboard.incrementProcessed();
+              this.dashboard.incrementSuccessful();
+              this.dashboard.addToTotalResults(apiResults.length);
+            }
+            
+            continue; // Skip browser-based processing
           }
 
           const { page } = this.pageData;
@@ -1112,6 +1128,68 @@ export class MultiEngineDorker {
 
       this.searchCount++;
       
+      // SQL injection testing if enabled
+      if (this.config.sqlInjectionTesting && allResults.length > 0) {
+        try {
+          this.logger?.info(`🛡️ Starting SQL injection testing for ${allResults.length} URLs`);
+          
+          if (this.dashboard) {
+            this.dashboard.addLog("info", `🛡️ Testing ${allResults.length} URLs for SQL injection vulnerabilities`);
+            this.dashboard.setProcessingStatus("Testing for SQL injection vulnerabilities");
+          }
+          
+          // Initialize SQL injection tester
+          const sqlTester = new SQLInjectionTester(this.config, this.logger);
+          await sqlTester.initialize();
+          
+          // Extract URLs from results
+          const urls = allResults.map(result => result.url).filter(url => url && url.trim());
+          
+          if (urls.length > 0) {
+            this.logger?.info(`🔍 Testing ${urls.length} URLs for SQL injection vulnerabilities`);
+            
+            // Test URLs for SQL injection (use existing browser instance)
+            const testResults = await sqlTester.testUrls(urls, this.browser);
+            
+            // Count vulnerable URLs
+            const vulnerableUrls = testResults.filter(result => result.vulnerable);
+            
+            if (vulnerableUrls.length > 0) {
+              this.logger?.warn(`🚨 Found ${vulnerableUrls.length} vulnerable URLs for dork: ${dork}`);
+              
+              if (this.dashboard) {
+                this.dashboard.addLog("warning", `🚨 Found ${vulnerableUrls.length} SQL injection vulnerabilities`);
+                this.dashboard.addLog("info", `💾 Vulnerable URLs saved to vuln.txt`);
+              }
+            } else {
+              this.logger?.info(`✅ No SQL injection vulnerabilities found for dork: ${dork}`);
+              
+              if (this.dashboard) {
+                this.dashboard.addLog("success", `✅ No SQL injection vulnerabilities found`);
+              }
+            }
+            
+            // Get testing statistics
+            const stats = sqlTester.getStats();
+            this.logger?.info(`📊 SQL injection testing stats: ${JSON.stringify(stats)}`);
+            
+            if (this.dashboard) {
+              this.dashboard.addLog("info", `📊 SQL injection testing completed - ${stats.totalVulnerableUrls} vulnerable URLs found`);
+            }
+          }
+          
+          // Cleanup SQL tester
+          await sqlTester.cleanup();
+          
+        } catch (error) {
+          this.logger?.error("SQL injection testing failed", { error: error.message });
+          
+          if (this.dashboard) {
+            this.dashboard.addLog("error", `❌ SQL injection testing failed: ${error.message}`);
+          }
+        }
+      }
+      
       // End session and get summary
       if (this.dashboard) {
         this.dashboard.endSession();
@@ -1125,6 +1203,49 @@ export class MultiEngineDorker {
         dork: dork.substring(0, 50),
         error: error.message,
       });
+      return [];
+    }
+  }
+
+  /**
+   * Perform Google API search without browser automation
+   */
+  async performGoogleApiSearch(dork, maxResults) {
+    try {
+      this.logger?.info(`Performing Google API search for: ${dork}`);
+      
+      // Initialize Google API searcher with current config
+      const apiSearcher = new GoogleApiSearcher({
+        delay: this.config.minDelay * 1000, // Convert to milliseconds
+        maxResults: maxResults,
+        userAgent: this.config.userAgent || 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
+        timeout: 30000
+      });
+      
+      await apiSearcher.initialize();
+      
+      // Perform the search
+      const results = await apiSearcher.search(dork, maxResults);
+      
+      // Convert to expected format
+      const formattedResults = results.map(result => ({
+        url: result.url,
+        title: result.title,
+        description: result.description,
+        source: 'google-api'
+      }));
+      
+      this.logger?.info(`Google API search completed: ${formattedResults.length} results`);
+      
+      return formattedResults;
+      
+    } catch (error) {
+      this.logger?.error('Google API search failed', { dork, error: error.message });
+      
+      if (this.dashboard) {
+        this.dashboard.addLog("error", `❌ Google API search failed: ${error.message}`);
+      }
+      
       return [];
     }
   }

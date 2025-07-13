@@ -184,6 +184,7 @@ async function getConfiguration() {
       engines: ["google", "bing", "duckduckgo"],
       filteringType: "parameter",
       dorkFiltering: true,
+      sqlInjectionTesting: false,
       verbose: true,
     };
   }
@@ -350,6 +351,12 @@ async function getConfiguration() {
           ],
           initialValue: 'dork',
         }),
+
+      sqlInjectionTesting: () =>
+        p.confirm({
+          message: "🛡️ Enable SQL injection vulnerability testing?",
+          initialValue: false,
+        }),
     },
     {
       onCancel: () => {
@@ -364,7 +371,8 @@ async function getConfiguration() {
     config.engines = await p.select({
       message: "🔍 Select search engines to use",
       options: [
-        { value: ['google', 'bing', 'duckduckgo'], label: 'All Engines', hint: 'Use all available engines' },
+        { value: ['google', 'bing', 'duckduckgo'], label: 'All Browser Engines', hint: 'Use all available browser engines' },
+        { value: ['google-api'], label: 'Google API Only', hint: 'Fast HTTP requests (no browser automation)' },
         { value: ['google', 'bing'], label: 'Google + Bing', hint: 'Most popular engines' },
         { value: ['google', 'duckduckgo'], label: 'Google + DuckDuckGo', hint: 'Privacy-focused option' },
         { value: ['google'], label: 'Google Only', hint: 'Default search engine' },
@@ -413,6 +421,7 @@ async function getConfiguration() {
     engines: config.engines || ['google'],
     filteringType: config.filteringType || 'dork',
     dorkFiltering: (config.filteringType || 'dork') === 'dork',
+    sqlInjectionTesting: config.sqlInjectionTesting || false,
     verbose: true, // Always enabled
   };
 
@@ -575,7 +584,9 @@ function parseCommandLineArgs() {
     .option("-s, --server", "Run in server mode", false)
     .option("-p, --port <number>", "Port for server mode", parseInt)
     .option("-i, --interactive", "Run interactive mode", false)
-    .option("--disable-movements", "Disable random mouse movements for faster execution", false);
+    .option("--disable-movements", "Disable random mouse movements for faster execution", false)
+    .option("--test-sql <file>", "Test SQL injection on URLs from file (e.g., results.txt, fast.txt)", false)
+    .option("--concurrency <number>", "Number of concurrent workers for SQL testing", parseInt);
   program.parse();
   return program.opts();
 }

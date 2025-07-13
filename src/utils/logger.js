@@ -101,7 +101,7 @@ const clearPreviousLogs = async (logsDir) => {
 };
 
 // Create logger instance
-const createLogger = async (clearLogs = true) => {
+const createLogger = async (clearLogs = true, suppressConsole = false) => {
   try {
     // Create logs directory
     const logsDir = path.join(process.cwd(), "logs");
@@ -125,19 +125,27 @@ const createLogger = async (clearLogs = true) => {
         }),
         winston.format.errors({ stack: true }),
         winston.format.splat(),
-        winston.format.printf(
-          ({ level, message, timestamp, service, ...meta }) => {
-            // Ensure level comes first in JSON
-            const logObject = {
-              level,
-              message,
-              timestamp,
-              service: service || "dorker",
-              ...meta,
-            };
-            return JSON.stringify(logObject);
+        winston.format.printf(({ level, message, timestamp, service: _service, ...meta }) => {
+          // Build a human-readable meta string (key1=value1 key2=value2 ...)
+          let metaString = "";
+          if (meta && Object.keys(meta).length > 0) {
+            const pairs = Object.entries(meta).map(([k, v]) => {
+              let val;
+              if (typeof v === "object") {
+                try {
+                  val = JSON.stringify(v);
+                } catch (err) {
+                  val = "[object]";
+                }
+              } else {
+                val = v;
+              }
+              return `${k}=${val}`;
+            });
+            metaString = ` | ${pairs.join(" ")}`;
           }
-        )
+          return `${timestamp} [${level.toUpperCase()}] ${message}${metaString}`;
+        })
       ),
       defaultMeta: { service: "dorker" },
       transports: [
@@ -152,8 +160,8 @@ const createLogger = async (clearLogs = true) => {
       ],
     });
 
-    // Add console transport in development
-    if (process.env.NODE_ENV !== "production") {
+    // Add console transport in development unless suppressed
+    if (!suppressConsole && process.env.NODE_ENV !== "production") {
       logger.add(
         new winston.transports.Console({
           format: winston.format.combine(

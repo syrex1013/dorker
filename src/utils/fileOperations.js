@@ -161,6 +161,9 @@ async function loadDorks(filePath, logger = null) {
  */
 async function saveResults(data, filePath, logger = null) {
   try {
+    // Ensure file inside output directory
+    filePath = resolveOutputPath(filePath);
+
     logger?.info("Saving results to file", {
       filePath,
       resultCount: Object.keys(data).length,
@@ -221,7 +224,7 @@ async function appendDorkResults(
     allResults[dork] = results;
 
     // Save the updated results immediately
-    const fullPath = path.resolve(filePath);
+    const fullPath = path.resolve(resolveOutputPath(filePath));
     await fs.writeFile(fullPath, JSON.stringify(allResults, null, 2), "utf-8");
 
     logger?.info("Dork results appended successfully", {
@@ -262,6 +265,7 @@ async function appendUrlsToFile(urls, filePath, logger = null) {
 
   try {
     // Ensure directory exists
+    filePath = resolveOutputPath(filePath);
     const dir = path.dirname(filePath);
     await fs.mkdir(dir, { recursive: true });
 
@@ -410,6 +414,7 @@ async function saveUrlsToFile(
     }
 
     // Create filename with timestamp and type indicator
+    filePath = resolveOutputPath(filePath);
     const pathInfo = path.parse(filePath);
     const timestamp = new Date().toISOString().replace(/[:.]/g, '-').split('T');
     const dateStr = timestamp[0]; // YYYY-MM-DD
@@ -485,10 +490,49 @@ async function saveUrlsToFile(
   }
 }
 
+/**
+ * Append data to a file
+ * @param {string} filePath - Path to the file
+ * @param {string} data - Data to append
+ * @param {Object} logger - Logger instance
+ */
+async function appendToFile(filePath, data, logger = null) {
+  try {
+    filePath = resolveOutputPath(filePath);
+    // Ensure directory exists for the final path
+    await fs.mkdir(path.dirname(filePath), { recursive: true });
+    await fs.appendFile(filePath, data);
+    logger?.info(`Data appended to ${filePath}`);
+  } catch (error) {
+    logger?.error(`Failed to append to ${filePath}`, { error: error.message });
+    throw error;
+  }
+}
+
+// Helper: resolve a relative path into the global output directory (or pass-through absolute paths)
+function resolveOutputPath(relativeOrAbsolutePath) {
+  if (path.isAbsolute(relativeOrAbsolutePath)) {
+    return relativeOrAbsolutePath;
+  }
+  const outputDir = path.resolve("output");
+  return path.join(outputDir, relativeOrAbsolutePath);
+}
+
+// Ensure global output directory exists once at module load
+(async () => {
+  try {
+    await fs.mkdir(path.resolve("output"), { recursive: true });
+  } catch {
+    // ignore
+  }
+})();
+
 export {
   loadDorks,
   saveResults,
   appendDorkResults,
   appendUrlsToFile,
   saveUrlsToFile,
+  appendToFile,
+  resolveOutputPath,
 };

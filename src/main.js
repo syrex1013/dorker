@@ -20,6 +20,7 @@ import {
 import { MultiEngineDorker } from "./dorker/MultiEngineDorker.js";
 import { Dashboard } from "./web/dashboard.js";
 import { resetCaptchaDetectionState } from "./captcha/detector.js";
+import { StandaloneSQLTester } from "./sql/standaloneSQLTester.js";
 import boxen from "boxen";
 
 // Global dashboard instance
@@ -47,6 +48,81 @@ function displayStatus(message, icon = "ℹ️", color = "blue", logger = null) 
   const statusMessage = `${icon} ${message}`;
   logger?.info(statusMessage);
   console.log(chalk[color](statusMessage));
+}
+
+/**
+ * Standalone SQL injection testing mode
+ */
+async function standaloneSQLTestingMode(filePath, concurrency = 10) {
+  try {
+    displayBanner();
+    displaySection("Standalone SQL Injection Testing", "red");
+    
+    console.log(chalk.blue(`📁 Input file: ${filePath}`));
+    console.log(chalk.blue(`🚀 Concurrency: ${concurrency} workers`));
+    console.log(chalk.blue(`💾 Output file: vuln.txt\n`));
+    
+    // Initialize logger
+    logger = await createLogger(true);
+    logger.info("Starting standalone SQL injection testing", { filePath, concurrency });
+    
+    // Initialize SQL tester
+    const sqlTester = new StandaloneSQLTester({
+      maxConcurrency: concurrency,
+      testDelay: 500, // Fast testing
+      headless: true,
+      timeout: 30000,
+      outputFile: 'vuln.txt',
+      verbose: false
+    });
+    
+    await sqlTester.initialize();
+    
+    // Read URLs from file
+    const urls = await sqlTester.readUrlsFromFile(filePath);
+    
+    if (urls.length === 0) {
+      console.log(chalk.yellow('⚠️ No URLs with parameters found in the file'));
+      return;
+    }
+    
+    // Test URLs
+    const results = await sqlTester.testUrls(urls);
+    
+    // Display summary
+    const successBox = boxen(
+      `${chalk.bold.green("🛡️ SQL Injection Testing Completed!")}\n\n` +
+        `${chalk.gray("File:")} ${chalk.white(filePath)}\n` +
+        `${chalk.gray("URLs Tested:")} ${chalk.white(results.tested)}\n` +
+        `${chalk.gray("Vulnerable:")} ${chalk.red(results.vulnerable)}\n` +
+        `${chalk.gray("Duration:")} ${chalk.white((results.duration / 1000).toFixed(2))}s\n` +
+        `${chalk.gray("Rate:")} ${chalk.white((results.tested / (results.duration / 1000)).toFixed(1))} URLs/s`,
+      {
+        padding: 1,
+        margin: 1,
+        borderStyle: "double",
+        borderColor: results.vulnerable > 0 ? "red" : "green",
+      }
+    );
+    
+    console.log(successBox);
+    
+    if (results.vulnerable > 0) {
+      console.log(chalk.red(`🚨 Found ${results.vulnerable} vulnerable URLs saved to vuln.txt`));
+    } else {
+      console.log(chalk.green(`✅ No SQL injection vulnerabilities found`));
+    }
+    
+    // Cleanup
+    await sqlTester.cleanup();
+    
+    logger.info("Standalone SQL injection testing completed", { results });
+    
+  } catch (error) {
+    console.error(chalk.red('❌ Standalone SQL injection testing failed:'), error.message);
+    logger?.error("Standalone SQL injection testing failed", { error: error.message });
+    process.exit(1);
+  }
 }
 
 /**
@@ -489,28 +565,29 @@ async function interactiveMode() {
       ? config.engines
       : ['google'];
 
-    const processedConfig = {
-      dorkFile: config.dorkFile || "dorks.txt",
-      outputFile: config.outputFile?.trim() || null,
-      resultCount: parseInt(config.resultCount) || 30,
-      maxPages: Math.min(parseInt(config.maxPages) || 1, 10),
-      minDelay: Math.max(minDelay, 5),
-      maxDelay: Math.min(maxDelay, 120),
-      extendedDelay: config.extendedDelay,
-          maxPause: Math.min(parseInt(config.maxPause) || 19, 60),
-    headless: config.headless,
-    userAgent: config.userAgent?.trim() || null,
-    manualCaptchaMode: config.manualCaptchaMode,
-    humanLike: config.humanLike,
-    disableWarmup: config.disableWarmup,
-    disableMovements: config.disableMovements || false,
-    autoProxy: config.autoProxy,
-      multiEngine: config.multiEngine,
-      engines: engines,
-      filteringType: config.filteringType || 'dork',
-      dorkFiltering: (config.filteringType || 'dork') === 'dork',
-      verbose: true, // Always enabled
-    };
+          const processedConfig = {
+        dorkFile: config.dorkFile || "dorks.txt",
+        outputFile: config.outputFile?.trim() || null,
+        resultCount: parseInt(config.resultCount) || 30,
+        maxPages: Math.min(parseInt(config.maxPages) || 1, 10),
+        minDelay: Math.max(minDelay, 5),
+        maxDelay: Math.min(maxDelay, 120),
+        extendedDelay: config.extendedDelay,
+            maxPause: Math.min(parseInt(config.maxPause) || 19, 60),
+        headless: config.headless,
+        userAgent: config.userAgent?.trim() || null,
+        manualCaptchaMode: config.manualCaptchaMode,
+        humanLike: config.humanLike,
+        disableWarmup: config.disableWarmup,
+        disableMovements: config.disableMovements || false,
+        autoProxy: config.autoProxy,
+          multiEngine: config.multiEngine,
+          engines: engines,
+          filteringType: config.filteringType || 'dork',
+          dorkFiltering: (config.filteringType || 'dork') === 'dork',
+          sqlInjectionTesting: config.sqlInjectionTesting || false,
+          verbose: true, // Always enabled
+        };
 
     // Load dorks from file
     displayStatus(`Loading dorks from ${processedConfig.dorkFile}...`, "📁", "blue", logger);
@@ -812,7 +889,11 @@ async function main() {
     // Parse command line arguments
     const args = parseCommandLineArgs();
 
-    if (args.fast) {
+    if (args.testSql) {
+      // Standalone SQL injection testing mode
+      await standaloneSQLTestingMode(args.testSql, args.concurrency || 10);
+      return;
+    } else if (args.fast) {
       // Fast mode - skip banner and jump directly to configuration
       displayBanner(); // Still display banner for fast mode
       const config = await getConfiguration();
@@ -853,6 +934,7 @@ async function main() {
         engines: engines,
         filteringType: config.filteringType || 'dork',
         dorkFiltering: (config.filteringType || 'dork') === 'dork',
+        sqlInjectionTesting: config.sqlInjectionTesting || false,
         verbose: true, // Always enabled
       };
 

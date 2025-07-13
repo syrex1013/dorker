@@ -60,3 +60,6 @@ bing-results.png
 CHANGES_SUMMARY.md
 .gitignore
 /docs
+/output
+SQL_INJECTION_TESTING_README.md
+NEW_FEATURES_README.md

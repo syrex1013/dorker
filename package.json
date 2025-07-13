@@ -17,7 +17,10 @@
     "test:search": "mocha test/search-engines-test.js --timeout 60000",
     "test-captcha": "node test/captcha-test.js",
     "test-delay": "node test/delay-test.js",
-    "test-simple": "node test/simple-captcha-test.js"
+    "test-simple": "node test/simple-captcha-test.js",
+    "test-sql": "node test/sql-injection-test.js",
+    "test-new": "node test/new-features-test.js",
+    "sql-test": "node index.js --test-sql"
   },
   "keywords": [
     "dorker",
@@ -54,6 +57,7 @@
     "gradient-string": "^3.0.0",
     "https-proxy-agent": "^7.0.6",
     "inquirer": "^9.2.0",
+    "jsdom": "^25.0.1",
     "nanospinner": "^1.2.2",
     "node-fetch": "^3.3.2",
     "ora": "^8.2.0",

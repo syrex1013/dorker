@@ -3,6 +3,7 @@ import { Server } from 'socket.io';
 import { fileURLToPath } from 'url';
 import { dirname, join } from 'path';
 import { MultiEngineDorker } from '../dorker/MultiEngineDorker.js';
+import { SQLInjectionTester } from '../sql/sqlInjectionTester.js';
 import winston from 'winston';
 
 const __filename = fileURLToPath(import.meta.url);
@@ -342,6 +343,45 @@ export class Dashboard {
             // Handle search stop
             socket.on('stop_search', () => {
                 this.stopSearch();
+            });
+
+            // New: Run SQL injection testing on current stored results
+            socket.on('start_sql_test', async (data) => {
+                try {
+                    const concurrency = data?.concurrency || 10;
+                    if (!this._storedResults || this._storedResults.length === 0) {
+                        socket.emit('notification', { message: 'No results available to test', type: 'warning' });
+                        return;
+                    }
+
+                    // Extract URLs
+                    const urls = this._storedResults.map(r => r.url).filter(Boolean);
+                    if (urls.length === 0) {
+                        socket.emit('notification', { message: 'No URLs to test', type: 'warning' });
+                        return;
+                    }
+
+                    // Notify UI
+                    socket.emit('notification', { message: `🛡️ Starting SQL injection testing on ${urls.length} URLs`, type: 'info' });
+
+                    const tester = new SQLInjectionTester({ verbose: false, maxConcurrency: concurrency });
+                    await tester.initialize();
+
+                    const results = await tester.testUrls(urls);
+
+                    const vulnerable = results.filter(r => r.vulnerable);
+                    socket.emit('sql_test_complete', { total: results.length, vulnerable: vulnerable.length });
+
+                    // Send vulnerable results individually
+                    vulnerable.forEach(v => {
+                        socket.emit('vulnerable_url', v);
+                    });
+
+                    this.addLog('info', `SQL testing finished. Vulnerable URLs: ${vulnerable.length}`);
+                } catch (err) {
+                    this.addLog('error', `SQL testing failed: ${err.message}`);
+                    socket.emit('notification', { message: `SQL testing failed: ${err.message}`, type: 'error' });
+                }
             });
             
             // Handle disconnection
