@@ -238,7 +238,21 @@ async function appendDorkResults(
 }
 
 /**
- * Appends an array of URLs to a text file
+ * Extract hostname from URL
+ * @param {string} url - The URL to extract hostname from
+ * @returns {string|null} The hostname or null if invalid
+ */
+function extractHostname(url) {
+  try {
+    const urlObj = new URL(url);
+    return urlObj.hostname.toLowerCase();
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Appends an array of URLs to a text file, filtering out URLs with hosts that already exist
  * @param {string[]} urls - The URLs to append
  * @param {string} filePath - The path to the output file
  * @param {Object} logger - Winston logger instance
@@ -251,17 +265,77 @@ async function appendUrlsToFile(urls, filePath, logger = null) {
     const dir = path.dirname(filePath);
     await fs.mkdir(dir, { recursive: true });
 
-    // Create file if it doesn't exist
+    // Read existing URLs to get existing hosts
+    let existingHosts = new Set();
     try {
-      await fs.access(filePath);
+      const existingContent = await fs.readFile(filePath, 'utf8');
+      const existingUrls = existingContent.split('\n').filter(line => line.trim());
+      
+      for (const existingUrl of existingUrls) {
+        const host = extractHostname(existingUrl.trim());
+        if (host) {
+          existingHosts.add(host);
+        }
+      }
+      
+      logger?.debug(`Found ${existingHosts.size} existing hosts in ${filePath}`);
     } catch {
+      // File doesn't exist yet, create it
       await fs.writeFile(filePath, '', 'utf8');
+      logger?.debug(`Created new file: ${filePath}`);
     }
 
-    // Append URLs
-    const urlContent = urls.join("\n") + "\n";
-    await fs.appendFile(filePath, urlContent, "utf8");
-    logger?.debug(`Appended ${urls.length} URLs to ${filePath}`);
+    // Filter URLs to only include those with new hosts
+    const filteredUrls = [];
+    const skippedUrls = [];
+    
+    for (const url of urls) {
+      const host = extractHostname(url);
+      if (!host) {
+        skippedUrls.push({ url, reason: 'Invalid URL' });
+        continue;
+      }
+      
+      if (existingHosts.has(host)) {
+        skippedUrls.push({ url, reason: `Host '${host}' already exists` });
+        continue;
+      }
+      
+      // Add to filtered list and mark host as seen
+      filteredUrls.push(url);
+      existingHosts.add(host);
+    }
+
+    // Log filtering results
+    if (skippedUrls.length > 0) {
+      logger?.info(`Filtered out ${skippedUrls.length} URLs with existing hosts`, {
+        filePath,
+        skippedCount: skippedUrls.length,
+        newCount: filteredUrls.length,
+        totalCount: urls.length
+      });
+      
+      // Log details about skipped URLs
+      skippedUrls.forEach(({ url, reason }) => {
+        logger?.debug(`Skipped URL: ${url} (${reason})`);
+      });
+    }
+
+    // Append only URLs with new hosts
+    if (filteredUrls.length > 0) {
+      const urlContent = filteredUrls.join("\n") + "\n";
+      await fs.appendFile(filePath, urlContent, "utf8");
+      logger?.info(`Appended ${filteredUrls.length} URLs with new hosts to ${filePath}`, {
+        newHosts: filteredUrls.length,
+        skippedExisting: skippedUrls.length,
+        totalProcessed: urls.length
+      });
+    } else {
+      logger?.info(`No new hosts found - all ${urls.length} URLs were filtered out`, {
+        filePath,
+        reason: 'All hosts already exist in file'
+      });
+    }
   } catch (error) {
     logger?.error("Error appending URLs to file", {
       filePath,
@@ -305,13 +379,34 @@ async function saveUrlsToFile(
 
     let urlsToSave;
     let duplicateCount = 0;
+    let hostFilteredCount = 0;
 
     if (includeAll) {
       urlsToSave = urls;
       duplicateCount = urls.length - [...new Set(urls)].length;
     } else {
-      urlsToSave = [...new Set(urls)];
-      duplicateCount = urls.length - urlsToSave.length;
+      // Remove exact URL duplicates first
+      const uniqueUrls = [...new Set(urls)];
+      duplicateCount = urls.length - uniqueUrls.length;
+      
+      // Then filter by host to keep only one URL per host
+      const seenHosts = new Set();
+      const hostFilteredUrls = [];
+      
+      for (const url of uniqueUrls) {
+        const host = extractHostname(url);
+        if (!host) {
+          continue; // Skip invalid URLs
+        }
+        
+        if (!seenHosts.has(host)) {
+          seenHosts.add(host);
+          hostFilteredUrls.push(url);
+        }
+      }
+      
+      hostFilteredCount = uniqueUrls.length - hostFilteredUrls.length;
+      urlsToSave = hostFilteredUrls;
     }
 
     // Create filename with timestamp and type indicator
@@ -334,10 +429,11 @@ async function saveUrlsToFile(
       urlCount: urlsToSave.length,
       totalFound: urls.length,
       duplicatesRemoved: duplicateCount,
+      hostFilteredCount: hostFilteredCount,
       includeAll,
     });
 
-    const typeDescription = includeAll ? "all" : "unique";
+    const typeDescription = includeAll ? "all" : "unique hosts";
     logWithDedup(
       "info",
       `💾 Saved ${urlsToSave.length} ${typeDescription} URLs to ${path.basename(
@@ -347,11 +443,17 @@ async function saveUrlsToFile(
       logger
     );
 
-    if (duplicateCount > 0) {
-      const duplicateMessage = includeAll
-        ? `   (including ${duplicateCount} duplicates)`
-        : `   (${duplicateCount} duplicates removed)`;
-      logWithDedup("info", duplicateMessage, chalk.blue, logger);
+    if (duplicateCount > 0 || hostFilteredCount > 0) {
+      let filterMessage = "";
+      if (includeAll) {
+        filterMessage = `   (including ${duplicateCount} duplicates)`;
+      } else {
+        const parts = [];
+        if (duplicateCount > 0) parts.push(`${duplicateCount} exact duplicates`);
+        if (hostFilteredCount > 0) parts.push(`${hostFilteredCount} duplicate hosts`);
+        filterMessage = `   (${parts.join(', ')} removed)`;
+      }
+      logWithDedup("info", filterMessage, chalk.blue, logger);
     }
 
     // Also save the alternate version for comparison
