@@ -660,18 +660,24 @@ export class MultiEngineDorker {
           
           // Wait for navigation with better error handling and increased timeout
           try {
-            await page.waitForNavigation({ waitUntil: 'networkidle0', timeout: 45000 });
+            // Don't wait for navigation immediately - let the page handle the search
+            await page.waitForFunction(() => {
+              // Check if URL has changed from the initial search page
+              return window.location.href.includes('/search?') || 
+                     window.location.href.includes('&q=') ||
+                     window.location.href.includes('?q=');
+            }, { timeout: 10000 });
+            
+            // Now wait for the page to stabilize
+            await page.waitForFunction(() => document.readyState === 'complete', { timeout: 5000 }).catch(() => null);
+            
+            this.logger?.info(`Search submitted for ${engine}, waiting for results...`);
           } catch (_navError) {
-            this.logger?.warn(`Navigation timeout for ${engine}, trying alternative wait strategy...`);
-            // Try waiting for load event instead
-            try {
-              await page.waitForNavigation({ waitUntil: 'load', timeout: 30000 });
-            } catch (_retryError) {
-              this.logger?.warn(`Alternative navigation wait also failed for ${engine}, continuing anyway...`);
-            }
-            // Wait for results to appear instead of fixed delay
-            await this.waitForSearchResults(page, engine);
+            this.logger?.warn(`Navigation detection timeout for ${engine}, checking for results anyway...`);
           }
+          
+          // Always wait for search results regardless of navigation
+          await this.waitForSearchResults(page, engine);
 
           // Wait for results with multiple selector attempts
           const resultsSelectors = {
@@ -3662,24 +3668,48 @@ export class MultiEngineDorker {
   async waitForSearchResults(page, engine) {
     try {
       const resultSelectors = {
-        google: ['div.g', '#search div[data-hveid]', '#rso > div'],
-        bing: ['li.b_algo', '#b_results > li', '.b_results .b_algo'],
+        google: ['div.g', '#search div[data-hveid]', '#rso > div', '.g > div > div'],
+        bing: ['li.b_algo', '#b_results > li', '.b_results .b_algo', '.b_ans'],
         duckduckgo: ['article[data-testid="result"]', '.result', '.results .result']
       };
 
       const selectors = resultSelectors[engine] || [];
       
-      // Wait for any result selector to appear
+      // First, wait for URL to indicate search was performed
+      try {
+        await page.waitForFunction(() => {
+          const url = window.location.href;
+          return url.includes('/search?') || url.includes('&q=') || url.includes('?q=');
+        }, { timeout: 5000 });
+      } catch (e) {
+        this.logger?.debug(`URL change wait timed out for ${engine}`);
+      }
+      
+      // Then wait for any result selector to appear
+      let foundSelector = null;
       if (selectors.length > 0) {
-        await Promise.race(
-          selectors.map(selector => 
-            page.waitForSelector(selector, { timeout: 10000 })
-          )
-        ).catch(() => null);
+        for (const selector of selectors) {
+          try {
+            await page.waitForSelector(selector, { timeout: 3000 });
+            const elements = await page.$$(selector);
+            if (elements && elements.length > 0) {
+              foundSelector = selector;
+              this.logger?.debug(`Found ${elements.length} results with selector: ${selector}`);
+              break;
+            }
+          } catch (e) {
+            // Try next selector
+            continue;
+          }
+        }
       }
 
-      // Also wait for page to be stable
-      await page.waitForFunction(() => document.readyState === 'complete', { timeout: 5000 }).catch(() => null);
+      // If no results found, wait a bit more
+      if (!foundSelector) {
+        this.logger?.debug(`No results found with selectors, waiting for page stability`);
+        await page.waitForFunction(() => document.readyState === 'complete', { timeout: 3000 }).catch(() => null);
+        await sleep(1000, 'waiting for late-loading results', this.logger);
+      }
       
       this.logger?.debug(`Search results ready for ${engine}`);
     } catch (error) {

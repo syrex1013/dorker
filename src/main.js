@@ -53,17 +53,18 @@ function displayStatus(message, icon = "ℹ️", color = "blue", logger = null) 
 /**
  * Standalone SQL injection testing mode
  */
-async function standaloneSQLTestingMode(filePath, concurrency = 10) {
+async function standaloneSQLTestingMode(filePath, concurrency = 10, logLevel = "debug") {
   try {
     displayBanner();
     displaySection("Standalone SQL Injection Testing", "red");
     
     console.log(chalk.blue(`📁 Input file: ${filePath}`));
     console.log(chalk.blue(`🚀 Concurrency: ${concurrency} workers`));
+    console.log(chalk.blue(`📊 Log level: ${logLevel}`));
     console.log(chalk.blue(`💾 Output file: vuln.txt\n`));
     
     // Initialize logger
-    logger = await createLogger(true);
+    logger = await createLogger(true, false, logLevel);
     logger.info("Starting standalone SQL injection testing", { filePath, concurrency });
     
     // Initialize SQL tester
@@ -73,7 +74,8 @@ async function standaloneSQLTestingMode(filePath, concurrency = 10) {
       headless: true,
       timeout: 30000,
       outputFile: 'vuln.txt',
-      verbose: false
+      verbose: false,
+      logLevel: logLevel
     });
     
     await sqlTester.initialize();
@@ -128,12 +130,12 @@ async function standaloneSQLTestingMode(filePath, concurrency = 10) {
 /**
  * Server-only mode - starts dashboard and waits for web configuration
  */
-async function serverMode(port = 3000) {
+async function serverMode(port = 3000, logLevel = "debug") {
   displayBanner();
   displaySection("Server Mode", "magenta");
 
   // Initialize logger first
-  logger = await createLogger(true);
+  logger = await createLogger(true, false, logLevel);
   logger.info("Server mode started");
 
   // Start dashboard server
@@ -529,7 +531,7 @@ async function performDorking(dorks, config) {
 /**
  * Interactive mode - original CLI workflow
  */
-async function interactiveMode() {
+async function interactiveMode(logLevel = "debug") {
   let dorker = null;
   const startTime = Date.now();
 
@@ -545,7 +547,7 @@ async function interactiveMode() {
     // Create logger with log clearing enabled by default
     displayStatus("Initializing logging system...", "📝", "cyan", logger);
 
-    logger = await createLogger(true); // Always clear logs on startup
+    logger = await createLogger(true, false, logLevel); // Always clear logs on startup
     logger.info("Starting ThreatDorker application", { config });
 
     displayStatus("✅ Logging system ready", "✓", "green", logger);
@@ -891,15 +893,15 @@ async function main() {
 
     if (args.testSql) {
       // Standalone SQL injection testing mode
-      await standaloneSQLTestingMode(args.testSql, args.concurrency || 10);
+      await standaloneSQLTestingMode(args.testSql, args.concurrency || 10, args.level);
       return;
     } else if (args.fast) {
       // Fast mode - skip banner and jump directly to configuration
       displayBanner(); // Still display banner for fast mode
       const config = await getConfiguration();
       displaySection("System Initialization", "magenta", logger);
-      logger = await createLogger(true);
-      logger.info("Starting ThreatDorker application (Fast Mode)", { config });
+      logger = await createLogger(true, false, args.level);
+      logger.info("Starting ThreatDorker application (Fast Mode)", { config, logLevel: args.level });
       displayStatus("✅ Logging system ready", "✓", "green", logger);
 
       const minDelay = parseInt(config.minDelay) || 10;
@@ -1166,10 +1168,10 @@ async function main() {
       console.log(completionBox);
     } else if (args.server) {
       // Server mode - start dashboard and wait for web configuration
-      await serverMode(args.port || 3000);
+      await serverMode(args.port || 3000, args.level);
     } else {
       // Interactive mode - original CLI workflow
-      await interactiveMode();
+              await interactiveMode(args.level);
     }
   } catch (error) {
     displayError("Application failed to start", error);

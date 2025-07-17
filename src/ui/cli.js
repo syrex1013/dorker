@@ -586,7 +586,8 @@ function parseCommandLineArgs() {
     .option("-i, --interactive", "Run interactive mode", false)
     .option("--disable-movements", "Disable random mouse movements for faster execution", false)
     .option("--test-sql <file>", "Test SQL injection on URLs from file (e.g., results.txt, fast.txt)", false)
-    .option("--concurrency <number>", "Number of concurrent workers for SQL testing", parseInt);
+    .option("--concurrency <number>", "Number of concurrent workers for SQL testing", parseInt)
+    .option("--level <level>", "Set log level (error, warn, info, debug)", "debug");
   program.parse();
   return program.opts();
 }

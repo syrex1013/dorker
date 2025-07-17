@@ -3,6 +3,7 @@ import chalk from "chalk";
 import path from "path";
 import fs from "fs/promises";
 import { CONSOLE_LOG_CACHE_CONFIG } from "../config/index.js";
+import { setDomainLogLevel } from "./domainLogger.js";
 
 // Console log deduplication cache
 const CONSOLE_LOG_CACHE = new Set();
@@ -101,7 +102,7 @@ const clearPreviousLogs = async (logsDir) => {
 };
 
 // Create logger instance
-const createLogger = async (clearLogs = true, suppressConsole = false) => {
+const createLogger = async (clearLogs = true, suppressConsole = false, logLevel = "debug") => {
   try {
     // Create logs directory
     const logsDir = path.join(process.cwd(), "logs");
@@ -116,9 +117,12 @@ const createLogger = async (clearLogs = true, suppressConsole = false) => {
     const startupTime = new Date().toISOString();
     const startupMessage = `THREATDORKER SESSION STARTED - ${startupTime}`;
 
+    // Set the log level for domain loggers as well
+    setDomainLogLevel(logLevel);
+    
     // Winston logger configuration
     const logger = winston.createLogger({
-      level: "debug",
+      level: logLevel,
       format: winston.format.combine(
         winston.format.timestamp({
           format: "YYYY-MM-DD HH:mm:ss",

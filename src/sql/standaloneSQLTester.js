@@ -22,6 +22,7 @@ export class StandaloneSQLTester {
             timeout: config.timeout || 30000,
             outputFile: config.outputFile || resolveOutputPath('vuln.txt'),
             verbose: config.verbose || false,
+            logLevel: config.logLevel || 'debug',
             ...config
         };
         
@@ -44,7 +45,7 @@ export class StandaloneSQLTester {
      */
     async initialize() {
         try {
-            this.logger = await createLogger(false, true);
+            this.logger = await createLogger(false, true, this.config.logLevel);
             this.logger.info('Initializing standalone SQL injection tester');
             
             // Clear previous results file
@@ -242,11 +243,24 @@ export class StandaloneSQLTester {
         if (data.vulnerable) {
             this.results.vulnerable++;
             
+            // Store vulnerable result for statistics
+            if (!this.vulnerableUrls) {
+                this.vulnerableUrls = [];
+            }
+            this.vulnerableUrls.push(data);
+            
             // Save only the URL to vuln.txt
             this.saveVulnerableUrl(data.url);
             
+            // Check if this is a confirmed vulnerability
+            const isConfirmed = data.database && data.database.name && data.database.version;
+            
             // Display detailed vulnerability information
-            console.log(chalk.red.bold(`\n🚨 VULNERABLE URL FOUND:`));
+            if (isConfirmed) {
+                console.log(chalk.green.bold(`\n✅ CONFIRMED SQL INJECTION FOUND:`));
+            } else {
+                console.log(chalk.yellow.bold(`\n⚠️ POTENTIAL SQL INJECTION FOUND:`));
+            }
             console.log(chalk.red(`   URL: ${data.url}`));
             
             // Display each confirmed vulnerability
@@ -301,8 +315,16 @@ export class StandaloneSQLTester {
         const elapsed = Date.now() - this.results.startTime;
         const rate = elapsed > 0 ? this.results.tested / (elapsed / 1000) : 0;
         
+        // Count confirmed vulnerabilities (with DB name AND version)
+        const confirmedCount = this.vulnerableUrls?.filter(r => 
+            r.database && r.database.name && r.database.version
+        ).length || 0;
+        
+        // Count potential vulnerabilities (vulnerable but no DB details)
+        const potentialCount = this.results.vulnerable - confirmedCount;
+        
         // Update CLI output live every time; overwrite the same line for cleanliness
-        const progressMsg = `📊 Progress: ${this.results.tested}/${this.results.total} (${percentage}%) | Vulnerable: ${this.results.vulnerable} | Errors: ${this.results.errors} | Rate: ${rate.toFixed(1)}/s`;
+        const progressMsg = `📊 Progress: ${this.results.tested}/${this.results.total} (${percentage}%) | Vulnerable: ${this.results.vulnerable} (✅${confirmedCount} ⚠️${potentialCount}) | Errors: ${this.results.errors} | Rate: ${rate.toFixed(1)}/s`;
         try {
             if (process.stdout.isTTY) {
                 process.stdout.cursorTo(0);
@@ -321,7 +343,7 @@ export class StandaloneSQLTester {
         
         // Log progress internally regardless of display
         if (this.results.tested % 20 === 0 || data.vulnerable) {
-            this.logger?.info(`SQL injection testing progress ${this.results.tested}/${this.results.total} (${percentage}%) | Vulnerable: ${this.results.vulnerable} | Errors: ${this.results.errors} | Rate: ${rate.toFixed(1)}/s`);
+            this.logger?.info(`SQL injection testing progress ${this.results.tested}/${this.results.total} (${percentage}%) | Vulnerable: ${this.results.vulnerable} (Confirmed: ${confirmedCount}, Potential: ${potentialCount}) | Errors: ${this.results.errors} | Rate: ${rate.toFixed(1)}/s`);
         }
     }
     
@@ -362,6 +384,18 @@ export class StandaloneSQLTester {
         console.log(chalk.blue(`📊 Total URLs: ${this.results.total}`));
         console.log(chalk.blue(`✅ Tested: ${this.results.tested}`));
         console.log(chalk.red(`🚨 Vulnerable: ${this.results.vulnerable}`));
+        
+        // Show confirmed vs potential vulnerabilities
+        const confirmedCount = this.vulnerableUrls?.filter(r => 
+            r.database && r.database.name && r.database.version
+        ).length || 0;
+        const potentialCount = this.results.vulnerable - confirmedCount;
+        
+        if (this.results.vulnerable > 0) {
+            console.log(chalk.green(`   ✅ Confirmed (DB extracted): ${confirmedCount}`));
+            console.log(chalk.yellow(`   ⚠️ Potential (partial data): ${potentialCount}`));
+        }
+        
         console.log(chalk.yellow(`⚠️ Errors: ${this.results.errors}`));
         console.log(chalk.green(`⏱️ Duration: ${(duration / 1000).toFixed(2)}s`));
         console.log(chalk.green(`🚀 Rate: ${rate.toFixed(1)} URLs/second`));
@@ -441,4 +475,41 @@ export class StandaloneSQLTester {
             this.logger?.error('Cleanup error', { error: error.message });
         }
     }
+}
+
+// Main execution when run as script
+if (import.meta.url === `file://${process.argv[1]}`) {
+    const filePath = process.argv[2];
+    const concurrency = parseInt(process.argv[3]) || 10;
+    
+    if (!filePath) {
+        console.error(chalk.red('Usage: node standaloneSQLTester.js <file_path> [concurrency]'));
+        process.exit(1);
+    }
+    
+    const tester = new StandaloneSQLTester({
+        maxConcurrency: concurrency
+    });
+    
+    (async () => {
+        try {
+            await tester.initialize();
+            const urls = await tester.readUrlsFromFile(filePath);
+            const results = await tester.testUrls(urls);
+            
+            console.log(chalk.cyan('\n📊 Final Results:'));
+            console.log(chalk.white(`Total URLs: ${results.total}`));
+            console.log(chalk.white(`Tested: ${results.tested}`));
+            console.log(chalk.green(`Vulnerable: ${results.vulnerable}`));
+            console.log(chalk.red(`Errors: ${results.errors}`));
+            console.log(chalk.blue(`Duration: ${results.duration}ms`));
+            
+            await tester.cleanup();
+            process.exit(0);
+        } catch (error) {
+            console.error(chalk.red('❌ Fatal error:'), error.message);
+            await tester.cleanup();
+            process.exit(1);
+        }
+    })();
 } 
