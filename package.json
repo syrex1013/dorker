@@ -34,7 +34,7 @@
     "@clack/prompts": "^0.11.0",
     "@elevenlabs/elevenlabs-js": "^2.4.1",
     "@inquirer/confirm": "^5.1.12",
-    "@inquirer/input": "^4.1.12",
+    "@inquirer/input": "^4.2.0",
     "@inquirer/number": "^3.0.15",
     "@inquirer/prompts": "^7.5.3",
     "@inquirer/select": "^4.2.3",
