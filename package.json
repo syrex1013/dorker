@@ -46,7 +46,7 @@
     "cli-table3": "^0.6.5",
     "commander": "^12.0.0",
     "cors": "^2.8.5",
-    "dotenv": "^16.5.0",
+    "dotenv": "^16.6.1",
     "express": "^5.1.0",
     "figlet": "^1.8.1",
     "fluent-ffmpeg": "^2.1.3",
