@@ -32,7 +32,7 @@
   "license": "MIT",
   "dependencies": {
     "@clack/prompts": "^0.11.0",
-    "@elevenlabs/elevenlabs-js": "^2.4.1",
+    "@elevenlabs/elevenlabs-js": "^2.5.0",
     "@inquirer/confirm": "^5.1.12",
     "@inquirer/input": "^4.1.12",
     "@inquirer/number": "^3.0.15",
